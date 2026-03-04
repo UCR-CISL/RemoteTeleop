@@ -27,6 +27,7 @@ class SteeringWheelOperator(Operator):
         brake = (-brake + 1)/2
         throttle = (-accel + 1)/2
         throttle = throttle - brake
+        print(f"Throtte: {throttle} | Steering: {steering_angle}", end="\r")
         op_output.emit(throttle, "throttle")
         op_output.emit(steering_angle, "steering_angle")
 
