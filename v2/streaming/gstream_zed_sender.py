@@ -137,6 +137,9 @@ def main():
             # Main streaming loop
             try:
                 frame_count = 0
+
+                total_bytecnt = 0
+                last_time = time.time()
                 while True:
                     if zed.grab() == sl.ERROR_CODE.SUCCESS:
                         # Retrieve image from ZED
@@ -144,14 +147,28 @@ def main():
                         frame = image.get_data()
                         
                         # Convert BGRA to BGR
-                        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+                        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR).tobytes()
                         
                         # Send frame
-                        streamer.send_frame(frame_bgr.tobytes())
+                        streamer.send_frame(frame_bgr)
                         
                         frame_count += 1
+                        total_bytecnt += len(frame_bgr)
+
                         if frame_count % 150 == 0:
                             print(f"Streamed {frame_count} frames")
+
+                            # determine gstreamer pipeline output bitrate etc
+                            current_time = time.time()
+                            elapsed_time = current_time - last_time
+                            if elapsed_time > 0:
+                                fps = (frame_count % 150)/ elapsed_time
+                                print(f"Current streaming FPS: {fps:.2f}")
+                                total_bytecnt += len(frame_bgr)
+                                print(f"Average bitrate: {(total_bytecnt * 8) / elapsed_time / 1e6:.2f} Mbps")
+                                # later when using iperf udp test, we can specify a slightly higher bitrate to account for overhead, e.g. 5 Mbps for 4 Mbps video stream
+                            last_time = current_time
+                            total_bytecnt = 0
                     else:
                         print("Failed to grab frame from ZED")
                         break
