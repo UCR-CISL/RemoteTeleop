@@ -9,13 +9,31 @@ import argparse
 import cv2
 import gi
 import rclpy
-from cv_bridge import CvBridge
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import Image
 
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst
+
+import numpy as np
+
+def imgmsg_to_cv2(img_msg):
+    # Determine the dtype and number of channels based on encoding
+    if img_msg.encoding == "bgr8":
+        dtype = np.uint8
+        n_channels = 3
+    elif img_msg.encoding == "mono8":
+        dtype = np.uint8
+        n_channels = 1
+    # Add other encodings as needed...
+
+    # Convert the raw data buffer to a numpy array
+    dtype_np = np.dtype(dtype)
+    grid = np.frombuffer(img_msg.data, dtype=dtype_np)
+    
+    # Reshape to (height, width, channels)
+    return grid.reshape((img_msg.height, img_msg.width, n_channels))
 
 class GStreamerStreamer:
     """GStreamer RTP H.264 streamer with raw video input."""
@@ -28,7 +46,7 @@ class GStreamerStreamer:
             f"caps=video/x-raw,format=BGR,width={width},height={height},framerate={fps}/1 ! "
             f"videoconvert ! "
             f"video/x-raw,format=I420 ! "
-            f"nvh264enc bitrate=4000 ! "
+            f"x264enc bitrate=4000 ! "
             f"h264parse config-interval=1 ! "
             f"rtph264pay pt=96 mtu=1400 config-interval=1 ! "
             f"udpsink host={host} port={port} sync=false async=false"
@@ -76,7 +94,6 @@ class ImageSender(Node):
             history=QoSHistoryPolicy.KEEP_LAST,
             depth=10
         )   
-        self.bridge = CvBridge()
         self.streamer = None
         # Subscribe to the raw image topic from the ZED camera node
         self.img_subscriber = self.create_subscription(Image, "/lucid/image_raw", self.image_callback, qos_profile)
@@ -88,7 +105,7 @@ class ImageSender(Node):
         if self.streamer is None:
             return
 
-        frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="rgb8")
+        frame = imgmsg_to_cv2(msg, )
 
         bgr_frame = frame[:,:,::-1]
         bgr_frame_shape = bgr_frame.shape[0:2]
@@ -110,12 +127,20 @@ if __name__ == '__main__':
     args = parser.parse_args()
     streamer = GStreamerStreamer(args.stream_host, args.stream_port, args.width, args.height, args.fps)
 
+    
+    print("before rclpy")
 
-    rclpy.init()
-    sender = ImageSender()
-    sender.set_streamer(streamer)
-    rclpy.spin(sender)
+    try:
+        rclpy.init()
+        sender = ImageSender()
+        print("sender constructed")
+        sender.set_streamer(streamer)
+        print("before spin")
+        rclpy.spin(sender)
+        print("after spin...")
 
-    streamer.stop()
-    sender.destroy_node()
-    rclpy.shutdown()
+        streamer.stop()
+        sender.destroy_node()
+        rclpy.shutdown()
+    except Exception as e:
+        print(e)

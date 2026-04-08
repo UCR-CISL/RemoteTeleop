@@ -1,6 +1,10 @@
 # BasicTeleop
 Just for testing purposes
 
+
+pygobject is pinned because of the ubuntu version (22.04)
+
+
 # Carla Teleop
 ```bash
 # Spawn a vehicle
