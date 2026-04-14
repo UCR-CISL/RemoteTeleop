@@ -3,6 +3,8 @@ on alienware:
 use `        self.img_subscriber = self.create_subscription(Image, "/lucid/image_raw", self.image_callback, qos_profile)`
 to subscribe to the raw image topic from the ZED camera node, then convert the ROS Image message to a BGR byte array and send it to the GStreamer pipeline.
 """
+from dataclasses import fields
+import sys
 
 import argparse
 
@@ -18,28 +20,40 @@ from gi.repository import Gst
 
 import numpy as np
 
-def imgmsg_to_cv2(img_msg):
-    # Determine the dtype and number of channels based on encoding
+import faulthandler
+import typing
+import inspect
+import signal
+faulthandler.enable()
+
+
+def imgmsg_to_bgr(img_msg) -> np.ndarray:
     if img_msg.encoding == "bgr8":
-        dtype = np.uint8
-        n_channels = 3
+        dtype, n_channels = np.uint8, 3
+    elif img_msg.encoding == "rgb8":
+        dtype, n_channels = np.uint8, 3
     elif img_msg.encoding == "mono8":
-        dtype = np.uint8
-        n_channels = 1
-    # Add other encodings as needed...
+        dtype, n_channels = np.uint8, 1
+    else:
+        raise ValueError(f"Unsupported encoding: {img_msg.encoding}")
 
-    # Convert the raw data buffer to a numpy array
-    dtype_np = np.dtype(dtype)
-    grid = np.frombuffer(img_msg.data, dtype=dtype_np)
-    
-    # Reshape to (height, width, channels)
-    return grid.reshape((img_msg.height, img_msg.width, n_channels))
+    row_width = img_msg.width * n_channels
+    grid = np.frombuffer(img_msg.data, dtype=np.dtype(dtype)).reshape((img_msg.height, img_msg.step))
+    frame = grid[:, :row_width].reshape((img_msg.height, img_msg.width, n_channels))
 
+    if img_msg.encoding == "rgb8":
+        frame = frame[:, :, ::-1]  # RGB → BGR
+    elif img_msg.encoding == "mono8":
+        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+
+    return frame
 class GStreamerStreamer:
     """GStreamer RTP H.264 streamer with raw video input."""
     
     def __init__(self, host: str, port: int, width: int, height: int, fps: int):
         Gst.init(None)
+        self.width = width
+        self.height = height
         
         pipeline_desc = (
             f"appsrc name=src is-live=true do-timestamp=true format=time "
@@ -60,23 +74,46 @@ class GStreamerStreamer:
         
         print(f"GStreamer RTP streaming to {host}:{port}")
     
-    def send_frame(self, frame_bgr: bytes):
+    def send_frame(self, frame_bgr: np.ndarray):
         """Send BGR frame data to GStreamer pipeline."""
-        if not frame_bgr or len(frame_bgr) == 0:
+        if frame_bgr is None or frame_bgr.size == 0:
+            return
+
+        if frame_bgr.ndim != 3 or frame_bgr.shape[2] != 3:
+            print(f"Dropping non-BGR frame with shape={frame_bgr.shape}")
+            return
+
+        if frame_bgr.shape[1] != self.width or frame_bgr.shape[0] != self.height:
+            print(
+                "Dropping frame with unexpected size: "
+                f"got={frame_bgr.shape[1]}x{frame_bgr.shape[0]}, "
+                f"expected={self.width}x{self.height}"
+            )
+            return
+
+        frame_bytes = frame_bgr.tobytes()
+        expected_len = self.width * self.height * 3
+        if len(frame_bytes) != expected_len:
+            print(f"Dropping frame with unexpected byte length: got={len(frame_bytes)} expected={expected_len}")
             return
         
         # Create GStreamer buffer
-        buf = Gst.Buffer.new_allocate(None, len(frame_bgr), None)
-        buf.fill(0, frame_bgr)
-        buf.pts = self.frame_count * (1000000000 // self.fps)  # nanoseconds
-        buf.duration = 1000000000 // self.fps
-        
+        buf = Gst.Buffer.new_allocate(None, len(frame_bytes), None)
+        buf.fill(0, frame_bytes)
+        buf.pts = self.frame_count * (1_000_000_000 // self.fps)  # nanoseconds
+        buf.duration = 1_000_000_000 // self.fps
+
         # Push buffer
         retval = self.appsrc.emit('push-buffer', buf)
         if retval != Gst.FlowReturn.OK:
             print(f"Error pushing buffer: {retval}")
         
+        if self.frame_count % (self.fps * 10) == 0:
+            print(f"Streamed {self.frame_count} frames")
+            print(f"streamed {len(frame_bytes)} byte long frame")
         self.frame_count += 1
+        
+
     
     def stop(self):
         """Stop GStreamer pipeline."""
@@ -88,13 +125,16 @@ class GStreamerStreamer:
 class ImageSender(Node):
     def __init__(self):
         super().__init__('image_sender')
+
         qos_profile = QoSProfile(
             reliability=QoSReliabilityPolicy.RELIABLE,
             durability=QoSDurabilityPolicy.VOLATILE,
             history=QoSHistoryPolicy.KEEP_LAST,
             depth=10
         )   
+
         self.streamer = None
+        self._logged_first_frame = False
         # Subscribe to the raw image topic from the ZED camera node
         self.img_subscriber = self.create_subscription(Image, "/lucid/image_raw", self.image_callback, qos_profile)
 
@@ -104,16 +144,22 @@ class ImageSender(Node):
     def image_callback(self, msg):
         if self.streamer is None:
             return
+        frame = imgmsg_to_bgr(msg)
 
-        frame = imgmsg_to_cv2(msg, )
+        # Ensure outgoing frame dimensions always match appsrc caps.
+        target_size = (self.streamer.width, self.streamer.height)
+        if (frame.shape[1], frame.shape[0]) != target_size:
+            frame = cv2.resize(frame, target_size, interpolation=cv2.INTER_AREA)
 
-        bgr_frame = frame[:,:,::-1]
-        bgr_frame_shape = bgr_frame.shape[0:2]
-        # Resize frame to half resolution for streaming (eg 1440p → 720p)
-        reshaped_bgr_frame = cv2.resize(bgr_frame, (bgr_frame_shape[1]//2, bgr_frame_shape[0]//2)) # todo needed or no?
-        
-        self.streamer.send_frame(reshaped_bgr_frame.tobytes())
+        if not self._logged_first_frame:
+            print(
+                "First frame info: "
+                f"encoding={msg.encoding}, step={msg.step}, "
+                f"source={msg.width}x{msg.height}, sent={frame.shape[1]}x{frame.shape[0]}"
+            )
+            self._logged_first_frame = True
 
+        self.streamer.send_frame(frame)
 
 
 if __name__ == '__main__':
@@ -128,16 +174,19 @@ if __name__ == '__main__':
     streamer = GStreamerStreamer(args.stream_host, args.stream_port, args.width, args.height, args.fps)
 
     
-    print("before rclpy")
+
+    def signal_handler(sig, frame):
+        print("Interrupt received, shutting down...")
+        streamer.stop()
+        sender.destroy_node()
+
+    signal.signal(signal.SIGINT, signal_handler)
 
     try:
         rclpy.init()
         sender = ImageSender()
-        print("sender constructed")
         sender.set_streamer(streamer)
-        print("before spin")
         rclpy.spin(sender)
-        print("after spin...")
 
         streamer.stop()
         sender.destroy_node()

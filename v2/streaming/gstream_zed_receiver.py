@@ -28,6 +28,7 @@ class GStreamerReceiver:
         
         self.last_frame_time = None
         self.frame_count = 0
+        self.total_bytes_received = 0
         self.startup_time = time.time()
         
         self.pipeline = self._build_pipeline(port, use_hw_decode)
@@ -115,6 +116,10 @@ class GStreamerReceiver:
         """GStreamer pad probe callback on each frame."""
         self.last_frame_time = time.time()
         self.frame_count += 1
+
+        buffer = info.get_buffer()
+        if buffer is not None:
+            self.total_bytes_received += buffer.get_size()
         
         return Gst.PadProbeReturn.OK
     
@@ -124,7 +129,10 @@ class GStreamerReceiver:
         if not self._is_stream_active():
             print(f"[{timestamp}] No video stream available - waiting for stream on port...")
         elif self.frame_count % FRAME_LOG_INTERVAL == 0 and self.frame_count > 0:
-            print(f"[{timestamp}] Streaming active - {self.frame_count} frames received")
+            print(
+                f"[{timestamp}] Streaming active - {self.frame_count} frames received, "
+                f"{self.total_bytes_received} bytes received"
+            )
         return True
     
     def _update_ui_status(self):
