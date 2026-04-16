@@ -122,7 +122,7 @@ class GStreamerReceiver:
         """GStreamer pad probe callback on incoming UDP packets."""
         buffer = info.get_buffer()
         if buffer is not None:
-            timestamp_msg = f"RECV:frame={self.frame_count},pts={buffer.pts},duration={buffer.duration},localtime={time.time()},len={buffer.get_size()}"
+            timestamp_msg = f"RECV:frame={self.frame_count},pts={buffer.pts},duration={buffer.duration},localtime={time.perf_counter_ns()},len={buffer.get_size()}"
             if self.timestamp_sender:
                 self.timestamp_sender.send_timestamp(timestamp_msg)
         return Gst.PadProbeReturn.OK
@@ -137,7 +137,7 @@ class GStreamerReceiver:
                 
                 # timestamp = f"SEND:frame={self.frame_count},pts={buf.pts},duration={buf.duration},localtime={time.time()}"
                 # 
-                timestamp_msg = f"DISPLAY:frame={self.frame_count},pts={buffer.pts},duration={buffer.duration},localtime={time.time()},len={buffer.get_size()}"
+                timestamp_msg = f"DISPLAY:frame={self.frame_count},pts={buffer.pts},duration={buffer.duration},localtime={time.perf_counter_ns()},len={buffer.get_size()}"
                 self.timestamp_sender.send_timestamp(timestamp_msg)
             self.frame_count += 1
 

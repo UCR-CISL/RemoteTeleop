@@ -74,8 +74,22 @@ class GStreamerStreamer:
         self.pipeline.set_state(Gst.State.PLAYING)
         self.frame_count = 0
         self.fps = fps
+
+        udpsink = self.pipeline.get_by_name('sink')
+        udp_pad = udpsink.get_static_pad("sink")
+        udp_pad.add_probe(Gst.PadProbeType.BUFFER, self._on_udp_probe)
         
         print(f"GStreamer RTP streaming to {host}:{port}")
+
+    def _on_udp_probe(self, pad, info):
+        buffer = info.get_buffer()
+        if buffer is not None:
+            # adjust -1 frame count to match the actual frame being sent since the buffer is probed right before sending
+            timestamp = f"SEND:frame={self.frame_count-1},pts={buffer.pts},duration={buffer.duration},localtime={time.perf_counter_ns()},len={buffer.get_size()}"
+            # print(f"UDP probe: {timestamp}")
+            if hasattr(self, 'timestamp_sender'):
+                self.timestamp_sender.send_timestamp(timestamp)
+        return Gst.PadProbeReturn.OK
 
     def set_timestamp_sender(self, timestamp_sender: UDPTimestampSender):
         self.timestamp_sender = timestamp_sender
@@ -114,9 +128,10 @@ class GStreamerStreamer:
 
         # Push buffer
         if hasattr(self, 'timestamp_sender'):
-            timestamp = f"SEND:frame={self.frame_count},pts={buf.pts},duration={buf.duration},localtime={time.time()},len={len(frame_bytes)}"
-            print(f"Sending to udp: {timestamp}")
-            self.timestamp_sender.send_timestamp(timestamp)
+            pass
+            # timestamp = f"SEND:frame={self.frame_count},pts={buf.pts},duration={buf.duration},localtime={time.time()},len={len(frame_bytes)}"
+            # print(f"Sending to udp: {timestamp}")
+            # self.timestamp_sender.send_timestamp(timestamp)
         retval = self.appsrc.emit('push-buffer', buf)
 
         if retval != Gst.FlowReturn.OK:
@@ -165,8 +180,9 @@ class ImageSender(Node):
         if self.streamer is None:
             return
         if self.timestamp_sender is not None:
-            timestamp_msg = f"CAPTURE:frame={self.frame_count},pts={msg.header.stamp.sec}.{msg.header.stamp.nanosec},localtime={time.time()}"
+            timestamp_msg = f"CAPTURE:frame={self.frame_count},pts={msg.header.stamp.sec}.{msg.header.stamp.nanosec},localtime={time.perf_counter_ns()}"
             self.timestamp_sender.send_timestamp(timestamp_msg)
+        self.frame_count += 1
 
         frame = imgmsg_to_bgr(msg)
 
