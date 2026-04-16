@@ -26,6 +26,9 @@ import inspect
 import signal
 faulthandler.enable()
 
+import time
+from timestamp_sender import UDPTimestampSender
+
 
 def imgmsg_to_bgr(img_msg) -> np.ndarray:
     if img_msg.encoding == "bgr8":
@@ -60,10 +63,10 @@ class GStreamerStreamer:
             f"caps=video/x-raw,format=BGR,width={width},height={height},framerate={fps}/1 ! "
             f"videoconvert ! "
             f"video/x-raw,format=I420 ! "
-            f"x264enc bitrate=4000 ! "
+            f"nvh264enc bitrate=4000 ! "
             f"h264parse config-interval=1 ! "
             f"rtph264pay pt=96 mtu=1400 config-interval=1 ! "
-            f"udpsink host={host} port={port} sync=false async=false"
+            f"udpsink name=sink host={host} port={port} sync=false async=false"
         )
         
         self.pipeline = Gst.parse_launch(pipeline_desc)
@@ -73,7 +76,9 @@ class GStreamerStreamer:
         self.fps = fps
         
         print(f"GStreamer RTP streaming to {host}:{port}")
-    
+
+    def set_timestamp_sender(self, timestamp_sender: UDPTimestampSender):
+        self.timestamp_sender = timestamp_sender
     def send_frame(self, frame_bgr: np.ndarray):
         """Send BGR frame data to GStreamer pipeline."""
         if frame_bgr is None or frame_bgr.size == 0:
@@ -99,15 +104,25 @@ class GStreamerStreamer:
         
         # Create GStreamer buffer
         buf = Gst.Buffer.new_allocate(None, len(frame_bytes), None)
+
+
         buf.fill(0, frame_bytes)
         buf.pts = self.frame_count * (1_000_000_000 // self.fps)  # nanoseconds
         buf.duration = 1_000_000_000 // self.fps
 
+        # buf.add_reference_timestamp_meta(ref_caps, time.time(), Gst.CLOCK_TIME_NONE)
+
         # Push buffer
+        if hasattr(self, 'timestamp_sender'):
+            timestamp = f"SEND:frame={self.frame_count},pts={buf.pts},duration={buf.duration},localtime={time.time()},len={len(frame_bytes)}"
+            print(f"Sending to udp: {timestamp}")
+            self.timestamp_sender.send_timestamp(timestamp)
         retval = self.appsrc.emit('push-buffer', buf)
+
         if retval != Gst.FlowReturn.OK:
             print(f"Error pushing buffer: {retval}")
-        
+
+
         if self.frame_count % (self.fps * 10) == 0:
             print(f"Streamed {self.frame_count} frames")
             print(f"streamed {len(frame_bytes)} byte long frame")
@@ -122,6 +137,7 @@ class GStreamerStreamer:
 
 
 
+# ros -> gstreamer streaming node
 class ImageSender(Node):
     def __init__(self):
         super().__init__('image_sender')
@@ -137,13 +153,21 @@ class ImageSender(Node):
         self._logged_first_frame = False
         # Subscribe to the raw image topic from the ZED camera node
         self.img_subscriber = self.create_subscription(Image, "/lucid/image_raw", self.image_callback, qos_profile)
+        self.frame_count = 0
+        self.timestamp_sender = None
 
     def set_streamer(self, streamer: GStreamerStreamer):
         self.streamer = streamer
 
+    def set_timestamp_sender(self, timestamp_sender: UDPTimestampSender):
+        self.timestamp_sender = timestamp_sender
     def image_callback(self, msg):
         if self.streamer is None:
             return
+        if self.timestamp_sender is not None:
+            timestamp_msg = f"CAPTURE:frame={self.frame_count},pts={msg.header.stamp.sec}.{msg.header.stamp.nanosec},localtime={time.time()}"
+            self.timestamp_sender.send_timestamp(timestamp_msg)
+
         frame = imgmsg_to_bgr(msg)
 
         # Ensure outgoing frame dimensions always match appsrc caps.
@@ -162,6 +186,7 @@ class ImageSender(Node):
         self.streamer.send_frame(frame)
 
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="ZED camera with H.264 RTP streaming")
     parser.add_argument("--width", type=int, default=1280, help="Frame width")
@@ -170,15 +195,21 @@ if __name__ == '__main__':
     parser.add_argument("--stream-host", type=str, default="127.0.0.1", help="RTP destination host")
     parser.add_argument("--stream-port", type=int, default=5000, help="RTP destination port")
     # parser.add_argument("--retry-interval", type=int, default=10, help="Camera retry interval (seconds)")
+    parser.add_argument("--timestamp-host", type=str, default="127.0.0.1", help="UDP timestamp destination host")
+    parser.add_argument("--timestamp-port", type=int, default=22102, help="UDP timestamp destination port")
+
     args = parser.parse_args()
     streamer = GStreamerStreamer(args.stream_host, args.stream_port, args.width, args.height, args.fps)
 
-    
+    timestamp_sender = UDPTimestampSender(args.timestamp_host, args.timestamp_port)
+    streamer.set_timestamp_sender(timestamp_sender)
+
 
     def signal_handler(sig, frame):
         print("Interrupt received, shutting down...")
         streamer.stop()
         sender.destroy_node()
+        timestamp_sender.sock.close()
 
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -186,6 +217,7 @@ if __name__ == '__main__':
         rclpy.init()
         sender = ImageSender()
         sender.set_streamer(streamer)
+        sender.set_timestamp_sender(timestamp_sender)
         rclpy.spin(sender)
 
         streamer.stop()

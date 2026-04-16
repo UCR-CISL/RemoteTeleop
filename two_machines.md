@@ -1,0 +1,3 @@
+# gamma scripts
+run reciever 
+

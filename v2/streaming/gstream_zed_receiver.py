@@ -7,6 +7,8 @@ gi.require_version('Gst', '1.0')
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gst, GLib, Gtk
 
+from timestamp_sender import UDPTimestampSender
+
 
 # Configuration constants
 WINDOW_TITLE = "ZED Camera Streamer"
@@ -36,6 +38,7 @@ class GStreamerReceiver:
         
         self.pipeline.set_state(Gst.State.PLAYING)
         self._print_startup_info(port, use_hw_decode)
+        self.timestamp_sender = None
     
     def _build_pipeline(self, port: int, use_hw_decode: bool) -> Gst.Pipeline:
         """Build GStreamer pipeline with specified decoder."""
@@ -47,7 +50,7 @@ class GStreamerReceiver:
             caps_filter = ""
         
         pipeline_desc = (
-            f"udpsrc port={port} buffer-size=212992 "
+            f"udpsrc name=src port={port} buffer-size=212992 "
             f"caps=\"application/x-rtp, media=video, encoding-name=H264, payload=96\" ! "
             f"rtpjitterbuffer latency=0 drop-on-latency=true do-retransmission=false ! "
             f"rtph264depay ! "
@@ -63,6 +66,9 @@ class GStreamerReceiver:
         bus = pipeline.get_bus()
         bus.add_signal_watch()
         bus.connect("message", self._on_bus_message)
+        src = pipeline.get_by_name("src")
+        src_pad = src.get_static_pad("src")
+        src_pad.add_probe(Gst.PadProbeType.BUFFER, self._on_udp_probe)
         
         gtksink = pipeline.get_by_name("sink")
         sink_pad = gtksink.get_static_pad("sink")
@@ -111,16 +117,30 @@ class GStreamerReceiver:
         if self.last_frame_time is None:
             return False
         return (time.time() - self.last_frame_time) <= STREAM_TIMEOUT_SEC
+
+    def _on_udp_probe(self, pad, info):
+        """GStreamer pad probe callback on incoming UDP packets."""
+        buffer = info.get_buffer()
+        if buffer is not None:
+            timestamp_msg = f"RECV:frame={self.frame_count},pts={buffer.pts},duration={buffer.duration},localtime={time.time()},len={buffer.get_size()}"
+            if self.timestamp_sender:
+                self.timestamp_sender.send_timestamp(timestamp_msg)
+        return Gst.PadProbeReturn.OK
     
     def _on_frame_probe(self, pad, info):
         """GStreamer pad probe callback on each frame."""
         self.last_frame_time = time.time()
-        self.frame_count += 1
-
         buffer = info.get_buffer()
         if buffer is not None:
             self.total_bytes_received += buffer.get_size()
-        
+            if self.timestamp_sender:
+                
+                # timestamp = f"SEND:frame={self.frame_count},pts={buf.pts},duration={buf.duration},localtime={time.time()}"
+                # 
+                timestamp_msg = f"DISPLAY:frame={self.frame_count},pts={buffer.pts},duration={buffer.duration},localtime={time.time()},len={buffer.get_size()}"
+                self.timestamp_sender.send_timestamp(timestamp_msg)
+            self.frame_count += 1
+
         return Gst.PadProbeReturn.OK
     
     def _check_stream_status(self):
@@ -180,6 +200,9 @@ def main():
     parser.add_argument("--port", type=int, default=5000, help="UDP port to listen on")
     parser.add_argument("--hw", action="store_true", default=True, help="Use hardware H.264 decoder (nvh264dec)")
     parser.add_argument("--sw", action="store_true", help="Force software decoder (avdec_h264)")
+    parser.add_argument("--timestamp-host", type=str, default="127.0.0.1", help="UDP timestamp destination host")
+    parser.add_argument("--timestamp-port", type=int, default=22102, help="UDP timestamp destination port")
+
     args = parser.parse_args()
     
     # If --sw is specified, override --hw
@@ -187,6 +210,9 @@ def main():
     
     print("Starting RTP H.264 receiver for ZED camera...")
     receiver = GStreamerReceiver(args.port, use_hw)
+
+    timestamp_sender = UDPTimestampSender(args.timestamp_host, args.timestamp_port)
+    receiver.timestamp_sender = timestamp_sender
     print(f"Listening for RTP stream on port {args.port}")
     
     def signal_handler(sig, frame):

@@ -1,0 +1,1 @@
+gst-launch-1.0 -e  videotestsrc ! video/x-raw,height=720,width=1280 ! nvh264enc max-bitrate=2000 ! h264parse !  mp4mux ! filesink location="foo.mp4"
