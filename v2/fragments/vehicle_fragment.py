@@ -166,6 +166,17 @@ class KiaDriveControllerOp(Operator):
         print(f"Kia Control: accel={accel:.2f}, steer={steer:.2f}")
 
 
+import sys
+sys.path.insert(0, "/home/cisl/kia-opendbc/examples")
+from panda_operator import PandaOperator
+
+
+class PandaFragment(Fragment):
+    def compose(self):
+        drive_controller = PandaOperator(self, name="drive_controller")
+        self.add_operator(drive_controller)
+
+
 class VehicleFragment(Fragment):
     def __init__(self, app, name, carla_host="localhost", carla_port=2000):
         self._carla_host = carla_host

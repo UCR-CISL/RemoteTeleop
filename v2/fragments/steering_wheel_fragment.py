@@ -1,7 +1,7 @@
 from holoscan.conditions import PeriodicCondition
 from holoscan.core import Fragment
 
-from python.steering_wheel_operator import SteeringWheelOperator
+from v2.steering_wheel_app import SteeringWheelOperator
 
 
 class SteeringWheelFragment(Fragment):

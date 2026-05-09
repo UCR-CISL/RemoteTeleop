@@ -52,8 +52,8 @@ class GStreamerReceiver:
         pipeline_desc = (
             f"udpsrc name=src port={port} buffer-size=212992 "
             f"caps=\"application/x-rtp, media=video, encoding-name=H264, payload=96\" ! "
-            f"rtpjitterbuffer latency=0 drop-on-latency=true do-retransmission=false ! "
-            f"rtph264depay ! "
+            f"rtpjitterbuffer latency=50 drop-on-latency=true do-retransmission=false ! "
+            f"rtph264depay name=depay ! "
             f"h264parse config-interval=-1 ! "
             f"{decoder} ! "
             f"{caps_filter}"
@@ -66,9 +66,9 @@ class GStreamerReceiver:
         bus = pipeline.get_bus()
         bus.add_signal_watch()
         bus.connect("message", self._on_bus_message)
-        src = pipeline.get_by_name("src")
-        src_pad = src.get_static_pad("src")
-        src_pad.add_probe(Gst.PadProbeType.BUFFER, self._on_udp_probe)
+        depay = pipeline.get_by_name("depay")
+        depay_pad = depay.get_static_pad("src")
+        depay_pad.add_probe(Gst.PadProbeType.BUFFER, self._on_udp_probe)
         
         gtksink = pipeline.get_by_name("sink")
         sink_pad = gtksink.get_static_pad("sink")
