@@ -12,7 +12,7 @@ class TeleopApp(Application):
         )
         vehicle_fragment = PandaFragment(
             self,
-            name="VehicleFragment",
+            name="PandaFragment",
         )
 
         self.add_fragment(steering_fragment)
