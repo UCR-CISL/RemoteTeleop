@@ -23,6 +23,7 @@ class SteeringWheelOperator(Operator):
         spec.output("steering_angle")
 
     def compute(self, op_input, op_output, context):
+        print("Reading joystick input for Steering Wheel Operator...")
         steering_angle, brake, accel = self._controller.parse_events()
         brake = (-brake + 1)/2
         throttle = (-accel + 1)/2
@@ -30,6 +31,16 @@ class SteeringWheelOperator(Operator):
         print(f"Throtte: {throttle} | Steering: {steering_angle}", end="\r")
         op_output.emit(throttle, "throttle")
         op_output.emit(steering_angle, "steering_angle")
+
+class PrintSinkOperator(Operator):
+    def setup(self, spec: OperatorSpec):
+        spec.input("throttle")
+        spec.input("steering_angle")
+
+    def compute(self, op_input, op_output, context):
+        throttle = op_input.receive("throttle")
+        steering_angle = op_input.receive("steering_angle")
+        print(f"[sink] throttle={throttle}, steering={steering_angle}")
 
 class SteeringWheelApp(Application):
     def __init__(self):
@@ -39,6 +50,20 @@ class SteeringWheelApp(Application):
         periodic_condition = PeriodicCondition(self, recess_period=10_000_000)
         operator = SteeringWheelOperator(self, periodic_condition, name="steering_wheel_operator")
         self.add_operator(operator)
+        sink = PrintSinkOperator(
+            self,
+            name="print_sink",
+        )
+        self.add_operator(sink)
+
+        self.add_flow(
+            operator,
+            sink,
+            {
+                ("throttle", "throttle"),
+                ("steering_angle", "steering_angle"),
+            },
+        )
 
 if __name__ == "__main__":
     app = SteeringWheelApp()
