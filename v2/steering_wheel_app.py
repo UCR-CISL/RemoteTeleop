@@ -42,26 +42,49 @@ class PrintSinkOperator(Operator):
         steering_angle = op_input.receive("steering_angle")
         print(f"[sink] throttle={throttle}, steering={steering_angle}")
 
-class SteeringWheelApp(Application):
-    def __init__(self):
-        super().__init__()
 
+class SteeringWheelFragment(Fragment):
     def compose(self):
-        periodic_condition = PeriodicCondition(self, recess_period=10_000_000)
-        operator = SteeringWheelOperator(self, periodic_condition, name="steering_wheel_operator")
-        self.add_operator(operator)
+        steering_wheel_operator = SteeringWheelOperator(
+            self,
+            PeriodicCondition(self, recess_period=10_000_000),
+            name="steering_wheel_operator",
+        )
+        self.add_operator(steering_wheel_operator)
+
+
+class PrintSinkFragment(Fragment):
+    def compose(self):
         sink = PrintSinkOperator(
             self,
             name="print_sink",
         )
         self.add_operator(sink)
 
+
+class SteeringWheelApp(Application):
+    def __init__(self):
+        super().__init__()
+
+    def compose(self):
+        steering_wheel_fragment = SteeringWheelFragment(
+            self,
+            name="SteeringWheelFragment",
+        )
+        print_sink_fragment = PrintSinkFragment(
+            self,
+            name="PrintSinkFragment",
+        )
+
+        self.add_fragment(steering_wheel_fragment)
+        self.add_fragment(print_sink_fragment)
+
         self.add_flow(
-            operator,
-            sink,
+            steering_wheel_fragment,
+            print_sink_fragment,
             {
-                ("throttle", "throttle"),
-                ("steering_angle", "steering_angle"),
+                ("steering_wheel_operator.throttle", "print_sink.throttle"),
+                ("steering_wheel_operator.steering_angle", "print_sink.steering_angle"),
             },
         )
 
