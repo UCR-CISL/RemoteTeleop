@@ -26,3 +26,18 @@ Frame rate for streaming CARLA sensor data is slow. Because the gstream sending 
 python3 python/streaming/gstream_zed_sender.py
 python3 python/streaming/gstream_zed_receiver.py
 ```
+
+# Deployment
+## Remote-side
+```bash
+source .venv/bin/activate
+export PYTHONPATH="$(pwd)"
+python3 v2/distributed_kia_teleop_app.py --driver --worker --address 100.70.20.114 --fragments SteeringWheelFragment
+```
+
+## Car-side
+```bash
+source ~/.opendbc/.venv/bin/activate
+export PYTHONPATH="$(pwd)"
+python3 v2/distributed_kia_teleop_app.py --worker --address 100.70.20.114 --fragments PandaFragment
+```
