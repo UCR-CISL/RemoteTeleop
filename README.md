@@ -37,7 +37,7 @@ python3 v2/distributed_kia_teleop_app.py --driver --worker --address 100.70.20.1
 
 ## Car-side
 ```bash
-source ~/.opendbc/.venv/bin/activate
+source ~/opendbc/.venv/bin/activate
 export PYTHONPATH="$(pwd)"
 python3 v2/distributed_kia_teleop_app.py --worker --address 100.70.20.114 --fragments PandaFragment
 ```
