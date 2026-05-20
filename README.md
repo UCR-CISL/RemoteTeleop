@@ -21,11 +21,14 @@ python3 python/launch_carla_stream_receiver.py
 ```
 Frame rate for streaming CARLA sensor data is slow. Because the gstream sending and receiving code works well, the bug must lie on the CARLA side.
 
+
+
 # ZED Streaming
 ```bash
-python3 python/streaming/gstream_zed_sender.py
-python3 python/streaming/gstream_zed_receiver.py
-```
+# reciever
+uv run v2/streaming/gstream_zed_receiver.py --timestamp-host=100.70.20.114
+# timestamp data 
+uv run v2/streaming/gstream_zed_receiver.py --timestamp-host=100.70.20.114 > run.log
 
 # Deployment
 ## Remote-side

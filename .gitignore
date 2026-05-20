@@ -10,3 +10,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+ignore/
+old_data/

@@ -828,7 +828,7 @@ dependencies = [
 requires-dist = [
     { name = "configparser" },
     { name = "holoscan-cu12" },
-    { name = "matplotlib" },
+    { name = "matplotlib", specifier = ">=3.10.9" },
     { name = "numpy", specifier = "==1.26.0" },
     { name = "opencv-python" },
     { name = "pygame" },

@@ -1,0 +1,93 @@
+/home/cisl/opendbc/.venv/lib/python3.12/site-packages/holoscan/core/__init__.py:111: RuntimeWarning: Current stack size (8.0 MB) is below the recommended minimum (32.0 MB). This may cause segmentation faults or crashes. Consider increasing the stack size with 'ulimit -s 32768', or if using Docker, launch the container with '--ulimit stack=33554432'.
+  warnings.warn(
+[warning] [application.cpp:549] Current stack size limit (8388608 bytes / 8192 KB) is below the recommended minimum (33554432 bytes / 32768 KB). Consider increasing it with 'ulimit -s 32768'. For Docker, use '--ulimit stack=33554432'
+[info] [fragment.cpp:1142] Loading extensions from configs...
+[info] [gxf_executor.cpp:566] [SteeringWheelFragment] Creating context
+[info] [gxf_executor.cpp:566] [PandaFragment] Creating context
+[info] [app_driver.cpp:1394] Launching the worker service
+[info] [server.cpp:195] AppWorkerServer listening on 0.0.0.0:10000
+[info] [server.cpp:196] AppWorkerServer/Health checking server listening on 0.0.0.0:10000
+[error] [gpu_resource_monitor.cpp:792] CUDA Runtime API call 'cudaGetDeviceCount(&gpu_count)' in line 792 of file /workspace/holoscan-sdk/src/core/system/gpu_resource_monitor.cpp failed with 'unknown error' (999)
+[warning] [gpu_resource_monitor.cpp:794] Could not get the number of GPUs
+[info] [client.cpp:81] FragmentAllocation response (100.70.20.114:57777): Fragment allocation request is accepted.
+[info] [gxf_executor.cpp:566] Creating context
+[info] [fragment.cpp:1142] Loading extensions from configs...
+[info] [service_impl.cpp:41] Number of ports requested: 2
+[info] [app_driver.cpp:114] Disabling CUDA IPC with UCX_TLS=^cuda_ipc
+[warning] [app_worker.cpp:174] CUDA Runtime call cudaGetDeviceCount(&gpu_count) in line 174 of file /workspace/holoscan-sdk/src/core/app_worker.cpp failed with 'unknown error' (999).
+[warning] [app_worker.cpp:174] Initializing UcxContext with support for CPU data only
+[warning] [gxf_cuda.cpp:45] CUDA Runtime call cudaGetDeviceCount(&gpu_count) in line 45 of file /workspace/holoscan-sdk/src/core/gxf/gxf_cuda.cpp failed with 'unknown error' (999).
+[warning] [gxf_cuda.cpp:45] Initializing CudaObjectHandler with support for CPU data only
+[info] [app_worker.cpp:228] Launching fragment: PandaFragment
+[info] [gxf_executor.cpp:2780] Activating Graph...
+[info] [entity_pool.cpp:134] EntityPool::GetShared: created new shared pool for context 0x38e0700 with capacity 256
+[info] [ucx_context.cpp:700] UcxContext::register_am_recv_legacy_callback
+[info] [ucx_context.cpp:619] Server is listening on IP 0.0.0.0 port 10002. Waiting for connection...
+[info] [ucx_context.cpp:982] UcxContext::start_server
+[info] [ucx_context.cpp:700] UcxContext::register_am_recv_legacy_callback
+[info] [ucx_context.cpp:619] Server is listening on IP 0.0.0.0 port 10001. Waiting for connection...
+[warning] [event_based_scheduler.cpp:154] GPU not available for Driver APIs, cuda_error: cudaErrorUnknown, error_str: unknown error
+[info] [event_based_scheduler.cpp:221] Adding thread to default thread pool without pin cores
+[info] [ucx_context.cpp:62] Ucx Context [cid: 35]: CPU-only mode selected. No GPUDevice resource will be used.
+[info] [ucx_receiver.cpp:169] UcxReceiver [cid: 9]: CPU-only mode selected. No GPUDevice resource will be used.
+[info] [ucx_receiver.cpp:169] UcxReceiver [cid: 18]: CPU-only mode selected. No GPUDevice resource will be used.
+[info] [gxf_executor.cpp:2921] [PandaFragment] Running Graph...
+[info] [gxf_executor.cpp:2923] [PandaFragment] Waiting for completion...
+[info] [event_based_scheduler.cpp:771] Event Based scheduler started worker thread [pool name: default_pool, thread uid: 0]
+[info] [ucx_context.cpp:520] Connection request received to 0.0.0.0:10001 from client at address 100.70.20.114:47373
+[info] [ucx_context.cpp:520] Connection request received to 0.0.0.0:10002 from client at address 100.70.20.114:52019
+Getting VIN & FW versions
+iso-tp query bad response: (1988, None) - 0x7f2231
+iso-tp query bad response: (2004, None) - 0x7f2231
+vin query retry (1) ...
+iso-tp query bad response: (2004, None) - 0x7f2231
+iso-tp query bad response: (1988, None) - 0x7f2231
+vin query retry (2) ...
+iso-tp query bad response: (1975, None) - 0x7f2231
+iso-tp query bad response: (2004, None) - 0x7f2231
+iso-tp query bad response: (1988, None) - 0x7f2231
+VIN 00000000000000000
+{'event': 'fingerprinted', 'car_fingerprint': 'KIA_NIRO_EV', 'source': 1, 'fuzzy': False, 'cached': False, 'fw_count': 11, 'ecu_responses': [(2008, None, 0), (2012, None, 0), (1996, None, 0), (1998, None, 0), (1983, None, 0)], 'vin_rx_addr': -1, 'vin_rx_bus': -1, 'fingerprints': '{0: {832: 8, 304: 8, 320: 8, 1280: 1, 905: 8, 909: 8, 1056: 8, 881: 8, 1057: 8, 339: 8, 352: 8, 356: 4, 544: 8, 882: 8, 916: 8, 1151: 6, 1186: 2, 688: 5, 593: 8, 1426: 8, 1156: 8, 902: 8, 903: 8, 1136: 8, 1168: 7, 1291: 8, 1312: 8, 1345: 8, 897: 8, 913: 8, 1265: 4, 1355: 8, 1429: 8, 1430: 8, 1473: 8, 1535: 8, 1419: 8, 1157: 4, 1342: 6, 1078: 4, 1292: 8, 1322: 8, 1287: 4}, 1: {}, 2: {832: 8, 304: 8, 320: 8, 1280: 1, 905: 8, 909: 8, 1056: 8, 881: 8, 1057: 8, 339: 8, 352: 8, 356: 4, 544: 8, 882: 8, 916: 8, 1151: 6, 1186: 2, 688: 5, 593: 8, 1426: 8, 1156: 8, 902: 8, 903: 8, 1136: 8, 1168: 7, 1291: 8, 1312: 8, 1345: 8, 897: 8, 913: 8, 1265: 4, 1355: 8, 1429: 8, 1430: 8, 1473: 8, 1535: 8, 1419: 8, 1157: 4, 1342: 6, 1078: 4, 1292: 8, 1322: 8, 1287: 4}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {}}', 'fw_query_time': 2.6943896829980076}
+ecu disable ('0x7d0', None) ...
+communication control disable tx/rx ...
+ecu disabled
+CANParser: 0x4f1 CLU11 not valid (timeout or missing)
+CANParser: 0x541 CGW1 not valid (timeout or missing)
+CANParser: 0x553 CGW2 not valid (timeout or missing)
+CANParser: 0x386 WHL_SPD11 not valid (timeout or missing)
+CANParser: 0x52a CLU15 not valid (timeout or missing)
+CANParser: 0x2b0 SAS11 not valid (timeout or missing)
+CANParser: 0x251 MDPS12 not valid (timeout or missing)
+CANParser: 0x394 TCS13 not valid (timeout or missing)
+CANParser: 0x507 TCS15 not valid (timeout or missing)
+CANParser: 0x153 TCS11 not valid (timeout or missing)
+CANParser: 0x371 E_EMS11 not valid (timeout or missing)
+CANParser: 0x372 ELECT_GEAR not valid (timeout or missing)
+CANParser: 0x58b LCA11 not valid (timeout or missing)
+CANParser: 0x391 BCM_PO_11 not valid (timeout or missing)
+[info] [app_worker.cpp:318] Terminating worker because other worker/driver is terminated (code: 1)
+[info] [ucx_context.cpp:113] UcxContext: Initiating graceful shutdown
+[info] [event_based_scheduler.cpp:1575] Stopping all async jobs
+[info] [event_based_scheduler.cpp:753] Dispatcher thread has stopped checking jobs
+[info] [event_based_scheduler.cpp:1554] Waiting to join all async threads
+[info] [event_based_scheduler.cpp:1116] Async event handler thread exiting.
+[info] [event_based_scheduler.cpp:1561] Waiting to join max duration thread
+[info] [event_based_scheduler.cpp:1569] All async worker threads joined, deactivating all entities
+[info] [event_based_scheduler.cpp:1534] Event Based scheduler finished.
+[info] [gxf_executor.cpp:2930] [PandaFragment] Deactivating Graph...
+[info] [event_based_scheduler.cpp:1278] Total execution time of Event Based scheduler : 32720.933595 ms
+
+[info] [gxf_executor.cpp:2939] [PandaFragment] Graph execution finished.
+[info] [gxf_executor.cpp:2811] Interrupt signal received. Shutting down gracefully...
+[warning] [app_worker.cpp:727] Received interrupt signal (Ctrl+C). Initiating worker shutdown...
+[info] [gxf_executor.cpp:2819] Initiating distributed app shutdown from signal handler
+[info] [application.cpp:1012] Application::initiate_distributed_app_shutdown started
+[warning] [client.cpp:138] AppDriverClient::initiate_shutdown for fragment 'PandaFragment'
+[info] [client.cpp:156] InitiateShutdown rpc failed (100.70.20.114:57777): failed to connect to all addresses; last error: UNKNOWN: ipv4:100.70.20.114:57777: Failed to connect to remote host: Connection refused
+Traceback (most recent call last):
+  File "/home/cisl/Documents/RemoteTeleop/v2/distributed_kia_teleop_app.py", line 35, in <module>
+    main()
+  File "/home/cisl/Documents/RemoteTeleop/v2/distributed_kia_teleop_app.py", line 31, in main
+    app.run()
+KeyboardInterrupt
+[info] [gxf_executor.cpp:601] Destroying context
