@@ -21,23 +21,15 @@ python3 python/launch_carla_stream_receiver.py
 ```
 Frame rate for streaming CARLA sensor data is slow. Because the gstream sending and receiving code works well, the bug must lie on the CARLA side.
 
+
+
 # ZED Streaming
 ```bash
-python3 python/streaming/gstream_zed_sender.py
-python3 python/streaming/gstream_zed_receiver.py
-```
+# reciever
+uv run v2/streaming/gstream_zed_receiver.py --timestamp-host=100.70.20.114
+# timestamp data 
+uv run v2/streaming/gstream_zed_receiver.py --timestamp-host=100.70.20.114 > run.log
 
-# Deployment
-## Remote-side
-```bash
-source .venv/bin/activate
-export PYTHONPATH="$(pwd)"
-python3 v2/distributed_kia_teleop_app.py --driver --worker --address 100.70.20.114 --fragments SteeringWheelFragment
-```
-
-## Car-side
-```bash
-source ~/.opendbc/.venv/bin/activate
-export PYTHONPATH="$(pwd)"
-python3 v2/distributed_kia_teleop_app.py --worker --address 100.70.20.114 --fragments PandaFragment
+# sender 
+uv run v2/streaming/arena_sender.py --timestamp-host=100.70.20.114 --stream-host=100.70.20.114
 ```
