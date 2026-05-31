@@ -8,7 +8,7 @@ import time
 
 import zmq
 
-from src.control.teleop_command import TeleopCommand, clamp
+from src.control.vehicle_command import VehicleControlCommand, clamp
 
 
 DEFAULT_CONNECT = "tcp://127.0.0.1:5555"
@@ -29,7 +29,7 @@ class KiaPandaWorker:
         self._panda_runner = None
         self._panda = None
         self._car_control = None
-        self._last_command = TeleopCommand(0, time.time_ns(), 0.0, 0.0, 0.0, 0.0)
+        self._last_command = VehicleControlCommand.neutral()
         self._last_received = 0.0
         self._last_printed = None
         self._running = True
@@ -50,7 +50,7 @@ class KiaPandaWorker:
                     self._apply_command(command)
         finally:
             if self._panda is not None:
-                self._apply_command(TeleopCommand(0, time.time_ns(), 0.0, 0.0, 0.0, 0.0))
+                self._apply_command(VehicleControlCommand.neutral())
             if self._panda_runner is not None:
                 self._panda_runner.__exit__(None, None, None)
             self._socket.close()
@@ -89,29 +89,29 @@ class KiaPandaWorker:
 
         message = self._socket.recv_string()
         _topic, payload = message.split(" ", 1)
-        self._last_command = TeleopCommand.from_dict(json.loads(payload))
+        self._last_command = VehicleControlCommand.from_dict(json.loads(payload))
         self._last_received = time.monotonic()
 
-    def _current_command(self) -> TeleopCommand:
+    def _current_command(self) -> VehicleControlCommand:
         if self._last_received == 0.0 or time.monotonic() - self._last_received > self._command_timeout:
-            return TeleopCommand(
+            return VehicleControlCommand(
                 sequence=self._last_command.sequence,
                 timestamp_ns=time.time_ns(),
-                accel=0.0,
                 steer=0.0,
+                accel=0.0,
                 throttle=0.0,
                 brake=0.0,
             )
         return self._last_command
 
-    def _print_command(self, command: TeleopCommand) -> None:
+    def _print_command(self, command: VehicleControlCommand) -> None:
         printable = (command.sequence, round(command.accel, 3), round(command.steer, 3))
         if printable == self._last_printed:
             return
         print(f"seq={command.sequence} accel={command.accel:+.3f} steer={command.steer:+.3f}")
         self._last_printed = printable
 
-    def _apply_command(self, command: TeleopCommand) -> None:
+    def _apply_command(self, command: VehicleControlCommand) -> None:
         self._car_control.actuators.accel = float(4.0 * clamp(command.accel, -1.0, 1.0))
         self._car_control.actuators.torque = float(self._steer_sign * clamp(command.steer, -1.0, 1.0))
 
