@@ -1,0 +1,38 @@
+# IsaacTeleop camera_viz receiver config for the Lucid RTP/H.264 stream.
+#
+# Run src.streaming.arena_sender with --stream-host set to this workstation
+# and --stream-port 5000. This config then lets IsaacTeleop receive the RTP
+# stream and render it through the active CloudXR/OpenXR runtime.
+
+source: rtp
+streaming:
+  host: 127.0.0.1
+encoder: auto
+
+cameras:
+  - name: lucid
+    enabled: true
+    type: rtp_h264
+    width: 1280
+    height: 720
+    fps: 30
+    stereo: false
+    rtp:
+      port: 5000
+      rtp_buffer_size: 212992
+      gpu_id: 0
+
+display:
+  mode: xr
+  app_name: lucid_cloudxr_streamer
+  window:
+    width: 1280
+    height: 720
+  xr:
+    near_z: 0.05
+    far_z: 100.0
+  clear_color: [0.0, 0.0, 0.0, 0.0]
+  placements:
+    lucid:
+      lock_mode: lazy
+      distance: 1.5

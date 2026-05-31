@@ -23,13 +23,26 @@ Frame rate for streaming CARLA sensor data is slow. Because the gstream sending 
 
 
 
-# ZED Streaming
+# ZED/Lucid Streaming
 ```bash
 # reciever
 uv run python -m src.streaming.gstream_zed_receiver --timestamp-host=100.70.20.114
 # timestamp data 
 uv run python -m src.streaming.gstream_zed_receiver --timestamp-host=100.70.20.114 > run.log
 ```
+
+CloudXR viewer path for the existing Lucid RTP/H.264 sender:
+```bash
+# Camera side: send RTP/H.264 to the CloudXR workstation.
+uv run python -m src.streaming.arena_sender --stream-host <cloudxr-workstation-ip> --stream-port 5000
+
+# Workstation side: run IsaacTeleop camera_viz in XR mode.
+./run_cloudxr_streamer.sh
+```
+
+`cloudxr_streamer` does not replace `arena_sender.py`. It launches IsaacTeleop's
+`camera_viz` receiver with `config/lucid_cloudxr_streamer.yaml`; CloudXR/OpenXR
+then handles the rendered XR session delivery to the headset/client.
 
 # ZMQ Kia Control MVP
 Remote side:
