@@ -1,8 +1,8 @@
 import rclpy
 from holoscan.core import Application
 
-from fragments.remote_workstation_fragment import RemoteWorkstationFragment
-from fragments.vehicle_fragment import VehicleFragment
+from src.fragments.remote_workstation_fragment import RemoteWorkstationFragment
+from src.fragments.vehicle_fragment import VehicleFragment
 
 class TeleopApp(Application):
     def __init__(self, carla_host="localhost", carla_port=2000):

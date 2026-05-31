@@ -22,7 +22,7 @@ from arena_api.buffer import BufferFactory
 from arena_api.system import system
 from arena_api.enums import PixelFormat
 
-from timestamp_sender import UDPTimestampSender
+from src.streaming.timestamp_sender import UDPTimestampSender
 
 
 class GStreamerStreamer:

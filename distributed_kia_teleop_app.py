@@ -1,8 +1,8 @@
 from holoscan.core import Application
 from holoscan.schedulers import GreedyScheduler
 
-from fragments.steering_wheel_fragment import SteeringWheelFragment
-from fragments.vehicle_fragment import PandaFragment
+from src.fragments.steering_wheel_fragment import SteeringWheelFragment
+from src.fragments.vehicle_fragment import PandaFragment
 
 
 class TeleopApp(Application):

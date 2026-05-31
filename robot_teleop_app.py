@@ -51,8 +51,8 @@ Note
 
 from holoscan.core import Application
 
-from fragments.robot_fragment import RobotFragment
-from fragments.steering_wheel_fragment import SteeringWheelFragment
+from src.fragments.robot_fragment import RobotFragment
+from src.fragments.steering_wheel_fragment import SteeringWheelFragment
 
 
 # ── Application ────────────────────────────────────────────────────────────────

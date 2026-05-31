@@ -50,7 +50,7 @@ from pygame.locals import K_z
 from pygame.locals import K_MINUS
 from pygame.locals import K_EQUALS
 
-from control import joystick_constants as js
+from src.control import joystick_constants as js
 
 class SteeringwheelController(object):
     def __init__(self, joystick):

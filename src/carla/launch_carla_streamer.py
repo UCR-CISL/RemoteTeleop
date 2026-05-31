@@ -3,7 +3,7 @@ import numpy as np
 import signal
 import threading
 
-from python.streaming.gstream_zed_sender import GStreamerStreamer
+from src.streaming.ros_sender import GStreamerStreamer
 
 
 class CarlaCameraSensorOp:

@@ -1,0 +1,9 @@
+[submodule "thirdparty/panda"]
+	path = thirdparty/panda
+	url = https://github.com/commaai/panda.git
+[submodule "thirdparty/kia-opendbc"]
+	path = thirdparty/kia-opendbc
+	url = git@github.com:UCR-CISL/kia-opendbc.git
+[submodule "thirdparty/IsaacTeleop"]
+	path = thirdparty/IsaacTeleop
+	url = https://github.com/NVIDIA/IsaacTeleop.git

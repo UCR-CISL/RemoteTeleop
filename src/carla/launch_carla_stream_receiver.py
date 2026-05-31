@@ -2,7 +2,7 @@ import signal
 
 import gi
 
-from python.streaming.gstream_zed_receiver import GStreamerReceiver
+from src.streaming.gstream_zed_receiver import GStreamerReceiver
 
 gi.require_version('Gst', '1.0')
 gi.require_version('Gtk', '3.0')
