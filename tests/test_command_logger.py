@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from src.control.command_log import JsonlCommandLogReader
 from src.control.command_logger import JsonlCommandLogger
 from src.control.vehicle_command import VehicleControlCommand
 from src.control.vehicle_retargeter import SteeringWheelSample
@@ -35,6 +36,11 @@ def test_jsonl_command_logger_writes_sample_and_command(tmp_path):
         }
     ]
 
+    readback = list(JsonlCommandLogReader(path).records())
+    assert len(readback) == 1
+    assert readback[0].sample == sample
+    assert readback[0].command == command
+
 
 def test_jsonl_command_logger_requires_context(tmp_path):
     logger = JsonlCommandLogger(tmp_path / "commands.jsonl")
@@ -44,4 +50,3 @@ def test_jsonl_command_logger_requires_context(tmp_path):
             sample=SteeringWheelSample(steering=0.0, accel_axis=0.0, brake_axis=0.0, timestamp_ns=1),
             command=VehicleControlCommand.neutral(),
         )
-

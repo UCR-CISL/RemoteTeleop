@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import TextIO
 
+from src.control.command_log import CommandLogRecord
 from src.control.vehicle_command import VehicleControlCommand
 from src.control.vehicle_retargeter import SteeringWheelSample
 
@@ -26,10 +27,6 @@ class JsonlCommandLogger:
     def write(self, *, sample: SteeringWheelSample, command: VehicleControlCommand) -> None:
         if self._file is None:
             raise RuntimeError("JsonlCommandLogger must be opened before writing")
-        record = {
-            "sample": sample.to_dict(),
-            "command": command.to_dict(),
-        }
-        self._file.write(json.dumps(record, separators=(",", ":")) + "\n")
+        record = CommandLogRecord(sample=sample, command=command)
+        self._file.write(json.dumps(record.to_dict(), separators=(",", ":")) + "\n")
         self._file.flush()
-
