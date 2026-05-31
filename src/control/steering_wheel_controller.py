@@ -1,13 +1,11 @@
-import os
-os.environ["SDL_VIDEODRIVER"] = "dummy"
-
-
-import pygame
 import math
+import os
+from pathlib import Path
 from configparser import ConfigParser
 from typing import Tuple
 
-import math
+os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+
 import pygame
 from pygame.locals import KMOD_CTRL
 from pygame.locals import KMOD_SHIFT
@@ -53,13 +51,17 @@ from pygame.locals import K_EQUALS
 from src.control import joystick_constants as js
 
 class SteeringwheelController(object):
-    def __init__(self, joystick):
+    def __init__(self, joystick, config_path=None):
         self._steer_cache = 0.0
 
         self._joystick = joystick
 
         self._parser = ConfigParser()
-        self._parser.read('/home/justin/Documents/CISL-Projects/BasicTeleop/config/steering_wheel_config.ini')
+        if config_path is None:
+            config_path = Path(__file__).resolve().parents[2] / "config" / "steering_wheel_config.ini"
+        read_files = self._parser.read(config_path)
+        if not read_files:
+            raise FileNotFoundError(f"Steering wheel config not found: {config_path}")
         self._steer_idx = int(
             self._parser.get('G920 Racing Wheel', 'steering_wheel'))
         self._throttle_idx = int(

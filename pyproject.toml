@@ -1,0 +1,20 @@
+[project]
+name = "teleop"
+version = "0.1.0"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    "configparser",
+    "holoscan-cu12",
+    "isaacteleop[cloudxr,retargeters]~=1.0.0",
+    "matplotlib>=3.10.9",
+    "numpy>=2.2,<3",
+    "opencv-python",
+    "pygame",
+    "pygobject",
+    "pyzmq",
+]
+
+[tool.uv]
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]

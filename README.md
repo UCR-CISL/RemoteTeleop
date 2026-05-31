@@ -31,6 +31,19 @@ uv run python -m src.streaming.gstream_zed_receiver --timestamp-host=100.70.20.1
 uv run python -m src.streaming.gstream_zed_receiver --timestamp-host=100.70.20.114 > run.log
 ```
 
+# ZMQ Kia Control MVP
+Remote side:
+```bash
+./run_remote_steering_worker.sh --bind "tcp://*:5555" --verbose
+```
+
+Vehicle side:
+```bash
+./run_kia_panda_worker.sh --connect "tcp://<remote-ip>:5555"
+```
+
+Use `--dry-run` on the vehicle side to validate ZMQ transport without opening the Panda device.
+
 # Deployment
 ## Remote-side
 ```bash
