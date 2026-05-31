@@ -66,10 +66,23 @@ GTK/GStreamer receiver. The receive path is IsaacTeleop `camera_viz`; the
 headset/client transport is CloudXR.
 
 # ZMQ Kia Control MVP
-Remote side:
+Remote side with a steering wheel:
 ```bash
 ./run_remote_steering_worker.sh --bind "tcp://*:5555" --verbose --log-mcap logs/kia_control.mcap
 ```
+
+Remote side with keyboard fallback:
+```bash
+./run_keyboard_control_worker.sh --bind "tcp://*:5555" --verbose
+```
+
+Keyboard controls follow the simple kia-opendbc joystick example:
+
+- `W` / `S`: increment gas/brake axis
+- `A` / `D`: increment steering axis
+- `R`: reset axes to neutral
+- `C`: publish neutral
+- `Q` or `Esc`: quit
 
 Vehicle side:
 ```bash
