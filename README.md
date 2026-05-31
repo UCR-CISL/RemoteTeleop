@@ -46,7 +46,7 @@ uv run python -m src.streaming.arena_sender --stream-host <cloudxr-workstation-i
 Workstation side:
 
 ```bash
-./run_cloudxr_streamer.sh
+./scripts/run_cloudxr_streamer.sh
 ```
 
 The launcher uses `config/lucid_cloudxr_streamer.yaml`, which listens on RTP
@@ -68,12 +68,12 @@ headset/client transport is CloudXR.
 # ZMQ Kia Control MVP
 Remote side with a steering wheel:
 ```bash
-./run_remote_steering_worker.sh --bind "tcp://*:5555" --verbose --log-mcap logs/kia_control.mcap
+./scripts/run_remote_steering_worker.sh --bind "tcp://*:5555" --verbose --log-mcap logs/kia_control.mcap
 ```
 
 Remote side with keyboard fallback:
 ```bash
-./run_keyboard_control_worker.sh --bind "tcp://*:5555" --verbose
+./scripts/run_keyboard_control_worker.sh --bind "tcp://*:5555" --verbose
 ```
 
 Keyboard controls follow the simple kia-opendbc joystick example:
@@ -86,7 +86,7 @@ Keyboard controls follow the simple kia-opendbc joystick example:
 
 Vehicle side:
 ```bash
-./run_kia_panda_worker.sh --connect "tcp://<remote-ip>:5555"
+./scripts/run_kia_panda_worker.sh --connect "tcp://<remote-ip>:5555"
 ```
 
 Use `--dry-run` on the vehicle side to validate ZMQ transport without opening the Panda device.
