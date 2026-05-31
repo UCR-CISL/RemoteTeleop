@@ -71,6 +71,8 @@ Remote side with a steering wheel:
 ./scripts/run_remote_steering_worker.sh --bind "tcp://*:5555" --verbose --log-mcap logs/kia_control.mcap
 ```
 
+The steering wheel axis mapping lives in `config/steering_wheel_config.yaml`.
+
 Remote side with keyboard fallback:
 ```bash
 ./scripts/run_keyboard_control_worker.sh --bind "tcp://*:5555" --verbose

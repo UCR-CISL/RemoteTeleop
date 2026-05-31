@@ -1,8 +1,9 @@
 import math
 import os
 from pathlib import Path
-from configparser import ConfigParser
-from typing import Tuple
+from typing import Any, Tuple
+
+import yaml
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
@@ -50,36 +51,83 @@ from pygame.locals import K_EQUALS
 
 from src.control import joystick_constants as js
 
+
+class SteeringWheelConfig:
+    def __init__(self, path: str | Path) -> None:
+        self._path = Path(path)
+        if not self._path.is_file():
+            raise FileNotFoundError(f"Steering wheel config not found: {self._path}")
+        with self._path.open("r", encoding="utf-8") as file:
+            data = yaml.safe_load(file)
+        if not isinstance(data, dict):
+            raise ValueError(f"Steering wheel config must be a YAML mapping: {self._path}")
+        self._data = data
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    @property
+    def data(self) -> dict[str, Any]:
+        return self._data
+
+    def wheel_int(self, key: str) -> int:
+        return int(self._wheel_section()[key])
+
+    def sensitivity_int(self, key: str) -> int:
+        return int(self._sensitivity_section()[key])
+
+    def sensitivity_float(self, key: str) -> float:
+        return float(self._sensitivity_section()[key])
+
+    def update_sensitivity(self, *, mode: int, minimum: float, maximum: float) -> None:
+        sensitivity = self._sensitivity_section()
+        sensitivity["mode"] = int(mode)
+        sensitivity["min"] = float(minimum)
+        sensitivity["max"] = float(maximum)
+
+    def save(self, path: str | Path | None = None) -> None:
+        target = Path(path) if path is not None else self._path
+        with target.open("w", encoding="utf-8") as file:
+            yaml.safe_dump(self._data, file, sort_keys=False)
+
+    def _wheel_section(self) -> dict[str, Any]:
+        section = self._data.get("g920_racing_wheel")
+        if not isinstance(section, dict):
+            raise KeyError("Steering wheel config missing g920_racing_wheel section")
+        return section
+
+    def _sensitivity_section(self) -> dict[str, Any]:
+        section = self._data.get("sensitivity")
+        if not isinstance(section, dict):
+            raise KeyError("Steering wheel config missing sensitivity section")
+        return section
+
 class SteeringwheelController(object):
     def __init__(self, joystick, config_path=None):
         self._steer_cache = 0.0
 
         self._joystick = joystick
 
-        self._parser = ConfigParser()
         if config_path is None:
-            config_path = Path(__file__).resolve().parents[2] / "config" / "steering_wheel_config.ini"
-        read_files = self._parser.read(config_path)
-        if not read_files:
-            raise FileNotFoundError(f"Steering wheel config not found: {config_path}")
-        self._steer_idx = int(
-            self._parser.get('G920 Racing Wheel', 'steering_wheel'))
-        self._throttle_idx = int(
-            self._parser.get('G920 Racing Wheel', 'throttle'))
-        self._brake_idx = int(self._parser.get('G920 Racing Wheel', 'brake'))
-        self._reverse_idx = int(self._parser.get('G920 Racing Wheel', 'reverse'))
-        self._handbrake_idx = int(self._parser.get('G920 Racing Wheel', 'handbrake'))
+            config_path = Path(__file__).resolve().parents[2] / "config" / "steering_wheel_config.yaml"
+        self._config = SteeringWheelConfig(config_path)
+        self._steer_idx = self._config.wheel_int("steering_wheel")
+        self._throttle_idx = self._config.wheel_int("throttle")
+        self._brake_idx = self._config.wheel_int("brake")
+        self._reverse_idx = self._config.wheel_int("reverse")
+        self._handbrake_idx = self._config.wheel_int("handbrake")
 
-        self.steering_mode = int(self._parser.get('Sensitivity', 'mode'))
-        self.steering_sensitivity_min = float(self._parser.get('Sensitivity', 'min'))
-        self.steering_sensitivity_max = float(self._parser.get('Sensitivity', 'max'))
+        self.steering_mode = self._config.sensitivity_int("mode")
+        self.steering_sensitivity_min = self._config.sensitivity_float("min")
+        self.steering_sensitivity_max = self._config.sensitivity_float("max")
 
         self._mph = 0
         self._accel = 0.0
         self._brake = 0.0
         self._steering_angle = 0.0
 
-    def parse_events(self) -> Tuple[float, float]:
+    def parse_events(self) -> Tuple[float, float, float]:
         pygame.event.pump()
 
         self._parse_vehicle_wheel()
@@ -144,13 +192,14 @@ class SteeringwheelController(object):
         self.steering_mode = steering_config[0]
         self.steering_sensitivity_min = steering_config[1]
         self.steering_sensitivity_max = steering_config[2]
-        self._parser.set('Sensitivity', 'mode', str(self.steering_mode))
-        self._parser.set('Sensitivity', 'min', str(self.steering_sensitivity_min))
-        self._parser.set('Sensitivity', 'max', str(self.steering_sensitivity_max))
+        self._config.update_sensitivity(
+            mode=self.steering_mode,
+            minimum=self.steering_sensitivity_min,
+            maximum=self.steering_sensitivity_max,
+        )
 
     def save_config_file(self):
-        with open('wheel_config.ini', 'w') as config_file:  # save
-            self._parser.write(config_file)
+        self._config.save("wheel_config.yaml")
 
     @staticmethod
     def _is_quit_shortcut(key):
