@@ -25,24 +25,45 @@ Frame rate for streaming CARLA sensor data is slow. Because the gstream sending 
 
 # ZED/Lucid Streaming
 ```bash
-# reciever
+# receiver
 uv run python -m src.streaming.gstream_zed_receiver --timestamp-host=100.70.20.114
 # timestamp data 
 uv run python -m src.streaming.gstream_zed_receiver --timestamp-host=100.70.20.114 > run.log
 ```
 
-CloudXR viewer path for the existing Lucid RTP/H.264 sender:
-```bash
-# Camera side: send RTP/H.264 to the CloudXR workstation.
-uv run python -m src.streaming.arena_sender --stream-host <cloudxr-workstation-ip> --stream-port 5000
+# CloudXR Workflow
 
-# Workstation side: run IsaacTeleop camera_viz in XR mode.
+This workflow reuses the existing Lucid RTP/H.264 sender and uses IsaacTeleop
+`camera_viz` as the receive/decode/render side. CloudXR/OpenXR then delivers the
+rendered XR session to the headset/client.
+
+Camera side:
+
+```bash
+uv run python -m src.streaming.arena_sender --stream-host <cloudxr-workstation-ip> --stream-port 5000
+```
+
+Workstation side:
+
+```bash
 ./run_cloudxr_streamer.sh
 ```
 
-`cloudxr_streamer` does not replace `arena_sender.py`. It launches IsaacTeleop's
-`camera_viz` receiver with `config/lucid_cloudxr_streamer.yaml`; CloudXR/OpenXR
-then handles the rendered XR session delivery to the headset/client.
+The launcher uses `config/lucid_cloudxr_streamer.yaml`, which listens on RTP
+port `5000` and runs `camera_viz` in XR mode. If IsaacTeleop `camera_viz` has not
+been set up yet, run:
+
+```bash
+cd thirdparty/IsaacTeleop/examples/camera_viz
+./camera_viz.sh setup
+```
+
+If CloudXR is the active OpenXR runtime, source its environment before launching
+the streamer, following the IsaacTeleop CloudXR setup docs.
+
+`cloudxr_streamer` does not replace `arena_sender.py`, and it is not another
+GTK/GStreamer receiver. The receive path is IsaacTeleop `camera_viz`; the
+headset/client transport is CloudXR.
 
 # ZMQ Kia Control MVP
 Remote side:
