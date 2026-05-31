@@ -34,7 +34,7 @@ uv run python -m src.streaming.gstream_zed_receiver --timestamp-host=100.70.20.1
 # ZMQ Kia Control MVP
 Remote side:
 ```bash
-./run_remote_steering_worker.sh --bind "tcp://*:5555" --verbose --log-jsonl logs/kia_control.jsonl
+./run_remote_steering_worker.sh --bind "tcp://*:5555" --verbose --log-mcap logs/kia_control.mcap
 ```
 
 Vehicle side:
@@ -45,7 +45,7 @@ Vehicle side:
 Use `--dry-run` on the vehicle side to validate ZMQ transport without opening the Panda device.
 Replay a command log:
 ```bash
-uv run python -m src.replay_command_log logs/kia_control.jsonl
+uv run python -m src.replay_command_mcap logs/kia_control.mcap
 ```
 
 # Deployment

@@ -4,12 +4,12 @@ from __future__ import annotations
 import argparse
 import time
 
-from src.control.command_log import JsonlCommandLogReader
+from src.control.mcap_command_log import McapCommandLogReader
 
 
-class CommandLogReplay:
+class CommandMcapReplay:
     def __init__(self, args: argparse.Namespace) -> None:
-        self._reader = JsonlCommandLogReader(args.path)
+        self._reader = McapCommandLogReader(args.path)
         self._realtime = args.realtime
 
     def run(self) -> None:
@@ -28,15 +28,16 @@ class CommandLogReplay:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Replay a JSONL vehicle command log.")
-    parser.add_argument("path", help="Path to JSONL command log.")
+    parser = argparse.ArgumentParser(description="Replay an MCAP vehicle command log.")
+    parser.add_argument("path", help="Path to MCAP command log.")
     parser.add_argument("--realtime", action="store_true", help="Sleep between records using sample timestamps.")
     return parser
 
 
 def main() -> None:
-    CommandLogReplay(build_parser().parse_args()).run()
+    CommandMcapReplay(build_parser().parse_args()).run()
 
 
 if __name__ == "__main__":
     main()
+

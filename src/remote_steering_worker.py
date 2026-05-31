@@ -9,7 +9,7 @@ import time
 import pygame
 import zmq
 
-from src.control.command_logger import JsonlCommandLogger
+from src.control.mcap_command_log import McapCommandLogger
 from src.control.steering_wheel_controller import SteeringwheelController
 from src.control.vehicle_command import VehicleControlCommand
 from src.control.vehicle_retargeter import SteeringWheelSample, VehicleControlRetargeter
@@ -30,7 +30,7 @@ class RemoteSteeringWorker:
         self._socket = self._context.socket(zmq.PUB)
         self._controller = None
         self._retargeter = VehicleControlRetargeter()
-        self._log_jsonl = args.log_jsonl
+        self._log_mcap = args.log_mcap
         self._logger = None
         self._sequence = 0
         self._running = True
@@ -46,7 +46,7 @@ class RemoteSteeringWorker:
         period_s = 1.0 / self._rate_hz
 
         print(f"Publishing steering commands on {self._bind} topic={self._topic!r} at {self._rate_hz:.1f} Hz")
-        logger_ctx = JsonlCommandLogger(self._log_jsonl) if self._log_jsonl else None
+        logger_ctx = McapCommandLogger(self._log_mcap) if self._log_mcap else None
         try:
             if logger_ctx is None:
                 self._run_loop(period_s)
@@ -141,7 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--topic", default=DEFAULT_TOPIC, help="ZMQ topic prefix.")
     parser.add_argument("--rate-hz", type=float, default=100.0, help="Publish rate.")
     parser.add_argument("--config", default=None, help="Steering wheel config path.")
-    parser.add_argument("--log-jsonl", default=None, help="Append raw samples and commands to a JSONL log.")
+    parser.add_argument("--log-mcap", default=None, help="Record raw samples and commands to an MCAP log.")
     parser.add_argument("--verbose", action="store_true", help="Print live control values.")
     return parser
 
