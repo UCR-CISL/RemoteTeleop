@@ -12,7 +12,11 @@ import zmq
 from src.control.mcap_command_log import McapCommandLogger
 from src.control.steering_wheel_controller import SteeringwheelController
 from src.control.vehicle_command import VehicleControlCommand
-from src.control.vehicle_retargeter import SteeringWheelSample, VehicleControlRetargeter
+from src.control.vehicle_retargeter import (
+    SteeringWheelSample,
+    VehicleControlRetargeter,
+    VehicleControlRetargeterConfig,
+)
 
 
 DEFAULT_BIND = "tcp://*:5555"
@@ -29,7 +33,9 @@ class RemoteSteeringWorker:
         self._context = zmq.Context()
         self._socket = self._context.socket(zmq.PUB)
         self._controller = None
-        self._retargeter = VehicleControlRetargeter()
+        self._retargeter = VehicleControlRetargeter(
+            VehicleControlRetargeterConfig(steer_scale=-1.0)
+        )
         self._log_mcap = args.log_mcap
         self._logger = None
         self._sequence = 0
