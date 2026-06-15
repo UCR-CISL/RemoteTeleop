@@ -139,7 +139,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Read steering wheel input and publish Kia teleop commands over ZMQ.")
     parser.add_argument("--bind", default=DEFAULT_BIND, help="ZMQ PUB bind address.")
     parser.add_argument("--topic", default=DEFAULT_TOPIC, help="ZMQ topic prefix.")
-    parser.add_argument("--rate-hz", type=float, default=100.0, help="Publish rate.")
+    parser.add_argument("--rate-hz", type=float, default=50.0, help="Publish rate.")
     parser.add_argument("--config", default=None, help="Steering wheel config path.")
     parser.add_argument("--log-mcap", default=None, help="Record raw samples and commands to an MCAP log.")
     parser.add_argument("--verbose", action="store_true", help="Print live control values.")

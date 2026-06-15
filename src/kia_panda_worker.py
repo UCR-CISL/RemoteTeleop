@@ -32,6 +32,7 @@ class KiaPandaWorker:
         self._last_command = VehicleControlCommand.neutral()
         self._last_received = 0.0
         self._last_printed = None
+        self._neutral_sent_after_timeout = False
         self._running = True
 
     def run(self) -> None:
@@ -42,12 +43,12 @@ class KiaPandaWorker:
         print(f"Receiving steering commands from {self._connect} topic={self._topic!r}")
         try:
             while self._running:
-                self._poll_once()
-                command = self._current_command()
-                if self._dry_run:
-                    self._print_command(command)
-                else:
-                    self._apply_command(command)
+                command = self._next_command_to_apply()
+                if command is not None:
+                    if self._dry_run:
+                        self._print_command(command)
+                    else:
+                        self._apply_command(command)
         finally:
             if self._panda is not None:
                 self._apply_command(VehicleControlCommand.neutral())
@@ -82,27 +83,37 @@ class KiaPandaWorker:
         self._panda_runner = PandaRunner()
         self._panda = self._panda_runner.__enter__()
 
-    def _poll_once(self) -> None:
+    def _poll_once(self) -> bool:
         events = dict(self._poller.poll(timeout=self._poll_ms))
         if self._socket not in events:
-            return
+            return False
 
         message = self._socket.recv_string()
         _topic, payload = message.split(" ", 1)
         self._last_command = VehicleControlCommand.from_dict(json.loads(payload))
         self._last_received = time.monotonic()
+        self._neutral_sent_after_timeout = False
+        return True
 
-    def _current_command(self) -> VehicleControlCommand:
-        if self._last_received == 0.0 or time.monotonic() - self._last_received > self._command_timeout:
-            return VehicleControlCommand(
-                sequence=self._last_command.sequence,
-                timestamp_ns=time.time_ns(),
-                steer=0.0,
-                accel=0.0,
-                throttle=0.0,
-                brake=0.0,
-            )
-        return self._last_command
+    def _next_command_to_apply(self) -> VehicleControlCommand | None:
+        if self._poll_once():
+            return self._last_command
+        if self._last_received == 0.0:
+            return None
+        if time.monotonic() - self._last_received <= self._command_timeout:
+            return None
+        if self._neutral_sent_after_timeout:
+            return None
+
+        self._neutral_sent_after_timeout = True
+        return VehicleControlCommand(
+            sequence=self._last_command.sequence,
+            timestamp_ns=time.time_ns(),
+            steer=0.0,
+            accel=0.0,
+            throttle=0.0,
+            brake=0.0,
+        )
 
     def _print_command(self, command: VehicleControlCommand) -> None:
         printable = (command.sequence, round(command.accel, 3), round(command.steer, 3))
