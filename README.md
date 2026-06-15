@@ -71,6 +71,18 @@ Remote side with a steering wheel:
 ./scripts/run_remote_steering_worker.sh --bind "tcp://*:5555" --verbose --log-mcap logs/kia_control.mcap
 ```
 
+Remote side with a steering wheel, Isaac Teleop integration:
+```bash
+# Terminal 1
+source .venv/bin/activate
+python3 -m isaacteleop.cloudxr
+
+# Terminal 2
+source .venv/bin/activate
+source /home/justin/.cloudxr/run/cloudxr.env
+./scripts/run_isaac_remote_steering_worker.sh --verbose
+```
+
 The steering wheel axis mapping lives in `config/steering_wheel_config.yaml`.
 
 Remote side with keyboard fallback:

@@ -88,4 +88,3 @@ class VehicleControlRetargeter:
 
 def axis_to_pedal(axis_value: float) -> float:
     return clamp((-float(axis_value) + 1.0) / 2.0, 0.0, 1.0)
-

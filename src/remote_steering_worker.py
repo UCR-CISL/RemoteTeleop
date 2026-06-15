@@ -107,9 +107,10 @@ class RemoteSteeringWorker:
             self._logger.write(sample=sample, command=command)
         if self._verbose:
             print(
-                f"seq={command.sequence} accel={command.accel:+.3f} "
-                f"steer={command.steer:+.3f} throttle={command.throttle:.3f} brake={command.brake:.3f}",
-                end="\r",
+                "\r\033[K"
+                f"seq={command.sequence} accel={command.accel:+.3f} steer={command.steer:+.3f} "
+                f"throttle={command.throttle:.3f} brake={command.brake:.3f}",
+                end="",
                 flush=True,
             )
         self._sequence += 1
