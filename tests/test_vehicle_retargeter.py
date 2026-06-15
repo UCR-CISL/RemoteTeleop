@@ -73,6 +73,16 @@ def test_steering_neutral_and_deadzone_are_applied():
     assert retargeter.retarget(sample(steering=-0.40), sequence=1).steer == 0.09999999999999998
 
 
+def test_negative_steer_scale_inverts_steering_after_neutral():
+    retargeter = VehicleControlRetargeter(
+        VehicleControlRetargeterConfig(steer_scale=-1.0),
+        steering_neutral=0.0,
+    )
+
+    assert retargeter.retarget(sample(steering=1.0), sequence=1).steer == -1.0
+    assert retargeter.retarget(sample(steering=-1.0), sequence=1).steer == 1.0
+
+
 def test_calibrate_neutral_updates_steering_offset():
     retargeter = VehicleControlRetargeter()
     retargeter.calibrate_neutral(sample(steering=-0.5))
@@ -81,4 +91,3 @@ def test_calibrate_neutral_updates_steering_offset():
 
     assert retargeter.steering_neutral == -0.5
     assert command.steer == 0.0
-

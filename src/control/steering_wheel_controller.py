@@ -156,7 +156,7 @@ class SteeringwheelController(object):
         jsButtons = [float(self._joystick.get_button(i)) for i in
                      range(self._joystick.get_numbuttons())]
 
-        steerCmd = jsInputs[self._steer_idx] * 0.5
+        steerCmd = jsInputs[self._steer_idx]
 
 
         K2 = 1.6
