@@ -158,9 +158,7 @@ class IsaacRemoteSteeringWorker:
         required_extensions = deviceio.DeviceIOSession.get_required_extensions(trackers)
         logger_ctx: ContextManager = McapCommandLogger(self._log_mcap) if self._log_mcap else nullcontext()
         try:
-            with plugin_ctx, oxr.OpenXRSession(
-                "IsaacRemoteSteeringWorker", required_extensions, wait_for_system=True
-            ) as oxr_session:
+            with plugin_ctx, oxr.OpenXRSession("IsaacRemoteSteeringWorker", required_extensions) as oxr_session:
                 handles = oxr_session.get_handles()
                 with deviceio.DeviceIOSession.run(trackers, handles) as self._deviceio_session:
                     with logger_ctx as self._logger:
