@@ -1,3020 +1,0 @@
-pygame 2.6.1 (SDL 2.28.4, Python 3.12.12)
-Hello from the pygame community. https://www.pygame.org/contribute.html
-Starting PandaOperator...
-PandaOperator started.
-Running PandaOperator compute...
-INFO: connecting to panda 480035000851313339353335
-Panda context initialized.
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Running PandaOperator compute...
-Received accel: 0.0, steer: 0.0021209716796875
-Normalized accel: 0.0, Normalized steer: -0.0021209716796875
-This is right before the write command
-We managed to get here: wrote to car controller
-
-Stopping PandaOperator...
-PandaOperator stopped.

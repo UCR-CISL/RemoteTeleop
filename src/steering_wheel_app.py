@@ -1,7 +1,7 @@
 from holoscan.core import Application, Fragment, Operator, OperatorSpec
 from holoscan.conditions import PeriodicCondition
 import pygame
-from control.steering_wheel_controller import SteeringwheelController
+from src.control.steering_wheel_controller import SteeringwheelController
 
 class SteeringWheelOperator(Operator):
     def __init__(self, fragment: Fragment, *args, **kwargs):

@@ -27,7 +27,7 @@ import signal
 faulthandler.enable()
 
 import time
-from timestamp_sender import UDPTimestampSender
+from src.streaming.timestamp_sender import UDPTimestampSender
 
 
 def imgmsg_to_bgr(img_msg) -> np.ndarray:

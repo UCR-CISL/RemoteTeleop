@@ -1,8 +1,8 @@
 from holoscan.core import Application
 from holoscan.schedulers import GreedyScheduler
 
-from fragments.steering_wheel_fragment import SteeringWheelFragment
-from fragments.vehicle_fragment import PandaFragment
+from src.fragments.steering_wheel_fragment import SteeringWheelFragment
+from src.fragments.vehicle_fragment import PandaFragment
 
 
 class TeleopApp(Application):
@@ -32,8 +32,8 @@ class TeleopApp(Application):
         self.scheduler(GreedyScheduler(self, stop_on_deadlock_timeout=20000)) # 20 second timeout for deadlock detection
 
 
-#  python3 v2/distributed_kia_teleop_app.py --driver --worker --address 100.70.20.114 --fragments SteeringWheelFragment
-#  python3 v2/distributed_kia_teleop_app.py --driver --master --address 100.70.20.114 --fragments PandaFragment
+#  python3 distributed_kia_teleop_app.py --driver --worker --address 100.70.20.114 --fragments SteeringWheelFragment
+#  python3 distributed_kia_teleop_app.py --driver --master --address 100.70.20.114 --fragments PandaFragment
 def main():
     app = TeleopApp()
     app.run()
