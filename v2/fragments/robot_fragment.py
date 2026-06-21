@@ -1,10 +1,27 @@
 import os
+import sys
 
 from holoscan.core import Fragment, Operator, OperatorSpec
 
 # Robot velocity limits (from teleop.py / robot manual)
 MAX_LINEAR = 0.5   # m/s
 MAX_ANGULAR = 3.14  # rad/s
+
+
+def _remove_ros2_python_paths():
+    """Prevent ROS2 Python packages from shadowing ROS1 packages in ros_env."""
+    ros2_path_parts = ("/opt/ros/humble/", "/opt/ros/foxy/", "/opt/ros/galactic/", "/opt/ros/iron/", "/opt/ros/jazzy/")
+
+    def is_ros2_path(path):
+        return any(ros2_path_part in path for ros2_path_part in ros2_path_parts)
+
+    sys.path[:] = [path for path in sys.path if not is_ros2_path(path)]
+
+    pythonpath = os.environ.get("PYTHONPATH")
+    if pythonpath:
+        os.environ["PYTHONPATH"] = os.pathsep.join(
+            path for path in pythonpath.split(os.pathsep) if not is_ros2_path(path)
+        )
 
 
 class RobotTeleopOp(Operator):
@@ -30,6 +47,7 @@ class RobotTeleopOp(Operator):
         # Lazy ROS1 imports — only executed on the robot machine.
         os.environ.setdefault("ROS_MASTER_URI", self._ros_master_uri)
         os.environ.setdefault("ROS_HOSTNAME", self._ros_hostname)
+        _remove_ros2_python_paths()
 
         import rospy
         from geometry_msgs.msg import Twist

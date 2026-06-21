@@ -1,0 +1,3 @@
+[submodule "thirdparty/delivery-robot"]
+	path = thirdparty/delivery-robot
+	url = https://github.com/jyao97/delivery-robot.git
