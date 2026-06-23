@@ -90,6 +90,11 @@ Remote side with keyboard fallback:
 ./scripts/run_keyboard_control_worker.sh --bind "tcp://*:5555" --verbose
 ```
 
+Remote side with keyboard fallback through Isaac Teleop retargeting:
+```bash
+./scripts/run_isaac_keyboard_control_worker.sh --bind "tcp://*:5555" --verbose
+```
+
 Keyboard controls follow the simple kia-opendbc joystick example:
 
 - `W` / `S`: increment gas/brake axis
