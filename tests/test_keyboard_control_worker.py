@@ -1,7 +1,7 @@
 from src.keyboard_control_worker import KeyboardControlState
 
 
-def test_wasd_updates_persistent_axes_like_kia_example() -> None:
+def test_wasd_updates_persistent_axes_like_vehicle_example() -> None:
     state = KeyboardControlState(axis_increment=0.05)
 
     assert state.apply_key("w")

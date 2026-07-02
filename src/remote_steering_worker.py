@@ -20,7 +20,7 @@ from src.control.vehicle_retargeter import (
 
 
 DEFAULT_BIND = "tcp://*:5555"
-DEFAULT_TOPIC = "kia_control"
+DEFAULT_TOPIC = "vehicle_control"
 
 
 class RemoteSteeringWorker:
@@ -143,9 +143,9 @@ class RemoteSteeringWorker:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Read steering wheel input and publish Kia teleop commands over ZMQ.")
+    parser = argparse.ArgumentParser(description="Read steering wheel input and publish vehicle teleop commands over ZMQ.")
     parser.add_argument("--bind", default=DEFAULT_BIND, help="ZMQ PUB bind address.")
-    parser.add_argument("--topic", default=DEFAULT_TOPIC, help="ZMQ topic prefix.")
+    parser.add_argument("--topic", default=DEFAULT_TOPIC, help="ZMQ topic.")
     parser.add_argument("--rate-hz", type=float, default=50.0, help="Publish rate.")
     parser.add_argument("--config", default=None, help="Steering wheel config path.")
     parser.add_argument("--log-mcap", default=None, help="Record raw samples and commands to an MCAP log.")

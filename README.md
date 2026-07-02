@@ -65,10 +65,10 @@ the streamer, following the IsaacTeleop CloudXR setup docs.
 GTK/GStreamer receiver. The receive path is IsaacTeleop `camera_viz`; the
 headset/client transport is CloudXR.
 
-# ZMQ Kia Control MVP
+# ZMQ Vehicle Control MVP
 Remote side with a steering wheel:
 ```bash
-./scripts/run_remote_steering_worker.sh --bind "tcp://*:5555" --verbose --log-mcap logs/kia_control.mcap
+./scripts/run_remote_steering_worker.sh --bind "tcp://*:5555" --verbose --log-mcap logs/vehicle_control.mcap
 ```
 
 Remote side with a steering wheel, Isaac Teleop integration:
@@ -90,7 +90,7 @@ Remote side with keyboard fallback:
 ./scripts/run_keyboard_control_worker.sh --bind "tcp://*:5555" --verbose
 ```
 
-Keyboard controls follow the simple kia-opendbc joystick example:
+Keyboard controls follow the simple vehicle joystick example:
 
 - `W` / `S`: increment gas/brake axis
 - `A` / `D`: increment steering axis
@@ -100,13 +100,13 @@ Keyboard controls follow the simple kia-opendbc joystick example:
 
 Vehicle side:
 ```bash
-./scripts/run_kia_panda_worker.sh --connect "tcp://<remote-ip>:5555"
+./scripts/run_panda_worker.sh --connect "tcp://<remote-ip>:5555"
 ```
 
 Use `--dry-run` on the vehicle side to validate ZMQ transport without opening the Panda device.
 Replay a command log:
 ```bash
-uv run python -m src.replay_command_mcap logs/kia_control.mcap
+uv run python -m src.replay_command_mcap logs/vehicle_control.mcap
 ```
 
 # Deployment
@@ -114,12 +114,12 @@ uv run python -m src.replay_command_mcap logs/kia_control.mcap
 ```bash
 source .venv/bin/activate
 export PYTHONPATH="$(pwd)"
-python3 distributed_kia_teleop_app.py --driver --worker --address 100.70.20.114 --fragments SteeringWheelFragment
+python3 src/distributed_vehicle_teleop_app.py --driver --worker --address 100.70.20.114 --fragments SteeringWheelFragment
 ```
 
 ## Car-side
 ```bash
 source ~/opendbc/.venv/bin/activate
 export PYTHONPATH="$(pwd)"
-python3 distributed_kia_teleop_app.py --worker --address 100.70.20.114 --fragments PandaFragment
+python3 src/distributed_vehicle_teleop_app.py --worker --address 100.70.20.114 --fragments PandaFragment
 ```

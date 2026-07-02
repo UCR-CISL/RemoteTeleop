@@ -27,7 +27,7 @@ from src.control.vehicle_retargeter import SteeringWheelSample
 
 
 DEFAULT_BIND = "tcp://*:5555"
-DEFAULT_TOPIC = "kia_control"
+DEFAULT_TOPIC = "vehicle_control"
 DEFAULT_COLLECTION_ID = "steering_wheel"
 DEFAULT_DEVICE_PATH = "/dev/input/js0"
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "steering_wheel_config.yaml"
@@ -297,10 +297,10 @@ def wire_sample_from_isaac_sample(sample: SteeringWheelOutput, *, timestamp_ns: 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Read steering wheel input through IsaacTeleop schemas and publish Kia teleop commands over ZMQ."
+        description="Read steering wheel input through IsaacTeleop schemas and publish vehicle teleop commands over ZMQ."
     )
     parser.add_argument("--bind", default=DEFAULT_BIND, help="ZMQ PUB bind address.")
-    parser.add_argument("--topic", default=DEFAULT_TOPIC, help="ZMQ topic prefix.")
+    parser.add_argument("--topic", default=DEFAULT_TOPIC, help="ZMQ topic.")
     parser.add_argument("--rate-hz", type=float, default=50.0, help="Publish rate.")
     parser.add_argument("--device", default=DEFAULT_DEVICE_PATH, help="Linux joystick device path for the native plugin.")
     parser.add_argument(

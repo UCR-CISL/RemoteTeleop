@@ -152,7 +152,7 @@ class CarlaDriveControllerOp(Operator):
         print(f"Control: throttle={throttle:.2f}, steer={steer:.2f}, brake={brake:.2f}")
 
 
-class KiaDriveControllerOp(Operator):
+class VehicleDriveControllerOp(Operator):
     def __init__(self, fragment: Fragment, name: str):
         super().__init__(fragment, name=name)
 
@@ -163,13 +163,13 @@ class KiaDriveControllerOp(Operator):
     def compute(self, op_input, op_output, context):
         accel = op_input.receive("accel")
         steer = op_input.receive("steer")
-        print(f"Kia Control: accel={accel:.2f}, steer={steer:.2f}")
+        print(f"Vehicle control: accel={accel:.2f}, steer={steer:.2f}")
 
 
 class PandaFragment(Fragment):
     def compose(self):
         import sys
-        sys.path.insert(0, "/home/cisl/kia-opendbc/examples")
+        sys.path.insert(0, "/home/cisl/opendbc/examples")
         from panda_operator import PandaOperator
 
         drive_controller = PandaOperator(self, name="drive_controller")

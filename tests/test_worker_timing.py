@@ -1,6 +1,6 @@
 from src.control.vehicle_command import VehicleControlCommand
 from src.keyboard_control_worker import build_parser as build_keyboard_parser
-from src.kia_panda_worker import KiaPandaWorker
+from src.panda_worker import PandaWorker
 from src.remote_steering_worker import build_parser as build_steering_parser
 
 
@@ -17,7 +17,7 @@ def test_remote_steering_worker_defaults_to_50_hz() -> None:
 
 
 def test_panda_worker_applies_only_freshly_received_commands() -> None:
-    worker = KiaPandaWorker.__new__(KiaPandaWorker)
+    worker = PandaWorker.__new__(PandaWorker)
     command = VehicleControlCommand(sequence=3, timestamp_ns=10, steer=0.25, accel=0.1, throttle=0.1, brake=0.0)
     worker._last_command = command
     worker._neutral_sent_after_timeout = False
@@ -27,25 +27,25 @@ def test_panda_worker_applies_only_freshly_received_commands() -> None:
 
 
 def test_panda_worker_does_not_repeat_current_command_without_message(monkeypatch) -> None:
-    worker = KiaPandaWorker.__new__(KiaPandaWorker)
+    worker = PandaWorker.__new__(PandaWorker)
     worker._last_command = VehicleControlCommand(sequence=3, timestamp_ns=10, steer=0.25, accel=0.1, throttle=0.1, brake=0.0)
     worker._last_received = 1.0
     worker._command_timeout = 10.0
     worker._neutral_sent_after_timeout = False
     worker._poll_once = lambda: False
-    monkeypatch.setattr("src.kia_panda_worker.time.monotonic", lambda: 2.0)
+    monkeypatch.setattr("src.panda_worker.time.monotonic", lambda: 2.0)
 
     assert worker._next_command_to_apply() is None
 
 
 def test_panda_worker_sends_one_neutral_after_timeout(monkeypatch) -> None:
-    worker = KiaPandaWorker.__new__(KiaPandaWorker)
+    worker = PandaWorker.__new__(PandaWorker)
     worker._last_command = VehicleControlCommand(sequence=4, timestamp_ns=10, steer=0.25, accel=0.1, throttle=0.1, brake=0.0)
     worker._last_received = 1.0
     worker._command_timeout = 0.25
     worker._neutral_sent_after_timeout = False
     worker._poll_once = lambda: False
-    monkeypatch.setattr("src.kia_panda_worker.time.monotonic", lambda: 2.0)
+    monkeypatch.setattr("src.panda_worker.time.monotonic", lambda: 2.0)
 
     neutral = worker._next_command_to_apply()
 
