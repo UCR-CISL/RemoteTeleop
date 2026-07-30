@@ -23,12 +23,95 @@ Frame rate for streaming CARLA sensor data is slow. Because the gstream sending 
 
 
 
-# ZED Streaming
+# ZED/Lucid Streaming
 ```bash
-# reciever
+# receiver
 uv run python -m src.streaming.gstream_zed_receiver --timestamp-host=100.70.20.114
 # timestamp data 
 uv run python -m src.streaming.gstream_zed_receiver --timestamp-host=100.70.20.114 > run.log
+```
+
+# CloudXR Workflow
+
+This workflow reuses the existing Lucid RTP/H.264 sender and uses IsaacTeleop
+`camera_viz` as the receive/decode/render side. CloudXR/OpenXR then delivers the
+rendered XR session to the headset/client.
+
+Camera side:
+
+```bash
+uv run python -m src.streaming.arena_sender --stream-host <cloudxr-workstation-ip> --stream-port 5000
+```
+
+Workstation side:
+
+```bash
+./scripts/run_cloudxr_streamer.sh
+```
+
+The launcher uses `config/lucid_cloudxr_streamer.yaml`, which listens on RTP
+port `5000` and runs `camera_viz` in XR mode. If IsaacTeleop `camera_viz` has not
+been set up yet, run:
+
+```bash
+cd thirdparty/IsaacTeleop/examples/camera_viz
+./camera_viz.sh setup
+```
+
+If CloudXR is the active OpenXR runtime, source its environment before launching
+the streamer, following the IsaacTeleop CloudXR setup docs.
+
+`cloudxr_streamer` does not replace `arena_sender.py`, and it is not another
+GTK/GStreamer receiver. The receive path is IsaacTeleop `camera_viz`; the
+headset/client transport is CloudXR.
+
+# ZMQ Vehicle Control MVP
+Remote side with a steering wheel:
+```bash
+./scripts/run_remote_steering_worker.sh --bind "tcp://*:5555" --verbose --log-mcap logs/vehicle_control.mcap
+```
+
+Remote side with a steering wheel, Isaac Teleop integration:
+```bash
+# Terminal 1
+source .venv/bin/activate
+python3 -m isaacteleop.cloudxr
+
+# Terminal 2
+source .venv/bin/activate
+source /home/justin/.cloudxr/run/cloudxr.env
+./scripts/run_isaac_remote_steering_worker.sh --verbose
+```
+
+The steering wheel axis mapping lives in `config/steering_wheel_config.yaml`.
+
+Remote side with keyboard fallback:
+```bash
+./scripts/run_keyboard_control_worker.sh --bind "tcp://*:5555" --verbose
+```
+
+Remote side with keyboard fallback through Isaac Teleop retargeting:
+```bash
+./scripts/run_isaac_keyboard_control_worker.sh --bind "tcp://*:5555" --verbose
+```
+
+Keyboard controls follow the simple kia-opendbc joystick example:
+
+- `W` / `S`: increment gas/brake axis
+- `A` / `D`: increment steering axis
+- `R`: reset axes to neutral
+- `C`: publish neutral
+- `Q` or `Esc`: quit
+
+Vehicle side:
+```bash
+./scripts/run_panda_worker.sh --connect "tcp://<remote-ip>:5555"
+```
+
+Use `--dry-run` on the vehicle side to validate ZMQ transport without opening the Panda device.
+Replay a command log:
+```bash
+uv run python -m src.replay_command_mcap logs/vehicle_control.mcap
 ```
 
 # Deployment
@@ -36,12 +119,12 @@ uv run python -m src.streaming.gstream_zed_receiver --timestamp-host=100.70.20.1
 ```bash
 source .venv/bin/activate
 export PYTHONPATH="$(pwd)"
-python3 distributed_kia_teleop_app.py --driver --worker --address 100.70.20.114 --fragments SteeringWheelFragment
+python3 src/distributed_vehicle_teleop_app.py --driver --worker --address 100.70.20.114 --fragments SteeringWheelFragment
 ```
 
 ## Car-side
 ```bash
 source ~/opendbc/.venv/bin/activate
 export PYTHONPATH="$(pwd)"
-python3 distributed_kia_teleop_app.py --worker --address 100.70.20.114 --fragments PandaFragment
+python3 src/distributed_vehicle_teleop_app.py --worker --address 100.70.20.114 --fragments PandaFragment
 ```

@@ -1,0 +1,37 @@
+[project]
+name = "teleop"
+version = "0.1.0"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "crcmod",
+    "matplotlib>=3.10.9",
+    "mcap>=1.3.1",
+    "numpy>=2.2,<3",
+    "opencv-python",
+    "pygame",
+    "pycapnp==2.1.0",
+    "pycryptodome",
+    "pygobject",
+    "pyyaml>=6.0.3",
+    "pyzmq",
+    "scons",
+    "tqdm",
+    "libusb1>=3.4.0",
+    "inputs>=0.5",
+    "websockets>=16.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[tool.uv]
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    ".",
+]

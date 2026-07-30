@@ -9,4 +9,4 @@
 	url = git@github.com:UCR-CISL/kia-opendbc.git
 [submodule "thirdparty/IsaacTeleop"]
 	path = thirdparty/IsaacTeleop
-	url = https://github.com/NVIDIA/IsaacTeleop.git
+	url = git@github.com:jyue86/IsaacTeleop.git

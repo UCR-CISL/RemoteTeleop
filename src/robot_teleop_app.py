@@ -44,9 +44,8 @@ Usage — single machine (local test, no hardware)
 
 Note
 ----
-  SteeringwheelController reads its config from a hardcoded path inside
-  steering_wheel_controller.py. Ensure that path points to
-  /home/cisl/BasicTeleop/config/steering_wheel_config.ini on the steering machine.
+  SteeringwheelController reads its default mapping from
+  config/steering_wheel_config.yaml on the steering machine.
 """
 
 from holoscan.core import Application
