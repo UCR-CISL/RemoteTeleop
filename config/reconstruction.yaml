@@ -1,0 +1,20 @@
+dataset:
+  version: v1.0-mini
+  camera_channel: CAM_FRONT
+  lidar_channel: LIDAR_TOP
+
+segmentation:
+  model_type: vit_l
+  checkpoint: null  # TODO: set to a local Segment Anything checkpoint.
+  min_projected_area_px: 1024
+
+reconstruction:
+  sam3d_repository: thirdparty/sam-3d-objects
+  checkpoint_config: checkpoints/hf/pipeline.yaml
+  seed: 42
+  output_root: artifacts/sam3d
+
+drivestudio:
+  repository: thirdparty/drivestudio
+  checkpoint: null  # Static-scene training is intentionally deferred.
+  map_from_nuscenes_global: null  # TODO: calibrate when a scene is trained.
