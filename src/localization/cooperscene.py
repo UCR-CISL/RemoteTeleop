@@ -170,8 +170,9 @@ class CooperSceneSequence(Sequence[CooperSceneFrame]):
 class CooperSceneSequenceDataset:
     """Access native CooperScene sequences without the detector devkit."""
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, *, cache_frames: bool = True) -> None:
         self.root = Path(root)
+        self._cache_frames = cache_frames
         self._frame_cache: dict[tuple[str, str, str, str], CooperSceneFrame] = {}
 
     def sequence(self, split: str, scenario: str | int, agent: str | int) -> CooperSceneSequence:
@@ -179,9 +180,10 @@ class CooperSceneSequenceDataset:
 
     def _frame(self, sequence: CooperSceneSequence, frame_id: str) -> CooperSceneFrame:
         key = (sequence.split, sequence.scenario, sequence.agent, frame_id)
-        cached = self._frame_cache.get(key)
-        if cached is not None:
-            return cached
+        if self._cache_frames:
+            cached = self._frame_cache.get(key)
+            if cached is not None:
+                return cached
         annotation_path = sequence.path / f"{frame_id}.yaml"
         lidar_path = sequence.path / f"{frame_id}.pcd"
         if not lidar_path.is_file():
@@ -203,7 +205,8 @@ class CooperSceneSequenceDataset:
             lidar_points=read_ascii_xyzi_pcd(lidar_path),
             map_T_lidar=pose_to_matrix(pose),
         )
-        self._frame_cache[key] = frame
+        if self._cache_frames:
+            self._frame_cache[key] = frame
         return frame
 
 
