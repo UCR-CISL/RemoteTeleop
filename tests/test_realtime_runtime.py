@@ -11,6 +11,8 @@ from src.data.nuscenes_loader import VehicleBox
 from src.realtime.mask_process import (
     MaskProcessService,
     ReliableReconstructionClient,
+    StableTrackAdmission,
+    StableTrackAdmissionConfig,
     build_reconstruction_requests,
     protocol_frame_to_prompt,
     segmentation_batch_to_protocol,
@@ -232,6 +234,14 @@ class _Heartbeat:
 class _MaskWorker:
     def __init__(self):
         self.prompts = []
+        self.starts = 0
+        self.unloads = 0
+
+    def start(self, *, warmup_iterations=3):
+        self.starts += 1
+
+    def unload(self):
+        self.unloads += 1
 
     def process(self, prompt):
         self.prompts.append(prompt)
@@ -274,6 +284,10 @@ def _mask_service(client, worker):
             reconstructions=client,
             heartbeat=_Heartbeat(),
             metrics=metrics,
+            admission_config=StableTrackAdmissionConfig(
+                stable_seconds=0.0,
+                minimum_projected_area_px=0.0,
+            ),
         ),
         masks,
         metrics,
@@ -328,6 +342,96 @@ def test_mask_service_only_prompts_unhandled_tracks():
     assert metrics.items[0]["inference_skipped"] is False
 
 
+def test_take_turn_mask_service_retains_wave_until_gpu_lease_is_available():
+    class Lease:
+        def __init__(self):
+            self.available = False
+            self.releases = 0
+
+        def try_acquire(self):
+            if not self.available:
+                return None
+            return SimpleNamespace(wait_seconds=0.25)
+
+        def release(self):
+            self.releases += 1
+
+    dealer = _FakeDealer()
+    client = ReliableReconstructionClient(dealer)
+    worker = _MaskWorker()
+    lease = Lease()
+    masks = _Collector()
+    metrics = _Collector()
+    service = MaskProcessService(
+        worker=worker,
+        frames=None,
+        masks=masks,
+        reconstructions=client,
+        heartbeat=_Heartbeat(),
+        metrics=metrics,
+        admission_config=StableTrackAdmissionConfig(
+            stable_seconds=0.0,
+            minimum_projected_area_px=0.0,
+        ),
+        residency_lease=lease,
+        warmup_iterations=1,
+    )
+    frame = _wire_frame()
+
+    service.process_frame(frame)
+    assert worker.prompts == []
+    assert metrics.items[-1]["skip_reason"] == "waiting_for_gpu_residency"
+
+    lease.available = True
+    processed = service._process_queued_take_turn_wave()
+
+    assert processed is not None
+    assert len(worker.prompts) == 1
+    assert worker.starts == worker.unloads == lease.releases == 1
+    assert len(dealer.sent) == 1
+    assert any(item.get("event") == "model_loaded" for item in metrics.items)
+    assert any(item.get("event") == "model_released" for item in metrics.items)
+
+
+def test_take_turn_wave_remains_drainable_after_end_of_scene():
+    class Lease:
+        available = False
+
+        def try_acquire(self):
+            return SimpleNamespace(wait_seconds=0.1) if self.available else None
+
+        def release(self):
+            pass
+
+    dealer = _FakeDealer()
+    client = ReliableReconstructionClient(dealer)
+    worker = _MaskWorker()
+    lease = Lease()
+    service = MaskProcessService(
+        worker=worker,
+        frames=None,
+        masks=_Collector(),
+        reconstructions=client,
+        heartbeat=_Heartbeat(),
+        metrics=_Collector(),
+        admission_config=StableTrackAdmissionConfig(
+            stable_seconds=0.0,
+            minimum_projected_area_px=0.0,
+        ),
+        residency_lease=lease,
+    )
+    frame = _wire_frame()
+    service.process_frame(frame)
+    assert service._work_queue_depth() == 1
+
+    service.process_frame(replace(frame, end_of_scene=True, boxes=()))
+    assert service._work_queue_depth() == 1
+
+    lease.available = True
+    assert service._process_queued_take_turn_wave() is not None
+    assert service._work_queue_depth() == 1  # awaiting reconstruction ACK
+
+
 def test_reconstruction_requests_retry_until_ack_then_dedupe_track():
     now = [0.0]
     dealer = _FakeDealer()
@@ -355,6 +459,115 @@ def test_reconstruction_requests_retry_until_ack_then_dedupe_track():
     assert acknowledgements[0].accepted
     assert client.pending_count == 0
     assert not build_reconstruction_requests(frame, masks, client)
+
+
+def _admission_frame(
+    timestamp_us: int,
+    track_ids: tuple[str, ...],
+    *,
+    area: float = 1600.0,
+    visibility: float = 0.8,
+) -> FrameDetections:
+    source = _wire_frame()
+    side = area**0.5
+    boxes = tuple(
+        replace(
+            source.boxes[0],
+            track_id=track_id,
+            xyxy=(50.0, 20.0, 50.0 + side, 20.0 + side),
+            visibility=visibility,
+        )
+        for track_id in track_ids
+    )
+    return replace(
+        source,
+        frame_id=f"frame-{timestamp_us}",
+        request_id=f"request-{timestamp_us}",
+        timestamp_us=timestamp_us,
+        boxes=boxes,
+    )
+
+
+def test_stable_admission_requires_continuous_two_second_visibility():
+    admission = StableTrackAdmission(
+        StableTrackAdmissionConfig(maximum_gap_seconds=1.0)
+    )
+
+    assert not admission.observe(_admission_frame(0, ("car",))).frames
+    assert not admission.observe(_admission_frame(1_000_000, ("car",))).frames
+    wave = admission.observe(_admission_frame(2_000_000, ("car",)))
+
+    assert wave.admitted_track_ids == ("car",)
+    assert wave.frames[0].timestamp_us == 0
+
+
+def test_stable_admission_resets_on_missing_or_low_quality_observation():
+    admission = StableTrackAdmission(
+        StableTrackAdmissionConfig(stable_seconds=0.4, maximum_gap_seconds=0.25)
+    )
+    admission.observe(_admission_frame(0, ("car",)))
+    missing = admission.observe(_admission_frame(100_000, ()))
+    assert missing.reset_track_ids == ("car",)
+    admission.observe(_admission_frame(200_000, ("car",)))
+    low_visibility = admission.observe(
+        _admission_frame(300_000, ("car",), visibility=0.4)
+    )
+    assert low_visibility.reset_track_ids == ("car",)
+    admission.observe(_admission_frame(400_000, ("car",)))
+    gap = admission.observe(_admission_frame(700_000, ("car",)))
+    assert gap.reset_track_ids == ("car",)
+    assert not admission.observe(_admission_frame(900_000, ("car",))).frames
+
+
+def test_stable_admission_caps_and_deterministically_spills_next_wave():
+    admission = StableTrackAdmission(
+        StableTrackAdmissionConfig(
+            stable_seconds=0.1,
+            maximum_gap_seconds=1.0,
+            maximum_admission_batch=5,
+        )
+    )
+    tracks = tuple(f"car-{index}" for index in range(6))
+    admission.observe(_admission_frame(0, tracks))
+    first = admission.observe(_admission_frame(100_000, tracks))
+    second = admission.observe(_admission_frame(200_000, tracks))
+
+    assert first.admitted_track_ids == tracks[:5]
+    assert first.pending_count == 1
+    assert second.admitted_track_ids == tracks[5:]
+    assert second.pending_count == 0
+
+
+def test_pending_admission_is_dropped_when_track_leaves_view():
+    admission = StableTrackAdmission(
+        StableTrackAdmissionConfig(
+            stable_seconds=0.1,
+            maximum_gap_seconds=1.0,
+            maximum_admission_batch=1,
+        )
+    )
+    admission.observe(_admission_frame(0, ("car-a", "car-b")))
+    first = admission.observe(_admission_frame(100_000, ("car-a", "car-b")))
+    second = admission.observe(_admission_frame(200_000, ("car-a",)))
+
+    assert first.admitted_track_ids == ("car-a",)
+    assert second.admitted_track_ids == ()
+    assert second.reset_track_ids == ("car-b",)
+
+
+def test_stable_admission_groups_tracks_that_share_best_keyframe():
+    admission = StableTrackAdmission(
+        StableTrackAdmissionConfig(stable_seconds=0.2, maximum_gap_seconds=1.0)
+    )
+    admission.observe(_admission_frame(0, ("car-a", "car-b"), area=1600.0))
+    admission.observe(_admission_frame(100_000, ("car-a", "car-b"), area=2500.0))
+    wave = admission.observe(
+        _admission_frame(200_000, ("car-a", "car-b"), area=1200.0)
+    )
+
+    assert len(wave.frames) == 1
+    assert wave.frames[0].timestamp_us == 100_000
+    assert tuple(box.track_id for box in wave.frames[0].boxes) == ("car-a", "car-b")
 
 
 def test_metrics_writer_emits_valid_json_line(tmp_path):

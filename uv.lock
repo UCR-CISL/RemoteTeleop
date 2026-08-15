@@ -160,6 +160,18 @@ wheels = [
 ]
 
 [[package]]
+name = "bitsandbytes"
+version = "0.43.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", marker = "python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "torch", marker = "python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/f7/da7090dc7690d6a69a311cfb026825ddd9d3693c9c03dd47fdb56521ca41/bitsandbytes-0.43.0-py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:b2626ada0ae447ae0cf3dd0be8f5b0abad7abdec7056c7fb738aa13a5a862007", size = 102227509, upload-time = "2024-03-08T00:50:48.574Z" },
+]
+
+[[package]]
 name = "blinker"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2597,6 +2609,7 @@ dev = [
 ]
 reconstruction = [
     { name = "astor", marker = "python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "bitsandbytes", marker = "python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "easydict", marker = "python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "einops-exts", marker = "python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "flash-attn", marker = "python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
@@ -2657,6 +2670,7 @@ requires-dist = [
 dev = [{ name = "pytest" }]
 reconstruction = [
     { name = "astor", marker = "python_full_version < '3.12'", specifier = "==0.8.1" },
+    { name = "bitsandbytes", marker = "python_full_version < '3.12'", specifier = "==0.43.0" },
     { name = "easydict", marker = "python_full_version < '3.12'", specifier = "==1.13" },
     { name = "einops-exts", marker = "python_full_version < '3.12'", specifier = "==0.0.4" },
     { name = "flash-attn", marker = "python_full_version < '3.12'", specifier = "==2.8.3" },

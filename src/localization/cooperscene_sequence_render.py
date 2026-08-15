@@ -6,6 +6,7 @@ import csv
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
+import time
 from typing import Callable
 
 import numpy as np
@@ -40,13 +41,14 @@ class CooperSceneSequenceRenderConfig:
     maximum_median_m: float = 0.35
     median_baseline_factor: float = 1.75
     stop_after_low_overlap: int = 5
+    stop_at_overlap: bool = False
     probe_only: bool = False
     render_device: str | None = "cuda"
     render_downsample: int = 2
 
 
 class CooperSceneSequenceRenderer:
-    """Preflight overlap on CPU, then render the in-map prefix one frame at a time."""
+    """Render metadata frames, adding a LiDAR overlap prepass only on request."""
 
     def __init__(self, config: CooperSceneSequenceRenderConfig, *,
                  dataset_factory: Callable[[Path], CooperSceneSequenceDataset] | None = None,
@@ -68,42 +70,70 @@ class CooperSceneSequenceRenderer:
         if config.render_device not in (None, "cpu", "cuda"):
             raise ValueError("render_device must be None, 'cpu', or 'cuda'")
         self.config = config
-        self._dataset_factory = dataset_factory or (lambda root: CooperSceneSequenceDataset(root, cache_frames=False))
+        self._dataset_factory = dataset_factory
         self._map_loader = map_loader
         self._camera_renderer = camera_renderer
 
     def run(self) -> dict:
         transform = _load_transform(self.config.transform_path)
-        splats = self._map_loader(self.config.splat_path)
-        tree = cKDTree(_overlap_proxy(splats, self.config.overlap_map_stride))
-        dataset = self._dataset_factory(self.config.data_root)
+        splats = (
+            self._map_loader(self.config.splat_path)
+            if self.config.stop_at_overlap or not self.config.probe_only else None
+        )
+        dataset = (
+            self._dataset_factory(self.config.data_root)
+            if self._dataset_factory is not None
+            else (
+                CooperSceneSequenceDataset(self.config.data_root, cache_frames=False)
+                if self.config.stop_at_overlap
+                else CooperSceneSequenceDataset.metadata_only(
+                    self.config.data_root, cache_frames=False
+                )
+            )
+        )
         sequence = dataset.sequence(self.config.split, self.config.scenario, self.config.agent)
         indices = list(range(0, len(sequence), self.config.frame_stride))
         if self.config.max_frames is not None:
             indices = indices[:self.config.max_frames]
 
-        records = self._overlap_prepass(sequence, indices, transform, tree)
-        baseline = _baseline(records, self.config.baseline_frames)
-        fine_gate = max(self.config.minimum_fine_ratio,
-                        self.config.fine_baseline_fraction * baseline["fine_ratio"])
-        median_gate = max(self.config.maximum_median_m,
-                          self.config.median_baseline_factor * baseline["median_m"])
-        if baseline["fine_ratio"] < 0.30 or baseline["median_m"] > 0.30:
-            raise RuntimeError(
-                "initial overlap baseline is unhealthy; verify gaussian_T_cooperscene "
-                f"(fine={baseline['fine_ratio']:.3f}, median={baseline['median_m']:.3f} m)"
+        loaded_frames = None
+        if self.config.stop_at_overlap:
+            assert splats is not None
+            tree = cKDTree(_overlap_proxy(splats, self.config.overlap_map_stride))
+            records = self._overlap_prepass(sequence, indices, transform, tree)
+            baseline = _baseline(records, self.config.baseline_frames)
+            fine_gate = max(self.config.minimum_fine_ratio,
+                            self.config.fine_baseline_fraction * baseline["fine_ratio"])
+            median_gate = max(self.config.maximum_median_m,
+                              self.config.median_baseline_factor * baseline["median_m"])
+            if baseline["fine_ratio"] < 0.30 or baseline["median_m"] > 0.30:
+                raise RuntimeError(
+                    "initial overlap baseline is unhealthy; verify gaussian_T_cooperscene "
+                    f"(fine={baseline['fine_ratio']:.3f}, median={baseline['median_m']:.3f} m)"
+                )
+            first_low = _mark_low_overlap(
+                records, fine_gate, median_gate, self.config.minimum_frustum_points,
+                self.config.stop_after_low_overlap,
             )
-
-        first_low = _mark_low_overlap(records, fine_gate, median_gate,
-                                      self.config.minimum_frustum_points,
-                                      self.config.stop_after_low_overlap)
-        render_limit = first_low if first_low is not None else len(records)
+            render_limit = first_low if first_low is not None else len(records)
+        else:
+            baseline = fine_gate = median_gate = first_low = None
+            records, loaded_frames = self._metadata_records(sequence, indices)
+            render_limit = len(records)
         rendered_count = 0
         if not self.config.probe_only:
             frames_dir = self.config.output_dir / "frames"
             frames_dir.mkdir(parents=True, exist_ok=True)
-            for record in records[:render_limit]:
-                frame = sequence[record["sequence_index"]]
+            assert splats is not None
+            for render_index, record in enumerate(records[:render_limit]):
+                if loaded_frames is None:
+                    load_started = time.perf_counter()
+                    frame = sequence[record["sequence_index"]]
+                    record["render_frame_load_ms"] = (
+                        time.perf_counter() - load_started
+                    ) * 1_000.0
+                else:
+                    frame = loaded_frames[render_index]
                 output = frames_dir / f"{rendered_count:06d}_{frame.frame_id}.png"
                 rendered = self._camera_renderer(
                     splats, compose_map_T_camera(transform @ frame.map_T_lidar, camera_T_lidar(self.config.agent)),
@@ -118,12 +148,13 @@ class CooperSceneSequenceRenderer:
                     record["render_backend"] = backend
                 rendered_count += 1
 
-        stop_reason = "consecutive_low_overlap" if first_low is not None else (
+        stop_reason = "consecutive_low_overlap" if self.config.stop_at_overlap and first_low is not None else (
             "max_frames" if self.config.max_frames is not None and len(indices) < len(sequence) else "end_of_sequence"
         )
         result = {
             "config": {k: str(v) if isinstance(v, Path) else v for k, v in asdict(self.config).items()},
             "criterion": {
+                "enabled": self.config.stop_at_overlap,
                 "region": "front_camera_frustum_z_2_to_60_m",
                 "baseline": baseline,
                 "fine_gate": fine_gate,
@@ -137,19 +168,41 @@ class CooperSceneSequenceRenderer:
         }
         self.config.output_dir.mkdir(parents=True, exist_ok=True)
         (self.config.output_dir / "render_manifest.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
-        _write_csv(self.config.output_dir / "overlap.csv", records)
+        if self.config.stop_at_overlap:
+            _write_csv(self.config.output_dir / "overlap.csv", records)
         return result
+
+    def _metadata_records(self, sequence, indices):
+        records = []
+        frames = []
+        for sequence_index in indices:
+            started = time.perf_counter()
+            frame = sequence[sequence_index]
+            elapsed_ms = (time.perf_counter() - started) * 1_000.0
+            frames.append(frame)
+            records.append({
+                "frame_id": frame.frame_id,
+                "sequence_index": sequence_index,
+                "frame_metadata_load_ms": elapsed_ms,
+                "lidar_points_loaded": frame.has_lidar_points,
+                "rendered": False,
+            })
+        return records, frames
 
     def _overlap_prepass(self, sequence, indices, transform, tree) -> list[dict]:
         intrinsic = camera_intrinsic(self.config.agent)
         camera_from_lidar = camera_T_lidar(self.config.agent)
         records = []
         for sequence_index in indices:
+            load_started = time.perf_counter()
             frame = sequence[sequence_index]
-            raw = frame.lidar_points[::self.config.overlap_point_stride, :3]
+            load_ms = (time.perf_counter() - load_started) * 1_000.0
+            raw = frame.require_lidar_points()[::self.config.overlap_point_stride, :3]
             frustum = _front_camera_points(raw, camera_from_lidar, intrinsic, (1920, 1200))
             records.append({
                 "frame_id": frame.frame_id, "sequence_index": sequence_index,
+                "frame_load_with_pcd_ms": load_ms,
+                "lidar_points_loaded": True,
                 **_overlap_metrics(frustum, transform @ frame.map_T_lidar, tree,
                                    self.config.fine_distance_m, self.config.broad_distance_m),
                 "rendered": False, "low_overlap": False,

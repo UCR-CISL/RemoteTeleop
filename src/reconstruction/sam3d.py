@@ -17,6 +17,15 @@ class ObjectReconstructor(Protocol):
     def reconstruct(self, job: ReconstructionJob) -> Path:
         """Reconstruct ``job`` and return a renderer-readable mesh path."""
 
+    def unload(self) -> None:
+        """Release resident accelerator state while retaining service state."""
+
+    def suspend(self) -> Mapping[str, Any]:
+        """Offload accelerator state while retaining initialized host state."""
+
+    def resume(self) -> Mapping[str, Any]:
+        """Restore retained state to its inference device."""
+
 
 class SAM3DObjectReconstructor:
     """Lazy adapter around a checkout-specific SAM 3D Objects entrypoint.
@@ -65,6 +74,30 @@ class SAM3DObjectReconstructor:
         if load is not None:
             load()
 
+    def resume(self) -> Mapping[str, Any]:
+        """Resume a retained backend, or lazily construct it on first use."""
+
+        backend = self._load_backend()
+        resume = getattr(backend, "resume", None)
+        if resume is not None:
+            return dict(resume() or {})
+        load = getattr(backend, "load", None)
+        if load is not None:
+            load()
+        return {"residency_action": "load_fallback"}
+
+    def suspend(self) -> Mapping[str, Any]:
+        """Prefer CPU offload; destroy only backends without that lifecycle."""
+
+        backend = self._backend
+        if backend is None:
+            return {"residency_action": "not_loaded"}
+        suspend = getattr(backend, "suspend", None)
+        if suspend is not None:
+            return dict(suspend() or {})
+        self.unload()
+        return {"residency_action": "destroy_fallback"}
+
     def reconstruct(self, job: ReconstructionJob) -> Path:
         backend = self._load_backend()
         job.output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -80,3 +113,14 @@ class SAM3DObjectReconstructor:
         if not path.is_file() or path.stat().st_size == 0:
             raise RuntimeError(f"SAM 3D did not produce a non-empty mesh at {path}")
         return path
+
+    def unload(self) -> None:
+        backend = self._backend
+        self._backend = None
+        if backend is not None:
+            unload = getattr(backend, "unload", None)
+            if unload is not None:
+                unload()
+        from src.realtime.gpu_residency import release_cuda_memory
+
+        release_cuda_memory()

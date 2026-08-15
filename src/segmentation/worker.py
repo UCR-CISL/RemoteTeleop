@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from .backends import MaskBackend
+from typing import Any, Mapping
+
 from .models import FramePrompt, MaskBatch, WorkerState
 
 
@@ -22,11 +24,26 @@ class MaskWorker:
 
     def start(
         self, warmup_frame: FramePrompt | None = None, *, warmup_iterations: int = 3
-    ) -> None:
-        self.backend.load()
+    ) -> Mapping[str, Any]:
+        resume = getattr(self.backend, "resume", None)
+        if resume is not None:
+            metrics = dict(resume() or {})
+        else:
+            self.backend.load()
+            metrics = {"residency_action": "load_fallback"}
         self.backend.warmup(warmup_frame, iterations=warmup_iterations)
+        return metrics
 
     def process(self, frame: FramePrompt) -> MaskBatch:
         if not self.ready:
             raise RuntimeError("mask worker must finish load and warmup before processing")
         return self.backend.predict(frame)
+
+    def unload(self) -> Mapping[str, Any]:
+        suspend = getattr(self.backend, "suspend", None)
+        if suspend is not None:
+            return dict(suspend() or {})
+        unload = getattr(self.backend, "unload", None)
+        if unload is not None:
+            unload()
+        return {"residency_action": "destroy_fallback"}

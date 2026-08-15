@@ -220,7 +220,7 @@ class CooperSceneGaussianLocalizer:
 
     @staticmethod
     def _world_points(frame, *, stride: int) -> np.ndarray:
-        lidar = np.asarray(frame.lidar_points[::stride, :3], dtype=np.float64)
+        lidar = np.asarray(frame.require_lidar_points()[::stride, :3], dtype=np.float64)
         return lidar @ frame.map_T_lidar[:3, :3].T + frame.map_T_lidar[:3, 3]
 
     @staticmethod

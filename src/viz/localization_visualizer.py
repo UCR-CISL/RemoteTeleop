@@ -24,6 +24,30 @@ class CameraRender:
     backend: str
 
 
+@dataclass(frozen=True)
+class GaussianRenderBuffers:
+    """In-memory RGB, expected-depth, and alpha from one GSplat camera."""
+
+    rgb: np.ndarray
+    depth: np.ndarray
+    alpha: np.ndarray
+    backend: str = "gsplat-cuda"
+
+    def __post_init__(self) -> None:
+        rgb = np.asarray(self.rgb, dtype=np.float32)
+        depth = np.asarray(self.depth, dtype=np.float32)
+        alpha = np.asarray(self.alpha, dtype=np.float32)
+        if rgb.ndim != 3 or rgb.shape[2] != 3:
+            raise ValueError("rgb must have shape (height, width, 3)")
+        if depth.shape != rgb.shape[:2] or alpha.shape != rgb.shape[:2]:
+            raise ValueError("depth and alpha must match the RGB image size")
+        if not np.isfinite(rgb).all() or not np.isfinite(alpha).all():
+            raise ValueError("rgb and alpha must be finite")
+        object.__setattr__(self, "rgb", rgb)
+        object.__setattr__(self, "depth", depth)
+        object.__setattr__(self, "alpha", alpha)
+
+
 def plot_localization_trajectory(
     map_T_lidar: Sequence[np.ndarray] | np.ndarray,
     output_path: str | Path,
@@ -120,6 +144,45 @@ def render_gaussian_camera_view(
     return CameraRender(output, "gsplat-cuda")
 
 
+def render_gaussian_camera_buffers(
+    gaussian_map: GaussianMap,
+    map_T_camera: np.ndarray,
+    camera_intrinsic: np.ndarray,
+    image_size: tuple[int, int],
+    *,
+    downsample: int = 1,
+    device: str = "cuda",
+) -> GaussianRenderBuffers:
+    """Return CUDA GSplat RGB, expected depth, and alpha without saving a file.
+
+    Unlike :func:`render_gaussian_camera_view`, this API deliberately has no
+    CPU fallback: downstream depth compositing must not silently receive the
+    center-projection preview renderer.
+    """
+
+    if not device.startswith("cuda"):
+        raise ValueError("depth-aware Gaussian rendering requires a CUDA device")
+    viewmat, intrinsic, width, height = prepare_camera_render(
+        map_T_camera, camera_intrinsic, image_size, downsample=downsample
+    )
+    try:
+        import torch
+    except ImportError as error:
+        raise RuntimeError("torch is required for depth-aware Gaussian rendering") from error
+    rendered, alphas = _render_gsplat_rgb_depth(
+        torch, gaussian_map, viewmat, intrinsic, width, height, device
+    )
+    rendered = _single_camera_array(rendered, "rendered RGB+depth")
+    alpha = _single_camera_array(alphas, "rendered alpha")
+    if rendered.shape != (height, width, 4):
+        raise ValueError(f"RGB+ED render has unexpected shape {rendered.shape}")
+    if alpha.shape == (height, width, 1):
+        alpha = alpha[..., 0]
+    if alpha.shape != (height, width):
+        raise ValueError(f"alpha render has unexpected shape {alpha.shape}")
+    return GaussianRenderBuffers(rendered[..., :3], rendered[..., 3], alpha)
+
+
 def _render_gsplat(torch, gaussian_map: GaussianMap, viewmat: np.ndarray,
                    intrinsic: np.ndarray, width: int, height: int, device: str):
     """Return gsplat's batched ``(camera, height, width, color)`` tensor."""
@@ -135,6 +198,25 @@ def _render_gsplat(torch, gaussian_map: GaussianMap, viewmat: np.ndarray,
     }
     colors, _, _ = _rasterize(tensors, gaussian_map, width, height)
     return colors
+
+
+def _render_gsplat_rgb_depth(torch, gaussian_map: GaussianMap, viewmat: np.ndarray,
+                             intrinsic: np.ndarray, width: int, height: int, device: str):
+    """Return batched GSplat ``RGB+ED`` and alpha tensors."""
+
+    tensors = {
+        "means": torch.as_tensor(gaussian_map.means, dtype=torch.float32, device=device),
+        "quats": torch.as_tensor(gaussian_map.quats, dtype=torch.float32, device=device),
+        "scales": torch.as_tensor(gaussian_map.scales, dtype=torch.float32, device=device),
+        "opacities": torch.as_tensor(gaussian_map.opacities, dtype=torch.float32, device=device),
+        "colors": torch.as_tensor(gaussian_map.sh_coeffs, dtype=torch.float32, device=device),
+        "viewmats": torch.as_tensor(viewmat[None], dtype=torch.float32, device=device),
+        "Ks": torch.as_tensor(intrinsic[None], dtype=torch.float32, device=device),
+    }
+    rendered, alphas, _ = _rasterize(
+        tensors, gaussian_map, width, height, render_mode="RGB+ED"
+    )
+    return rendered, alphas
 
 
 def render_gaussian_camera(
@@ -211,12 +293,24 @@ def _save_colors(output: Path, colors) -> None:
     plt.imsave(output, np.clip(image, 0.0, 1.0))
 
 
-def _rasterize(tensors, gaussian_map: GaussianMap, width: int, height: int):
+def _rasterize(
+    tensors, gaussian_map: GaussianMap, width: int, height: int, *, render_mode: str = "RGB"
+):
     from gsplat import rasterization
     return rasterization(tensors["means"], tensors["quats"], tensors["scales"], tensors["opacities"],
                          tensors["colors"], tensors["viewmats"], tensors["Ks"], width, height,
                          sh_degree=gaussian_map.sh_degree, packed=False,
-                         rasterize_mode="antialiased" if gaussian_map.antialiased else "classic")
+                         rasterize_mode="antialiased" if gaussian_map.antialiased else "classic",
+                         render_mode=render_mode)
+
+
+def _single_camera_array(value, name: str) -> np.ndarray:
+    array = value.detach().float().cpu().numpy() if hasattr(value, "detach") else np.asarray(value)
+    if array.ndim >= 1 and array.shape[0] == 1:
+        array = array[0]
+    elif array.ndim >= 1 and array.shape[0] != 1:
+        raise ValueError(f"{name} must contain exactly one camera, got {array.shape}")
+    return np.asarray(array, dtype=np.float32)
 
 
 def _poses(values: Sequence[np.ndarray] | np.ndarray, name: str) -> np.ndarray:

@@ -28,6 +28,7 @@ from src.realtime.protocol import (
     WorkerHealth,
     WorkerState,
 )
+from src.realtime.gpu_residency import GpuResidencyLease
 from src.realtime.transport import (
     LatestValueSubscriber,
     PublisherTransport,
@@ -116,12 +117,27 @@ class SAM3DReconstructionService:
         self._visibility: dict[tuple[str, str], TrackVisibility] = {}
         self._sequence = 0
 
-    def load(self) -> None:
+    def load(self) -> dict[str, object]:
         """Load model state once, before the transport accepts requests."""
 
+        resume = getattr(self._reconstructor, "resume", None)
+        if resume is not None:
+            return dict(resume() or {})
         load = getattr(self._reconstructor, "load", None)
         if load is not None:
             load()
+        return {"residency_action": "load_fallback"}
+
+    def unload(self) -> dict[str, object]:
+        """Release model residency without discarding queue/track state."""
+
+        suspend = getattr(self._reconstructor, "suspend", None)
+        if suspend is not None:
+            return dict(suspend() or {})
+        unload = getattr(self._reconstructor, "unload", None)
+        if unload is not None:
+            unload()
+        return {"residency_action": "destroy_fallback"}
 
     @property
     def queue_depth(self) -> int:
@@ -483,6 +499,7 @@ class SAM3DWorkerProcess:
         worker_id: str = "sam3d-object",
         device: str = "cuda:0",
         heartbeat_seconds: float = 1.0,
+        residency_lease: GpuResidencyLease | None = None,
     ) -> None:
         self._service = service
         self._router = router
@@ -493,14 +510,17 @@ class SAM3DWorkerProcess:
         self._worker_id = worker_id
         self._device = device
         self._heartbeat_seconds = heartbeat_seconds
+        self._residency_lease = residency_lease
+        self._model_loaded = False
 
     def run(self) -> None:
-        self._publish_health(WorkerState.LOADING)
-        try:
-            self._service.load()
-        except Exception as error:
-            self._publish_health(WorkerState.FAILED, detail=f"{type(error).__name__}: {error}")
-            raise
+        if self._residency_lease is None:
+            self._publish_health(WorkerState.LOADING)
+            try:
+                self._load_model(wait_seconds=0.0)
+            except Exception as error:
+                self._publish_health(WorkerState.FAILED, detail=f"{type(error).__name__}: {error}")
+                raise
         self._publish_health(WorkerState.READY)
         future: Future[AssetEvent] | None = None
         next_heartbeat = time.monotonic() + self._heartbeat_seconds
@@ -553,11 +573,28 @@ class SAM3DWorkerProcess:
                             )
                             return
 
-                    if future is None:
+                    if (
+                        future is None
+                        and self._service.queue_depth > 0
+                        and not self._model_loaded
+                    ):
+                        assert self._residency_lease is not None
+                        acquisition = self._residency_lease.try_acquire()
+                        if acquisition is not None:
+                            self._publish_health(WorkerState.LOADING)
+                            self._append_lifecycle_metrics(
+                                "residency_acquired",
+                                wait_seconds=acquisition.wait_seconds,
+                            )
+                            self._load_model(wait_seconds=acquisition.wait_seconds)
+
+                    if future is None and self._model_loaded:
                         queued = self._service.pop_next()
                         if queued is not None:
                             self._assets.send(_asset_event(queued.request, AssetState.RUNNING))
                             future = executor.submit(self._service.reconstruct, queued)
+                        elif self._residency_lease is not None:
+                            self._unload_model()
 
                     now = time.monotonic()
                     if now >= next_heartbeat:
@@ -566,6 +603,48 @@ class SAM3DWorkerProcess:
                         next_heartbeat = now + self._heartbeat_seconds
             except KeyboardInterrupt:
                 self._publish_health(WorkerState.STOPPING)
+            except Exception as error:
+                self._publish_health(
+                    WorkerState.FAILED,
+                    detail=f"{type(error).__name__}: {error}",
+                )
+                raise
+            finally:
+                if self._residency_lease is not None:
+                    self._unload_model()
+                    self._residency_lease.close()
+
+    def _load_model(self, *, wait_seconds: float) -> None:
+        started = time.perf_counter()
+        try:
+            transfer_metrics = self._service.load()
+        except Exception:
+            if self._residency_lease is not None:
+                self._residency_lease.release()
+            raise
+        self._model_loaded = True
+        self._append_lifecycle_metrics(
+            "model_loaded",
+            load_seconds=time.perf_counter() - started,
+            residency_wait_seconds=wait_seconds,
+            **(transfer_metrics or {}),
+            **_cuda_metrics(),
+        )
+
+    def _unload_model(self) -> None:
+        if not self._model_loaded:
+            return
+        started = time.perf_counter()
+        transfer_metrics = self._service.unload()
+        self._model_loaded = False
+        self._append_lifecycle_metrics(
+            "model_released",
+            unload_seconds=time.perf_counter() - started,
+            **(transfer_metrics or {}),
+            **_cuda_metrics(),
+        )
+        if self._residency_lease is not None:
+            self._residency_lease.release()
 
     def _publish_health(self, state: WorkerState, *, detail: str | None = None) -> None:
         cuda = _cuda_metrics()
@@ -592,6 +671,20 @@ class SAM3DWorkerProcess:
             "state": event.state,
             "error": event.error,
             **event.metrics,
+        }
+        self._metrics_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._metrics_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, allow_nan=False) + "\n")
+
+    def _append_lifecycle_metrics(self, event: str, **values: object) -> None:
+        record = {
+            "timestamp_us": time.time_ns() // 1_000,
+            "event": event,
+            "worker_id": self._worker_id,
+            "runtime_mode": (
+                "take_turns" if self._residency_lease is not None else "resident"
+            ),
+            **values,
         }
         self._metrics_path.parent.mkdir(parents=True, exist_ok=True)
         with self._metrics_path.open("a", encoding="utf-8") as stream:
@@ -681,7 +774,10 @@ def main() -> None:
         default=Path("checkpoints/hf/pipeline.yaml"),
     )
     parser.add_argument("--compile-model", action="store_true")
-    parser.add_argument("--precision", choices=("default", "fp16"), default="default")
+    parser.add_argument("--device", default="cuda:0")
+    parser.add_argument(
+        "--precision", choices=("default", "fp16", "nf4"), default="default"
+    )
     parser.add_argument(
         "--priority-policy", choices=("quality", "deadline"), default="quality"
     )
@@ -689,6 +785,11 @@ def main() -> None:
     parser.add_argument("--stage1-inference-steps", type=int)
     parser.add_argument("--stage2-inference-steps", type=int)
     parser.add_argument("--pointmap-cache-size", type=int, default=0)
+    parser.add_argument(
+        "--gpu-residency-lock",
+        type=Path,
+        help="enable lazy take-turn residency using this cross-process lock",
+    )
     args = parser.parse_args()
 
     reconstructor = SAM3DObjectReconstructor(
@@ -701,6 +802,7 @@ def main() -> None:
             "stage1_inference_steps": args.stage1_inference_steps,
             "stage2_inference_steps": args.stage2_inference_steps,
             "pointmap_cache_size": args.pointmap_cache_size,
+            "device": args.device,
         },
     )
     service = SAM3DReconstructionService(
@@ -727,6 +829,12 @@ def main() -> None:
         health=health,
         metrics_path=args.metrics_path,
         frames=frames,
+        device=args.device,
+        residency_lease=(
+            GpuResidencyLease(args.gpu_residency_lock, owner="sam3d-object")
+            if args.gpu_residency_lock is not None
+            else None
+        ),
     )
     try:
         worker.run()

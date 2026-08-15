@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pickle
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -14,6 +15,7 @@ from src.segmentation import (
     SAM3MaskBackendConfig,
     WorkerState,
 )
+from src.segmentation.backends import _OfficialSAM3ImagePredictor, _move_processor_state
 
 
 def _frame() -> FramePrompt:
@@ -162,6 +164,123 @@ def test_sam3_failure_moves_worker_to_failed_state():
     with pytest.raises(RuntimeError, match="load failed"):
         backend.load()
     assert backend.state is WorkerState.FAILED
+
+
+def test_sam3_worker_can_unload_and_reload_without_replacing_worker():
+    created: list[object] = []
+
+    class Predictor:
+        def set_image(self, image):
+            return {}
+
+        def predict_box(self, state, box):
+            return {
+                "masks": np.ones((1, 10, 20), dtype=bool),
+                "scores": np.asarray([0.9]),
+            }
+
+    backend = SAM3MaskBackend(
+        SAM3MaskBackendConfig(device="cpu"),
+        predictor_factory=lambda _: created.append(Predictor()) or created[-1],
+    )
+    worker = MaskWorker(backend)
+    worker.start(_frame(), warmup_iterations=1)
+
+    worker.unload()
+    assert worker.state is WorkerState.CREATED
+    worker.start(_frame(), warmup_iterations=1)
+
+    assert worker.ready
+    assert len(created) == 2
+
+
+def test_sam3_worker_suspends_and_resumes_persistent_predictor():
+    created = []
+
+    class Predictor:
+        def __init__(self):
+            self.suspends = 0
+            self.resumes = 0
+
+        def set_image(self, image):
+            self.shape = image.shape[:2]
+            return {}
+
+        def predict_box(self, state, box):
+            return {
+                "masks": np.ones((1, *self.shape), dtype=bool),
+                "scores": np.asarray([0.9]),
+            }
+
+        def suspend(self):
+            self.suspends += 1
+            return {"residency_action": "cpu_offload", "offload_transfer_seconds": 0.3}
+
+        def resume(self):
+            self.resumes += 1
+            return {"residency_action": "cuda_resume", "resume_transfer_seconds": 0.2}
+
+    backend = SAM3MaskBackend(
+        SAM3MaskBackendConfig(device="cpu"),
+        predictor_factory=lambda _: created.append(Predictor()) or created[-1],
+    )
+    worker = MaskWorker(backend)
+    first = worker.start(_frame(), warmup_iterations=1)
+    offload = worker.unload()
+    resumed = worker.start(_frame(), warmup_iterations=1)
+
+    assert first["residency_action"] == "initial_load"
+    assert offload["offload_transfer_seconds"] == 0.3
+    assert resumed["resume_transfer_seconds"] == 0.2
+    assert len(created) == 1
+    assert created[0].suspends == created[0].resumes == 1
+
+
+def test_official_sam3_predictor_moves_processor_and_clears_image_state(monkeypatch):
+    transfers = []
+
+    class Model:
+        def to(self, device):
+            transfers.append(str(device))
+            return self
+
+    predictor = _OfficialSAM3ImagePredictor.__new__(_OfficialSAM3ImagePredictor)
+    predictor._processor = SimpleNamespace(model=Model(), device="cuda:0", find_stage=None)
+    predictor._device = "cuda:0"
+    predictor._configured_device = "cuda:0"
+    predictor._active_state = {"backbone_out": {"gpu": object()}}
+    predictor._suspended = False
+    monkeypatch.setattr(
+        "src.realtime.gpu_residency.release_cuda_memory", lambda: None
+    )
+    monkeypatch.setattr("src.segmentation.backends._synchronize_cuda", lambda _: None)
+
+    offload = predictor.suspend()
+    resume = predictor.resume()
+
+    assert predictor._active_state is None
+    assert transfers == ["cpu", "cuda:0"]
+    assert predictor._processor.device == "cuda:0"
+    assert predictor._device == "cuda:0"
+    assert offload["residency_action"] == "cpu_offload"
+    assert resume["residency_action"] == "cuda_resume"
+
+
+def test_processor_state_moves_persistent_find_stage_tensors():
+    processor = SimpleNamespace(
+        device="cuda",
+        find_stage=SimpleNamespace(
+            img_ids=np.asarray([1]),
+            text_ids=__import__("torch").tensor([2]),
+            nested=[__import__("torch").tensor([3])],
+        ),
+    )
+
+    _move_processor_state(processor, "cpu")
+
+    assert processor.device == "cpu"
+    assert processor.find_stage.text_ids.device.type == "cpu"
+    assert processor.find_stage.nested[0].device.type == "cpu"
 
 
 def test_offline_backend_is_explicit_and_reports_missing_masks():

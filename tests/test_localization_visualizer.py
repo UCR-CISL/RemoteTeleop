@@ -7,6 +7,7 @@ from src.localization.transforms import compose_map_T_camera
 from src.viz.localization_visualizer import (
     plot_localization_trajectory,
     prepare_camera_render,
+    render_gaussian_camera_buffers,
     render_gaussian_camera_view,
     render_localized_camera_view,
 )
@@ -76,6 +77,26 @@ def test_cuda_render_failure_falls_back_to_cpu(monkeypatch, tmp_path):
     image = mpimg.imread(result.path)
     assert image.shape[:2] == (6, 8)
     assert np.any(image[..., :3] > 0)
+
+
+def test_cuda_buffer_render_returns_rgb_expected_depth_and_alpha(monkeypatch):
+    rendered = np.zeros((1, 6, 8, 4), dtype=np.float32)
+    rendered[..., :3] = 0.25
+    rendered[..., 3] = 7.5
+    alpha = np.full((1, 6, 8, 1), 0.8, dtype=np.float32)
+    monkeypatch.setattr(
+        "src.viz.localization_visualizer._render_gsplat_rgb_depth",
+        lambda *_args: (rendered, alpha),
+    )
+
+    result = render_gaussian_camera_buffers(
+        _map(), np.eye(4), np.eye(3), (8, 6), device="cuda"
+    )
+
+    assert result.backend == "gsplat-cuda"
+    np.testing.assert_allclose(result.rgb, 0.25)
+    np.testing.assert_allclose(result.depth, 7.5)
+    np.testing.assert_allclose(result.alpha, 0.8)
 
 
 def test_renderer_rejects_non_png_output(tmp_path):

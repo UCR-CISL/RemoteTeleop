@@ -1,4 +1,5 @@
 from dataclasses import replace
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,7 +13,7 @@ from src.realtime.protocol import (
     FrameDetections,
     ReconstructionRequest,
 )
-from src.realtime.sam3d_worker import SAM3DReconstructionService
+from src.realtime.sam3d_worker import SAM3DReconstructionService, SAM3DWorkerProcess
 
 
 IDENTITY_3 = tuple(np.eye(3).reshape(-1))
@@ -82,6 +83,7 @@ class FakeReconstructor:
     def __init__(self) -> None:
         self.loads = 0
         self.jobs = []
+        self.unloads = 0
 
     def load(self) -> None:
         self.loads += 1
@@ -91,6 +93,9 @@ class FakeReconstructor:
         job.output_path.parent.mkdir(parents=True, exist_ok=True)
         job.output_path.write_bytes(b"raw mesh")
         return job.output_path
+
+    def unload(self) -> None:
+        self.unloads += 1
 
 
 class FakeAligner:
@@ -127,6 +132,80 @@ def test_service_loads_once_and_queues_by_quality(tmp_path):
     assert service.pop_next().request == low
     assert service.pop_next() is None
     assert reconstructor.loads == 1
+
+
+def test_service_unloads_model_without_discarding_queued_work(tmp_path):
+    reconstructor = FakeReconstructor()
+    service = SAM3DReconstructionService(
+        reconstructor=reconstructor,
+        aligner=FakeAligner(),
+        output_root=tmp_path,
+    )
+    request = _request("waiting")
+    service.enqueue(request)
+
+    service.load()
+    service.unload()
+
+    assert reconstructor.loads == 1
+    assert reconstructor.unloads == 1
+    assert service.queue_depth == 1
+
+
+def test_worker_model_handoff_logs_switch_latency(tmp_path):
+    class Service:
+        queue_depth = 0
+
+        def __init__(self):
+            self.loads = 0
+            self.unloads = 0
+
+        def load(self):
+            self.loads += 1
+            return {
+                "residency_action": "cuda_resume",
+                "resume_transfer_seconds": 0.2,
+            }
+
+        def unload(self):
+            self.unloads += 1
+            return {
+                "residency_action": "cpu_offload",
+                "offload_transfer_seconds": 0.3,
+            }
+
+    class Lease:
+        def __init__(self):
+            self.releases = 0
+
+        def release(self):
+            self.releases += 1
+
+    service = Service()
+    lease = Lease()
+    metrics_path = tmp_path / "sam3d.jsonl"
+    process = SAM3DWorkerProcess(
+        service=service,
+        router=None,
+        assets=None,
+        health=None,
+        metrics_path=metrics_path,
+        residency_lease=lease,
+    )
+
+    process._load_model(wait_seconds=0.75)
+    process._unload_model()
+
+    records = [json.loads(line) for line in metrics_path.read_text().splitlines()]
+    assert service.loads == service.unloads == lease.releases == 1
+    assert [record["event"] for record in records] == [
+        "model_loaded",
+        "model_released",
+    ]
+    assert records[0]["residency_wait_seconds"] == 0.75
+    assert records[0]["resume_transfer_seconds"] == 0.2
+    assert records[1]["offload_transfer_seconds"] == 0.3
+    assert all(record["runtime_mode"] == "take_turns" for record in records)
 
 
 def test_service_deduplicates_track_within_generation(tmp_path):

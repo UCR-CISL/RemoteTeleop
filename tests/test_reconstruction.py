@@ -94,6 +94,62 @@ def test_sam3d_adapter_loads_backend_once(tmp_path):
     assert loads == [True]
 
 
+def test_sam3d_adapter_prefers_suspend_resume_without_reconstruction(tmp_path):
+    instances = []
+
+    class Backend:
+        def __init__(self):
+            self.resumes = 0
+            self.suspends = 0
+
+        def resume(self):
+            self.resumes += 1
+            return {"residency_action": "cuda_resume"}
+
+        def suspend(self):
+            self.suspends += 1
+            return {"residency_action": "cpu_offload"}
+
+    adapter = SAM3DObjectReconstructor(
+        factory=lambda: instances.append(Backend()) or instances[-1]
+    )
+
+    assert adapter.resume()["residency_action"] == "cuda_resume"
+    assert adapter.suspend()["residency_action"] == "cpu_offload"
+    assert adapter.resume()["residency_action"] == "cuda_resume"
+
+    assert len(instances) == 1
+    assert instances[0].resumes == 2
+    assert instances[0].suspends == 1
+
+
+def test_sam3d_adapter_falls_back_to_destroy_for_simple_test_backend():
+    instances = []
+
+    class Backend:
+        def __init__(self):
+            self.loads = 0
+            self.unloads = 0
+
+        def load(self):
+            self.loads += 1
+
+        def unload(self):
+            self.unloads += 1
+
+    adapter = SAM3DObjectReconstructor(
+        factory=lambda: instances.append(Backend()) or instances[-1]
+    )
+    adapter.resume()
+    first = instances[0]
+
+    assert adapter.suspend()["residency_action"] == "destroy_fallback"
+    adapter.resume()
+
+    assert first.unloads == 1
+    assert len(instances) == 2
+
+
 def test_upstream_sam3d_validates_step_overrides(tmp_path):
     with pytest.raises(ValueError, match="stage1_inference_steps"):
         UpstreamSAM3DBackend(
@@ -114,6 +170,12 @@ def test_upstream_sam3d_validates_step_overrides(tmp_path):
             repository=tmp_path,
             config_path="pipeline.yaml",
             pointmap_cache_size=-1,
+        )
+    with pytest.raises(ValueError, match="CUDA-only"):
+        UpstreamSAM3DBackend(
+            repository=tmp_path,
+            config_path="pipeline.yaml",
+            device="cpu",
         )
 
 
@@ -144,6 +206,67 @@ def test_same_frame_depth_cache_reuses_rgb_and_evicts_lru():
     assert cache.last_call_metrics["pointmap_cache_hits"] == 1
     assert cache.last_call_metrics["pointmap_cache_misses"] == 3
     assert cache.last_call_metrics["pointmap_cache_evictions"] == 2
+
+    cache.clear()
+    assert not cache._cache
+    assert cache.last_call_metrics["pointmap_cache_hit"] is False
+
+
+def test_upstream_sam3d_offloads_and_resumes_same_pipeline(tmp_path, monkeypatch):
+    transfers = []
+
+    class Module:
+        def to(self, device):
+            transfers.append((id(self), str(device)))
+            return self
+
+    model = Module()
+    conditioner = Module()
+    depth_model = Module()
+    depth_delegate = SimpleNamespace(model=depth_model, device=torch.device("cuda:0"))
+    cache = _SameFrameDepthCache(depth_delegate, capacity=1)
+    cache._cache[b"frame"] = {"pointmaps": object()}
+    inference = SimpleNamespace(
+        models={"generator": model},
+        condition_embedders={"image": conditioner},
+        depth_model=cache,
+        pose_decoder=None,
+        ss_preprocessor=model,  # duplicate ownership must transfer only once
+        slat_preprocessor=None,
+        device=torch.device("cuda:0"),
+    )
+    backend = UpstreamSAM3DBackend(
+        repository=tmp_path,
+        config_path="pipeline.yaml",
+        device="cuda:0",
+    )
+    backend._inference = inference
+    backend._depth_cache = cache
+    monkeypatch.setattr(
+        "src.realtime.gpu_residency.release_cuda_memory", lambda: None
+    )
+    monkeypatch.setattr(
+        "src.reconstruction.sam3d_upstream._synchronize_cuda", lambda: None
+    )
+
+    offload = backend.suspend()
+    resume = backend.resume()
+
+    assert offload["residency_action"] == "cpu_offload"
+    assert resume["residency_action"] == "cuda_resume"
+    assert offload["transferred_module_roots"] == 3
+    assert resume["transferred_module_roots"] == 3
+    assert [device for _, device in transfers] == [
+        "cpu",
+        "cpu",
+        "cpu",
+        "cuda:0",
+        "cuda:0",
+        "cuda:0",
+    ]
+    assert not cache._cache
+    assert inference.device == torch.device("cuda:0")
+    assert depth_delegate.device == torch.device("cuda:0")
 
 
 def test_reconstruction_job_is_process_serializable(tmp_path):

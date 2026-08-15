@@ -221,6 +221,59 @@ Offline masks remain available only as an explicit fallback with
 `--offline-mask-root`; no legacy SAM v1 path is supported. Outputs default to
 `artifacts/realtime/`, with one mesh directory per scene generation and track.
 
+For CooperScene, the same isolated workers can replay a localized vehicle,
+show projected GT box proxies immediately, admit continuously visible tracks
+after two seconds in waves of up to five, and replace proxies with depth-aware
+SAM3D mesh overlays in the GSplat camera render:
+
+```bash
+MAX_JOBS=2 .venv/bin/python -m src.realtime.supervisor \
+  --source cooperscene \
+  --dataroot /mnt/bcc-data/data/CooperScene \
+  --split train --scene 1 --agent 1 \
+  --splat data/riverside_r3.spz \
+  --localization-transform artifacts/cooperscene_single_agent_coarse_cuda/localization.json \
+  --output-root artifacts/cooperscene_sam3d_agent1 \
+  --sam3d-config checkpoints/hf/pipeline.yaml \
+  --fp16
+```
+
+The CooperScene defaults group same-frame box prompts under one SAM 3.1 image
+encoding and cache up to five same-frame SAM3D point maps. SAM3D itself remains
+single-object and runs admitted requests sequentially. The compositor writes numbered PNGs and
+`composited.mp4`. CooperScene replay and standalone rendering process the full
+take by default. To truncate at the overlap diagnostic's cutoff, pass both
+`--overlap-manifest PATH` and `--stop-at-overlap`.
+
+After localization, replay and default sequence rendering load only each
+frame's YAML pose/boxes and camera image. They do not open the PCD or run the
+LiDAR overlap prepass. Passing `--stop-at-overlap` explicitly enables the
+LiDAR-backed overlap diagnostic/cutoff path.
+
+For a 24 GiB GPU, the measured memory/latency tradeoff keeps SAM3 in FP16 and
+uses selective NF4 weights for SAM3D, while retaining FP16 compute for its
+sparse operators:
+
+```bash
+MAX_JOBS=2 .venv/bin/python -m src.realtime.supervisor \
+  --source cooperscene \
+  --dataroot /mnt/bcc-data/data/CooperScene \
+  --split train --scene 1 --agent 1 \
+  --splat data/riverside_r3.spz \
+  --localization-transform artifacts/cooperscene_single_agent_coarse_cuda/localization.json \
+  --output-root artifacts/cooperscene_sam3d_agent1_nf4 \
+  --sam3d-config checkpoints/hf/pipeline.yaml \
+  --sam3-precision fp16 --sam3d-precision nf4 \
+  --sam3d-stage1-inference-steps 12 \
+  --sam3d-stage2-inference-steps 12 \
+  --render-downsample 4
+```
+
+This remains an asynchronous geometry overlay, not a teleoperation video
+path: the measured CooperScene replay produced about 1.43 composited frames/s
+and new meshes took about 6.57 seconds. Keep camera/control transport on a
+separate real-time path and show projected boxes until meshes arrive.
+
 DriveStudio is pinned only to define the future static-scene renderer boundary.
 Its preprocessing, GSplat training, checkpoint loading, nuScenes-to-map
 registration, and combined renderer are intentionally deferred.

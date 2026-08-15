@@ -17,6 +17,70 @@ import numpy as np
 from .models import ReconstructionJob
 
 
+SAM3D_CPU_UNSUPPORTED_REASON = (
+    "the pinned SAM3D Objects backend is CUDA-only: its upstream pipeline uses "
+    "CUDA autocast, CUDA sparse operators, and hard-coded CUDA tensor placement"
+)
+
+
+def validate_sam3d_device(device: str) -> str:
+    """Reject devices the pinned upstream implementation cannot execute on."""
+
+    normalized = str(device).strip().casefold()
+    is_cuda = normalized == "cuda" or (
+        normalized.startswith("cuda:") and normalized.removeprefix("cuda:").isdigit()
+    )
+    if not is_cuda:
+        raise ValueError(f"SAM3D device {device!r} is unsupported; {SAM3D_CPU_UNSUPPORTED_REASON}")
+    return str(device)
+
+
+def _sam3d_nf4_roots(inference: Any) -> tuple[Any, ...]:
+    """Return independently-owned torch modules from the upstream container."""
+
+    roots = [
+        *inference.models.values(),
+        *inference.condition_embedders.values(),
+    ]
+    # The MoGe pipeline wrapper is not itself an nn.Module.
+    depth_model = getattr(inference.depth_model, "model", inference.depth_model)
+    roots.append(depth_model)
+    return tuple(
+        root
+        for root in roots
+        if hasattr(root, "parameters") and hasattr(root, "modules")
+    )
+
+
+def _sam3d_transfer_roots(inference: Any) -> tuple[Any, ...]:
+    """Enumerate each independently-owned stateful module exactly once."""
+
+    candidates: list[Any] = []
+    models = getattr(inference, "models", {})
+    candidates.extend(models.values() if hasattr(models, "values") else (models,))
+    embedders = getattr(inference, "condition_embedders", {})
+    candidates.extend(
+        embedders.values() if hasattr(embedders, "values") else (embedders,)
+    )
+    depth = getattr(inference, "depth_model", None)
+    delegate = getattr(depth, "_delegate", depth)
+    candidates.append(getattr(delegate, "model", delegate))
+    candidates.extend(
+        getattr(inference, name, None)
+        for name in ("pose_decoder", "ss_preprocessor", "slat_preprocessor")
+    )
+    roots: list[Any] = []
+    seen: set[int] = set()
+    for candidate in candidates:
+        if candidate is None or not callable(getattr(candidate, "to", None)):
+            continue
+        identity = id(candidate)
+        if identity not in seen:
+            seen.add(identity)
+            roots.append(candidate)
+    return tuple(roots)
+
+
 class UpstreamSAM3DBackend:
     """Load Meta's public inference wrapper once and export its GLB result."""
 
@@ -30,9 +94,12 @@ class UpstreamSAM3DBackend:
         stage1_inference_steps: int | None = None,
         stage2_inference_steps: int | None = None,
         pointmap_cache_size: int = 0,
+        device: str = "cuda:0",
     ) -> None:
-        if precision not in {"default", "fp16"}:
-            raise ValueError("precision must be 'default' or 'fp16'")
+        if precision not in {"default", "fp16", "nf4"}:
+            raise ValueError("precision must be 'default', 'fp16', or 'nf4'")
+        if precision == "nf4" and compile_model:
+            raise ValueError("NF4 inference does not support model compilation")
         for name, value in (
             ("stage1_inference_steps", stage1_inference_steps),
             ("stage2_inference_steps", stage2_inference_steps),
@@ -49,9 +116,12 @@ class UpstreamSAM3DBackend:
         self.stage1_inference_steps = stage1_inference_steps
         self.stage2_inference_steps = stage2_inference_steps
         self.pointmap_cache_size = pointmap_cache_size
+        self.device = validate_sam3d_device(device)
         self._inference: Any | None = None
         self._depth_cache: _SameFrameDepthCache | None = None
         self._load_metrics: dict[str, Any] = {}
+        self._suspended = False
+        self._last_transfer_metrics: dict[str, Any] = {}
 
     def _load(self) -> Any:
         if self._inference is not None:
@@ -77,6 +147,7 @@ class UpstreamSAM3DBackend:
         config = OmegaConf.load(self.config_path)
         config.rendering_engine = "pytorch3d"
         config.compile_model = self.compile_model
+        config.device = self.device
         if self.precision == "fp16":
             config.dtype = "float16"
             config.shape_model_dtype = "float16"
@@ -93,6 +164,13 @@ class UpstreamSAM3DBackend:
         load_started = time.perf_counter()
         _reset_cuda_peaks()
         self._inference = instantiate(config)
+        quantization_metrics: dict[str, int | float] = {}
+        if self.precision == "nf4":
+            from src.common.nf4 import quantize_dense_linear_nf4
+
+            quantization_metrics = quantize_dense_linear_nf4(
+                _sam3d_nf4_roots(self._inference), device=self.device
+            ).as_dict()
         if self.pointmap_cache_size > 0:
             self._depth_cache = _SameFrameDepthCache(
                 self._inference.depth_model,
@@ -109,6 +187,7 @@ class UpstreamSAM3DBackend:
             "effective_dtype": effective_dtype,
             "effective_shape_model_dtype": effective_shape_dtype,
             "pointmap_cache_size": self.pointmap_cache_size,
+            **quantization_metrics,
             **_cuda_peak_metrics("model_load_"),
         }
         return self._inference
@@ -116,7 +195,76 @@ class UpstreamSAM3DBackend:
     def load(self) -> None:
         """Eagerly load the resident upstream pipeline."""
 
-        self._load()
+        if self._inference is None:
+            self._load()
+        elif self._suspended:
+            self.resume()
+
+    @property
+    def last_transfer_metrics(self) -> dict[str, Any]:
+        return dict(self._last_transfer_metrics)
+
+    def suspend(self) -> dict[str, Any]:
+        """Move persistent model state to CPU without rebuilding the pipeline."""
+
+        inference = self._inference
+        if inference is None or self._suspended:
+            return {"residency_action": "already_suspended"}
+        started = time.perf_counter()
+        if self._depth_cache is not None:
+            self._depth_cache.clear()
+        roots = _sam3d_transfer_roots(inference)
+        for module in roots:
+            module.to("cpu")
+        _set_pipeline_device(inference, "cpu")
+        from src.realtime.gpu_residency import release_cuda_memory
+
+        release_cuda_memory()
+        self._suspended = True
+        self._last_transfer_metrics = {
+            "residency_action": "cpu_offload",
+            "offload_transfer_seconds": time.perf_counter() - started,
+            "transferred_module_roots": len(roots),
+        }
+        return self.last_transfer_metrics
+
+    def resume(self) -> dict[str, Any]:
+        """Move the retained pipeline back to its configured CUDA device."""
+
+        if self._inference is None:
+            started = time.perf_counter()
+            self._load()
+            self._last_transfer_metrics = {
+                "residency_action": "initial_load",
+                "initial_load_seconds": time.perf_counter() - started,
+            }
+            return self.last_transfer_metrics
+        if not self._suspended:
+            return {"residency_action": "already_resident"}
+        started = time.perf_counter()
+        roots = _sam3d_transfer_roots(self._inference)
+        for module in roots:
+            module.to(self.device)
+        _set_pipeline_device(self._inference, self.device)
+        _synchronize_cuda()
+        self._suspended = False
+        self._last_transfer_metrics = {
+            "residency_action": "cuda_resume",
+            "resume_transfer_seconds": time.perf_counter() - started,
+            "transferred_module_roots": len(roots),
+        }
+        return self.last_transfer_metrics
+
+    def unload(self) -> None:
+        """Release the upstream pipeline and cached CUDA tensors."""
+
+        self._inference = None
+        self._depth_cache = None
+        self._load_metrics = {}
+        self._suspended = False
+        from src.realtime.gpu_residency import release_cuda_memory
+
+        release_cuda_memory()
 
     def reconstruct(
         self,
@@ -127,6 +275,8 @@ class UpstreamSAM3DBackend:
         output_path: Path,
         seed: int,
     ) -> Path:
+        if self._suspended:
+            self.resume()
         inference = self._load()
         rgba = np.concatenate(
             (image[..., :3], (mask.astype(np.uint8) * 255)[..., None]), axis=-1
@@ -228,6 +378,13 @@ class _SameFrameDepthCache:
         self._last_seconds = time.perf_counter() - started
         return output
 
+    def clear(self) -> None:
+        """Release cached pointmaps, which may otherwise retain CUDA tensors."""
+
+        self._cache.clear()
+        self._last_hit = False
+        self._last_seconds = 0.0
+
     @property
     def last_call_metrics(self) -> dict[str, object]:
         return {
@@ -240,6 +397,17 @@ class _SameFrameDepthCache:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._delegate, name)
+
+
+def _set_pipeline_device(inference: Any, device: str) -> None:
+    import torch
+
+    resolved = torch.device(device)
+    inference.device = resolved
+    depth = getattr(inference, "depth_model", None)
+    delegate = getattr(depth, "_delegate", depth)
+    if delegate is not None and hasattr(delegate, "device"):
+        delegate.device = resolved
 
 
 def _to_list(value: Any) -> Any:

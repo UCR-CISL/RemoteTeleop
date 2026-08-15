@@ -10,7 +10,6 @@ batched-box API can replace the decode loop without changing callers.
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -40,6 +39,12 @@ class MaskBackend(Protocol):
 
     def predict(self, frame: FramePrompt) -> MaskBatch: ...
 
+    def unload(self) -> None: ...
+
+    def suspend(self) -> Mapping[str, Any]: ...
+
+    def resume(self) -> Mapping[str, Any]: ...
+
 
 class SAM3ImagePredictor(Protocol):
     """Small seam around the unstable upstream SAM 3 processor API."""
@@ -56,6 +61,10 @@ class SAM3ImagePredictor(Protocol):
         boxes_xyxy: tuple[tuple[float, float, float, float], ...],
     ) -> tuple[Mapping[str, Any], ...]: ...
 
+    def suspend(self) -> Mapping[str, Any]: ...
+
+    def resume(self) -> Mapping[str, Any]: ...
+
 
 @dataclass(frozen=True)
 class SAM3MaskBackendConfig:
@@ -69,8 +78,14 @@ class SAM3MaskBackendConfig:
     prompt_mode: str = "serial_grounding"
 
     def __post_init__(self) -> None:
-        if self.precision not in {"default", "fp16"}:
-            raise ValueError("precision must be 'default' or 'fp16'")
+        if self.precision not in {"default", "fp16", "nf4"}:
+            raise ValueError("precision must be 'default', 'fp16', or 'nf4'")
+        if self.precision == "nf4" and not self.device.startswith("cuda"):
+            raise ValueError("NF4 inference requires a CUDA device")
+        if self.precision == "fp16" and not self.device.startswith("cuda"):
+            raise ValueError("FP16 SAM3 inference requires a CUDA device; use default BF16")
+        if self.precision == "nf4" and self.compile:
+            raise ValueError("NF4 inference does not support --compile")
         if self.prompt_mode not in {"serial_grounding", "interactive_batch"}:
             raise ValueError(
                 "prompt_mode must be 'serial_grounding' or 'interactive_batch'"
@@ -112,6 +127,27 @@ class _OfficialSAM3ImagePredictor:
         if config.precision == "fp16":
             model = model.half()
             _patch_sam3_fp16_ffn(model)
+        effective_precision = (
+            "bf16"
+            if not config.device.startswith("cuda") or config.precision == "default"
+            else "nf4-weights-fp16-compute"
+            if config.precision == "nf4"
+            else "fp16"
+        )
+        self.model_metrics: dict[str, int | float | str] = {
+            "requested_precision": config.precision,
+            "effective_precision": effective_precision,
+        }
+        if config.precision == "nf4":
+            from src.common.nf4 import quantize_dense_linear_nf4
+
+            self.model_metrics.update(
+                quantize_dense_linear_nf4(
+                    (model,),
+                    device=config.device,
+                    exclude=_exclude_sam3_nf4_linear,
+                ).as_dict()
+            )
         self._processor = Sam3Processor(
             model,
             device=config.device,
@@ -120,14 +156,18 @@ class _OfficialSAM3ImagePredictor:
         self._image_type = Image
         self._device = config.device
         self._precision = config.precision
+        self._configured_device = config.device
+        self._active_state: dict[str, Any] | None = None
+        self._suspended = False
 
     def set_image(self, image: NDArray[np.uint8]) -> object:
         # Upstream infers ndarray dimensions from shape[-2:], which is wrong
         # for HWC arrays. PIL preserves the original height and width.
         with self._autocast():
-            return self._processor.set_image(
+            self._active_state = self._processor.set_image(
                 self._image_type.fromarray(image, mode="RGB")
             )
+            return self._active_state
 
     def predict_box(
         self, state: object, normalized_cxcywh: tuple[float, float, float, float]
@@ -170,14 +210,52 @@ class _OfficialSAM3ImagePredictor:
 
     def _autocast(self) -> Any:
         if not self._device.startswith("cuda"):
-            return nullcontext()
+            import torch
+
+            return torch.autocast(device_type="cpu", dtype=torch.bfloat16)
         import torch
 
         # SAM 3's fused MLP emits BF16 activations. Newer recommended PyTorch
         # releases autocast the following Linear automatically; make that
         # contract explicit for the unified Torch 2.5 SAM3D environment.
-        dtype = torch.float16 if self._precision == "fp16" else torch.bfloat16
+        dtype = torch.float16 if self._precision in {"fp16", "nf4"} else torch.bfloat16
         return torch.autocast(device_type="cuda", dtype=dtype)
+
+    def clear_cached_state(self) -> None:
+        if self._active_state is not None:
+            self._active_state.clear()
+            self._active_state = None
+
+    def suspend(self) -> Mapping[str, Any]:
+        if self._suspended:
+            return {"residency_action": "already_suspended"}
+        started = perf_counter()
+        self.clear_cached_state()
+        self._processor.model.to("cpu")
+        _move_processor_state(self._processor, "cpu")
+        self._device = "cpu"
+        self._suspended = True
+        from src.realtime.gpu_residency import release_cuda_memory
+
+        release_cuda_memory()
+        return {
+            "residency_action": "cpu_offload",
+            "offload_transfer_seconds": perf_counter() - started,
+        }
+
+    def resume(self) -> Mapping[str, Any]:
+        if not self._suspended:
+            return {"residency_action": "already_resident"}
+        started = perf_counter()
+        self._processor.model.to(self._configured_device)
+        _move_processor_state(self._processor, self._configured_device)
+        _synchronize_cuda(self._configured_device)
+        self._device = self._configured_device
+        self._suspended = False
+        return {
+            "residency_action": "cuda_resume",
+            "resume_transfer_seconds": perf_counter() - started,
+        }
 
 
 class SAM3MaskBackend:
@@ -198,13 +276,24 @@ class SAM3MaskBackend:
         self._state = WorkerState.CREATED
         self._load_seconds = 0.0
         self._warmup_seconds = 0.0
+        self._has_warmed = False
+        self._suspended = False
+        self._last_transfer_metrics: dict[str, Any] = {}
 
     @property
     def state(self) -> WorkerState:
         return self._state
 
+    @property
+    def model_metrics(self) -> Mapping[str, int | float | str]:
+        if self._predictor is None:
+            return {}
+        return dict(getattr(self._predictor, "model_metrics", {}))
+
     def load(self) -> None:
         if self._predictor is not None:
+            if self._suspended:
+                self.resume()
             return
         self._state = WorkerState.LOADING
         started = perf_counter()
@@ -221,6 +310,9 @@ class SAM3MaskBackend:
         if iterations < 1:
             raise ValueError("warmup iterations must be positive")
         self.load()
+        if self._has_warmed:
+            self._state = WorkerState.READY
+            return
         if frame is None:
             prompt_count = 4 if self.config.prompt_mode == "interactive_batch" else 1
             box_width = 756.0 / prompt_count
@@ -250,6 +342,7 @@ class SAM3MaskBackend:
                 self._predict_frame(frame, collect_gpu_metrics=False)
             _synchronize_cuda(self.config.device)
             self._warmup_seconds = perf_counter() - started
+            self._has_warmed = True
             self._state = WorkerState.READY
         except Exception:
             self._state = WorkerState.FAILED
@@ -268,6 +361,48 @@ class SAM3MaskBackend:
         except Exception:
             self._state = WorkerState.FAILED
             raise
+
+    def unload(self) -> None:
+        """Drop all model references so a peer process can own CUDA."""
+
+        self._predictor = None
+        self._state = WorkerState.CREATED
+        self._suspended = False
+        self._has_warmed = False
+        from src.realtime.gpu_residency import release_cuda_memory
+
+        release_cuda_memory()
+
+    def suspend(self) -> Mapping[str, Any]:
+        predictor = self._predictor
+        if predictor is None:
+            return {"residency_action": "not_loaded"}
+        suspend = getattr(predictor, "suspend", None)
+        if suspend is None:
+            self.unload()
+            return {"residency_action": "destroy_fallback"}
+        self._last_transfer_metrics = dict(suspend() or {})
+        self._suspended = True
+        self._state = WorkerState.CREATED
+        return dict(self._last_transfer_metrics)
+
+    def resume(self) -> Mapping[str, Any]:
+        predictor = self._predictor
+        if predictor is None:
+            started = perf_counter()
+            self.load()
+            self._last_transfer_metrics = {
+                "residency_action": "initial_load",
+                "initial_load_seconds": perf_counter() - started,
+            }
+            return dict(self._last_transfer_metrics)
+        resume = getattr(predictor, "resume", None)
+        if resume is None:
+            return {"residency_action": "already_resident"}
+        self._last_transfer_metrics = dict(resume() or {})
+        self._suspended = False
+        self._state = WorkerState.LOADED
+        return dict(self._last_transfer_metrics)
 
     def _predict_frame(
         self, frame: FramePrompt, *, collect_gpu_metrics: bool
@@ -484,6 +619,18 @@ def _as_numpy(value: Any) -> NDArray[Any]:
         raise
 
 
+def _exclude_sam3_nf4_linear(
+    _path: str, parent: Any, name: str, _linear: Any
+) -> bool:
+    """Keep fused ViT MLP fc1 unpacked because it bypasses Linear.forward."""
+
+    return (
+        type(parent).__module__ == "sam3.model.vitdet"
+        and type(parent).__name__ == "Mlp"
+        and name == "fc1"
+    )
+
+
 def _patch_sam3_fp16_ffn(model: Any) -> None:
     """Preserve upstream's FP32 residual while allowing FP16 FFN weights."""
 
@@ -515,6 +662,35 @@ def _torch_cuda(device: str) -> Any | None:
     except ImportError:
         return None
     return torch.cuda if torch.cuda.is_available() else None
+
+
+def _move_processor_state(processor: Any, device: str) -> None:
+    """Move the processor's persistent query tensors and update its device."""
+
+    import torch
+
+    processor.device = device
+    find_stage = getattr(processor, "find_stage", None)
+    if find_stage is None:
+        return
+    for name, value in vars(find_stage).items():
+        setattr(find_stage, name, _move_tensor_tree(value, device))
+
+
+def _move_tensor_tree(value: Any, device: str) -> Any:
+    import torch
+
+    if isinstance(value, torch.Tensor):
+        return value.to(device)
+    if isinstance(value, list):
+        return [_move_tensor_tree(item, device) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_move_tensor_tree(item, device) for item in value)
+    if isinstance(value, dict):
+        return {
+            key: _move_tensor_tree(item, device) for key, item in value.items()
+        }
+    return value
 
 
 def _synchronize_cuda(device: str) -> None:

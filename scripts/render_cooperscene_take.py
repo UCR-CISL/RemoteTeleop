@@ -39,6 +39,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--maximum-median", type=float, default=0.35)
     parser.add_argument("--median-baseline-factor", type=float, default=1.75)
     parser.add_argument("--stop-after-low-overlap", type=int, default=5)
+    parser.add_argument(
+        "--stop-at-overlap",
+        action="store_true",
+        help="Truncate rendering at the first confirmed low-overlap frame.",
+    )
     parser.add_argument("--probe-only", action="store_true")
     parser.add_argument("--render-device", choices=("auto", "cpu", "cuda"), default="cuda")
     parser.add_argument("--render-downsample", type=int, default=2)
@@ -64,6 +69,7 @@ def main(argv: list[str] | None = None) -> None:
         maximum_median_m=args.maximum_median,
         median_baseline_factor=args.median_baseline_factor,
         stop_after_low_overlap=args.stop_after_low_overlap,
+        stop_at_overlap=args.stop_at_overlap,
         probe_only=args.probe_only,
         render_device=None if args.render_device == "auto" else args.render_device,
         render_downsample=args.render_downsample,

@@ -1,6 +1,8 @@
 import json
 import numpy as np
 
+import src.localization.cooperscene as cooperscene
+
 from src.localization.cooperscene import CooperSceneFrame
 from src.localization.cooperscene_sequence_render import (
     CooperSceneSequenceRenderConfig, CooperSceneSequenceRenderer, _mark_low_overlap,
@@ -58,12 +60,34 @@ def test_prepass_excludes_confirmation_lows_from_rendering(tmp_path):
     def renderer(*args, **kwargs):
         rendered.append(args[-1]); return CameraRender(args[-1], "cpu-projective-splats")
     result = CooperSceneSequenceRenderer(
-        _config(tmp_path), dataset_factory=lambda _: _Dataset(frames), map_loader=lambda _: _map(),
+        _config(tmp_path, stop_at_overlap=True), dataset_factory=lambda _: _Dataset(frames), map_loader=lambda _: _map(),
         camera_renderer=renderer).run()
     assert result["first_low_frame_id"] == "4"
     assert result["rendered_count"] == 3
     assert result["stop_reason"] == "consecutive_low_overlap"
     assert (tmp_path / "out" / "overlap.csv").is_file()
+
+
+def test_default_renders_all_frames_without_overlap_diagnostics(tmp_path):
+    frames = [_frame("1", 0), _frame("2", 10), _frame("3", 10)]
+    rendered = []
+
+    def renderer(*args, **kwargs):
+        rendered.append(args[-1])
+        return CameraRender(args[-1], "cpu-projective-splats")
+
+    result = CooperSceneSequenceRenderer(
+        _config(tmp_path),
+        dataset_factory=lambda _: _Dataset(frames),
+        map_loader=lambda _: _map(),
+        camera_renderer=renderer,
+    ).run()
+
+    assert result["first_low_frame_id"] is None
+    assert result["criterion"]["enabled"] is False
+    assert result["rendered_count"] == 3
+    assert result["stop_reason"] == "end_of_sequence"
+    assert not (tmp_path / "out" / "overlap.csv").exists()
 
 
 def test_probe_only_never_calls_renderer(tmp_path):
@@ -80,3 +104,36 @@ def test_cuda_request_rejects_cpu_fallback(tmp_path):
             _config(tmp_path, render_device="cuda", max_frames=1),
             dataset_factory=lambda _: _Dataset([_frame("1", 0)]), map_loader=lambda _: _map(),
             camera_renderer=lambda *a, **k: CameraRender(a[-1], "cpu-projective-splats")).run()
+
+
+def test_default_metadata_render_reads_no_pcd_and_keeps_all_501_frames(
+    tmp_path, monkeypatch
+):
+    sequence_root = tmp_path / "train" / "1" / "1"
+    sequence_root.mkdir(parents=True)
+    for frame_id in range(481260, 481761):
+        (sequence_root / f"{frame_id}.yaml").write_text(
+            f"lidar_pose: [{frame_id - 481260}, 0, 0, 0, 0, 0]\nvehicles: {{}}\n",
+            encoding="utf-8",
+        )
+    monkeypatch.setattr(
+        cooperscene, "read_ascii_xyzi_pcd",
+        lambda _path: (_ for _ in ()).throw(AssertionError("PCD read")),
+    )
+    rendered = []
+
+    def renderer(_splats, world_T_camera, _intrinsic, _size, output, **_kwargs):
+        rendered.append((output.stem, float(world_T_camera[0, 3])))
+        return CameraRender(output, "cpu-projective-splats")
+
+    result = CooperSceneSequenceRenderer(
+        _config(tmp_path), map_loader=lambda _path: object(), camera_renderer=renderer
+    ).run()
+
+    assert result["processed_count"] == result["rendered_count"] == 501
+    assert [row["frame_id"] for row in result["frames"]] == [
+        str(value) for value in range(481260, 481761)
+    ]
+    assert all(row["lidar_points_loaded"] is False for row in result["frames"])
+    assert rendered[0][0].endswith("481260")
+    assert rendered[-1][0].endswith("481760")
