@@ -10,11 +10,6 @@ pygobject is pinned because of the ubuntu version (22.04)
 # Spawn a vehicle
 python3 -m src.carla.carla_spawn --keep-alive
 
-# Launch holoscan distributed app for keyboard control
-source /opt/ros/humble/setup.bash
-python3 distributed_carla_teleop_app.py --driver --worker --address 127.0.0.1:10000 --fragments RemoteWorkstationFragment
-python3 distributed_carla_teleop_app.py --worker --address 127.0.0.1:10000 --fragments VehicleFragment
-
 # Stream camera
 python3 -m src.carla.launch_carla_streamer
 python3 -m src.carla.launch_carla_stream_receiver
@@ -112,21 +107,6 @@ Use `--dry-run` on the vehicle side to validate ZMQ transport without opening th
 Replay a command log:
 ```bash
 uv run python -m src.replay_command_mcap logs/vehicle_control.mcap
-```
-
-# Deployment
-## Remote-side
-```bash
-source .venv/bin/activate
-export PYTHONPATH="$(pwd)"
-python3 src/distributed_vehicle_teleop_app.py --driver --worker --address 100.70.20.114 --fragments SteeringWheelFragment
-```
-
-## Car-side
-```bash
-source ~/opendbc/.venv/bin/activate
-export PYTHONPATH="$(pwd)"
-python3 src/distributed_vehicle_teleop_app.py --worker --address 100.70.20.114 --fragments PandaFragment
 ```
 
 # NuScenes offline teleoperation data

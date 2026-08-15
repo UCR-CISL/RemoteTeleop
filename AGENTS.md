@@ -22,9 +22,9 @@ When adding new functionality, first identify whether it belongs in an existing 
 Keep classes focused and testable. Avoid large “god classes”; prefer composition over deep inheritance.
 
 # Repo Description
-This codebase implements remote teleoperation code for a car. Ignore code in fragments or ones that
-import holoscan. Those code is saved for archival reasons and will likely be removed soon.
-There is carla code for simple testing. All of these code can be used for reference.
+This codebase implements remote teleoperation code for a car. Legacy Holoscan applications and
+fragments have been removed; do not introduce new Holoscan dependencies. There is CARLA code for
+simple testing that can be used for reference.
 
 Setup environments and dependencies as needed, but do not automate running anything that involves
 both vehicle-side and remote-side. You could possibly test remote-side code, but anything involving
