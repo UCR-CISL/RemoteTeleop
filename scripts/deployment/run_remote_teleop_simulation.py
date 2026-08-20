@@ -346,6 +346,8 @@ class RemoteTeleopSimulationLauncher:
         command = shlex.split(self.options.remote_python)
         if not command:
             raise LaunchError("--remote-python must not be empty")
+        if not PurePosixPath(command[0]).is_absolute():
+            command[0] = str(PurePosixPath(self.remote.repo_path) / command[0])
         return command
 
     def _remote_output_root(self) -> PurePosixPath:
@@ -414,7 +416,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("cfg/alien4_alien3.yaml"))
     parser.add_argument("--ros-sidecar", default="remote_teleop_ros_mcap")
-    parser.add_argument("--remote-python", default="/home/coop3r-slam/miniconda3/bin/conda run -n coop3r-slam python")
+    parser.add_argument("--remote-python", default=".venv/bin/python")
     parser.add_argument("--mcap", type=_path, default=PurePosixPath("artifacts/cooperscene_take_1_agent_1.mcap"))
     parser.add_argument("--splat", type=_path, default=PurePosixPath("data/riverside_r3.spz"))
     parser.add_argument("--output-root", type=_path, default=PurePosixPath("artifacts/split_system_simulation"))

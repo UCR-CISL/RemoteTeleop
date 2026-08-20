@@ -19,7 +19,7 @@ def _options(tmp_path, **overrides):
     values = dict(
         config_path=REPO_ROOT / "cfg/alien3_lambda.yaml",
         ros_sidecar="ros-humble-test",
-        remote_python="conda run -n coop3r-slam python",
+        remote_python=".venv/bin/python",
         mcap_path=PurePosixPath("artifacts/take.mcap"),
         splat_path=PurePosixPath("data/map.spz"),
         output_root=PurePosixPath("artifacts/launch-test"),
@@ -167,16 +167,16 @@ def test_background_script_only_backgrounds_the_process_after_synchronous_setup(
     assert "2>&1 & echo $! > /home/coop3r-slam/Documents/RemoteTeleop/artifacts/launch-test/compositor.pid; }" in script
 
 
-def test_defaults_target_verified_ros_sidecar_and_remote_conda(tmp_path):
+def test_defaults_target_verified_ros_sidecar_and_remote_venv(tmp_path):
     launcher = RemoteTeleopSimulationLauncher(_options(
         tmp_path,
         ros_sidecar="remote_teleop_ros_mcap",
-        remote_python="/home/coop3r-slam/miniconda3/bin/conda run -n coop3r-slam python",
+        remote_python=".venv/bin/python",
     ), dry_run=True)
 
     commands = launcher.planned_commands()
 
-    assert "/home/coop3r-slam/miniconda3/bin/conda" in commands[2][-1]
+    assert "/home/coop3r-slam/Documents/RemoteTeleop/.venv/bin/python" in commands[2][-1]
     assert "remote_teleop_ros_mcap" in commands[3][-1]
     assert "/bin/kill -INT -- -$(cat" in commands[6][-1]
 

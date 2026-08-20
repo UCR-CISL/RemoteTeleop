@@ -14,6 +14,7 @@ from src.realtime.protocol import (
     ReconstructionRequest,
 )
 from src.realtime.sam3d_worker import SAM3DReconstructionService, SAM3DWorkerProcess
+from src.realtime.gpu_residency import ResidencyAcquisition
 
 
 IDENTITY_3 = tuple(np.eye(3).reshape(-1))
@@ -206,6 +207,110 @@ def test_worker_model_handoff_logs_switch_latency(tmp_path):
     assert records[0]["resume_transfer_seconds"] == 0.2
     assert records[1]["offload_transfer_seconds"] == 0.3
     assert all(record["runtime_mode"] == "take_turns" for record in records)
+
+
+def test_worker_prewarm_offloads_retained_model_and_writes_ready_marker(tmp_path):
+    class Service:
+        def __init__(self):
+            self.loads = 0
+            self.unloads = 0
+            self.queue_depth = 0
+
+        def load(self):
+            self.loads += 1
+            return {"residency_action": "initial_load"}
+
+        def unload(self):
+            self.unloads += 1
+            return {"residency_action": "cpu_offload"}
+
+    class Lease:
+        def __init__(self):
+            self.releases = 0
+
+        def try_acquire(self):
+            return ResidencyAcquisition("sam3d-object", 0.0)
+
+        def release(self):
+            self.releases += 1
+
+    service = Service()
+    lease = Lease()
+    ready = tmp_path / "sam3d-ready"
+    process = SAM3DWorkerProcess(
+        service=service,
+        router=None,
+        assets=None,
+        health=SimpleNamespace(send=lambda _: None),
+        metrics_path=tmp_path / "sam3d.jsonl",
+        residency_lease=lease,
+        ready_path=ready,
+    )
+
+    process._prewarm_model()
+    process._write_ready()
+
+    records = [json.loads(line) for line in (tmp_path / "sam3d.jsonl").read_text().splitlines()]
+    assert service.loads == service.unloads == lease.releases == 1
+    assert ready.read_text() == "ready\n"
+    assert [record["event"] for record in records] == [
+        "prewarm_residency_acquired",
+        "model_loaded",
+        "model_released",
+        "model_prewarmed",
+    ]
+
+
+def test_worker_resident_prewarm_keeps_model_on_cuda_and_releases_lease(tmp_path):
+    class Service:
+        queue_depth = 0
+
+        def __init__(self):
+            self.loads = 0
+            self.unloads = 0
+
+        def load(self):
+            self.loads += 1
+            return {"residency_action": "initial_load"}
+
+        def unload(self):
+            self.unloads += 1
+
+    class Lease:
+        def __init__(self):
+            self.releases = 0
+
+        def try_acquire(self):
+            return ResidencyAcquisition("sam3d-object", 0.0)
+
+        def release(self):
+            self.releases += 1
+
+    service, lease = Service(), Lease()
+    process = SAM3DWorkerProcess(
+        service=service, router=None, assets=None,
+        health=SimpleNamespace(send=lambda _: None),
+        metrics_path=tmp_path / "sam3d.jsonl", residency_lease=lease,
+        keep_cuda_resident=True,
+    )
+    process._prewarm_model()
+
+    assert service.loads == 1
+    assert service.unloads == 0
+    assert lease.releases == 1
+    assert process._model_loaded is True
+
+
+def test_worker_rejects_prewarm_without_residency_lease(tmp_path):
+    with pytest.raises(ValueError, match="requires a GPU residency lease"):
+        SAM3DWorkerProcess(
+            service=SimpleNamespace(),
+            router=None,
+            assets=None,
+            health=SimpleNamespace(send=lambda _: None),
+            metrics_path=tmp_path / "sam3d.jsonl",
+            prewarm=True,
+        )
 
 
 def test_service_deduplicates_track_within_generation(tmp_path):

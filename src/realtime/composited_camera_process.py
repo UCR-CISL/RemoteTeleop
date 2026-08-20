@@ -375,6 +375,7 @@ class CompositedCameraProcess:
         camera: RemoteCameraConfig,
         frames_per_second: float = 10.0,
         device: str = "cuda",
+        mesh_max_faces: int = 100_000,
         cursor_path: Path | None = None,
         mesh_cache_dir: Path | None = None,
     ) -> None:
@@ -389,7 +390,7 @@ class CompositedCameraProcess:
         self._backend = PoseOnlyCompositedCameraBackend(
             CudaGaussianBufferRenderer(gaussian_map, device=device, downsample=1),
             camera,
-            PyTorch3DObjectMeshRenderer(device=device),
+            PyTorch3DObjectMeshRenderer(device=device, max_faces=mesh_max_faces),
         )
         self._cursor = FrameCursor(cursor_path or output_dir / "frame-cursor.json", scene_generation)
         self._writer.reconcile(self._cursor.next_sequence)
@@ -425,6 +426,7 @@ class CompositedCameraProcess:
                             self._backend.handle_asset_event(self._assets.events.get_nowait())
                         except Empty:
                             break
+                    self._write_mesh_statuses()
                 if scene_complete:
                     time.sleep(0.05)
                     continue
@@ -493,6 +495,7 @@ class CompositedCameraProcess:
                     "render_ms": elapsed * 1_000.0,
                     "effective_fps": 1.0 / elapsed if elapsed > 0 else 0.0,
                 })
+                self._write_mesh_statuses()
                 self._heartbeat.update(WorkerState.READY, detail=str(rendered.sequence))
         except Exception as error:
             self._heartbeat.update(WorkerState.FAILED, detail=f"{type(error).__name__}: {error}")
@@ -507,6 +510,20 @@ class CompositedCameraProcess:
         if self._assets is not None:
             self._assets.close()
         self._context.term()
+
+    def _write_mesh_statuses(self) -> None:
+        """Expose mesh activation failures instead of silently falling back."""
+
+        for status in self._backend.drain_mesh_statuses():
+            self._metrics.append({
+                "event": "compositor_mesh_asset",
+                "scene_generation": self._scene_generation,
+                "track_id": status.track_id,
+                "request_id": status.request_id,
+                "state": status.state,
+                "path": None if status.path is None else str(status.path),
+                "error": status.error,
+            })
 
 
 def main() -> None:
@@ -526,6 +543,7 @@ def main() -> None:
     parser.add_argument("--render-height", type=int, default=300)
     parser.add_argument("--frames-per-second", type=float, default=10.0)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--mesh-max-faces", type=int, default=100_000)
     args = parser.parse_args()
     process = CompositedCameraProcess(
         frames_endpoint=args.frames_endpoint, assets_endpoint=args.assets_endpoint,
@@ -537,6 +555,7 @@ def main() -> None:
             args.agent, image_size=(args.render_width, args.render_height)
         ),
         frames_per_second=args.frames_per_second, device=args.device,
+        mesh_max_faces=args.mesh_max_faces,
         cursor_path=args.cursor_path, mesh_cache_dir=args.mesh_cache_dir,
     )
     signal.signal(signal.SIGINT, process.request_stop)

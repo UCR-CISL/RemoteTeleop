@@ -406,6 +406,45 @@ def test_take_turn_mask_service_retains_wave_until_gpu_lease_is_available():
     assert any(item.get("event") == "model_released" for item in metrics.items)
 
 
+def test_resident_serialized_mask_service_keeps_cuda_model_between_waves():
+    class Lease:
+        def __init__(self):
+            self.releases = 0
+
+        def try_acquire(self):
+            return SimpleNamespace(wait_seconds=0.0)
+
+        def release(self):
+            self.releases += 1
+
+    dealer = _FakeDealer()
+    worker = _MaskWorker()
+    lease = Lease()
+    service = MaskProcessService(
+        worker=worker,
+        frames=None,
+        masks=_Collector(),
+        reconstructions=ReliableReconstructionClient(dealer),
+        heartbeat=_Heartbeat(),
+        metrics=_Collector(),
+        admission_config=StableTrackAdmissionConfig(
+            stable_seconds=0.0, minimum_projected_area_px=0.0
+        ),
+        residency_lease=lease,
+        keep_cuda_resident=True,
+        warmup_iterations=1,
+    )
+    service.start(warmup_iterations=1)
+    service.process_frame(_wire_frame())
+
+    assert worker.starts == 1
+    assert worker.unloads == 0
+    # One release after prewarm and one after the serialized inference wave.
+    assert lease.releases == 2
+    service.shutdown()
+    assert worker.unloads == 1
+
+
 def test_take_turn_wave_remains_drainable_after_end_of_scene():
     class Lease:
         available = False

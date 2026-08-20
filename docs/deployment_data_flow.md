@@ -102,7 +102,7 @@ render dimensions. It derives `world_T_camera = world_T_ego @ ego_T_camera`
 locally; no camera extrinsics or intrinsics traverse the ZMQ pose stream.
 
 ```bash
-/home/coop3r-slam/miniconda3/bin/conda run -n coop3r-slam python \
+.venv/bin/python \
   -m src.realtime.composited_camera_process \
   --frames-endpoint tcp://100.101.224.74:8768 \
   --assets-endpoint tcp://100.101.224.74:8769 \
@@ -141,8 +141,10 @@ workers remain separate orchestration and are not started by this launcher.
 
 For asynchronous mesh reconstruction, use the separate SAM launcher. It keeps
 the same lossless render contract, enables the local analysis spool on port
-8771, coordinates SAM3 and SAM3D through one GPU residency lock, waits for
-SAM3D's durable completion marker, and allows mesh assets to finish
+8771, prewarms SAM3 in FP16 and SAM3D with selective NF4 before playback, and
+keeps both CUDA-resident. One shared execution lease serializes their inference
+without CPU-offloading either model between jobs. The launcher waits for both
+startup markers and SAM3D's durable completion marker, and allows mesh assets to finish
 synchronizing before stopping the compositor:
 
 ```bash

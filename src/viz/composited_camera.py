@@ -75,6 +75,17 @@ class PoseOnlyCompositedFrame:
     track_states: Mapping[str, str]
 
 
+@dataclass(frozen=True)
+class MeshAssetStatus:
+    """Observable result of activating a received mesh on the remote host."""
+
+    track_id: str
+    request_id: str
+    state: str
+    path: Path | None = None
+    error: str | None = None
+
+
 class PoseOnlyCompositedCameraBackend:
     """Render ordered pose samples with bbox proxies and cached mesh assets.
 
@@ -106,6 +117,7 @@ class PoseOnlyCompositedCameraBackend:
         self._scene_generation: str | None = None
         self._retired_generations: set[str] = set()
         self._assets: dict[str, _MeshAsset] = {}
+        self._mesh_statuses: list[MeshAssetStatus] = []
 
     def handle_asset_event(self, event: AssetEvent) -> None:
         """Load a verified local mesh once; failures deliberately retain bboxes."""
@@ -132,16 +144,26 @@ class PoseOnlyCompositedCameraBackend:
         path = Path(event.aligned_mesh_path)  # validated by AssetEvent
         if not path.is_file():
             self._assets[event.track_id] = _MeshAsset(AssetState.FAILED, event.request_id)
+            self._record_mesh_status(event, "load_failed", path, "mesh path does not exist")
             return
         try:
             handle = self._mesh_renderer.load(path)
-        except Exception:
+        except Exception as error:
             self._assets[event.track_id] = _MeshAsset(AssetState.FAILED, event.request_id)
+            self._record_mesh_status(event, "load_failed", path, _error_detail(error))
             return
         self._assets[event.track_id] = _MeshAsset(
             AssetState.READY, event.request_id, path, handle,
             event.source_sequence, event.source_timestamp_us,
         )
+        self._record_mesh_status(event, "loaded", path)
+
+    def drain_mesh_statuses(self) -> tuple[MeshAssetStatus, ...]:
+        """Return mesh load/render outcomes for durable compositor metrics."""
+
+        statuses = tuple(self._mesh_statuses)
+        self._mesh_statuses.clear()
+        return statuses
 
     def render_pose(
         self, pose_sample: EgoPoseSample, boxes: tuple[BoxPrompt, ...] = ()
@@ -190,8 +212,12 @@ class PoseOnlyCompositedCameraBackend:
                     )
                     track_states[box.track_id] = "mesh"
                     continue
-                except Exception:
+                except Exception as error:
                     asset.state = AssetState.FAILED
+                    self._mesh_statuses.append(MeshAssetStatus(
+                        box.track_id, asset.request_id, "render_failed", asset.path,
+                        _error_detail(error),
+                    ))
             _draw_box_proxy(
                 rgb,
                 background.depth,
@@ -222,6 +248,13 @@ class PoseOnlyCompositedCameraBackend:
                 f"mismatched scene generation {generation!r}; expected {self._scene_generation!r}"
             )
         self._scene_generation = generation
+
+    def _record_mesh_status(
+        self, event: AssetEvent, state: str, path: Path | None, error: str | None = None
+    ) -> None:
+        self._mesh_statuses.append(MeshAssetStatus(
+            event.track_id, event.request_id, state, path, error
+        ))
 
 
 @dataclass(frozen=True)
@@ -324,10 +357,13 @@ class CudaGaussianBufferRenderer:
 
 
 class PyTorch3DObjectMeshRenderer:
-    """Lazy PyTorch3D GLB renderer using OpenCV camera calibration."""
+    """Cache a decimated PyTorch3D GLB representation for camera overlays."""
 
-    def __init__(self, *, device: str = "cuda") -> None:
+    def __init__(self, *, device: str = "cuda", max_faces: int = 100_000) -> None:
+        if max_faces < 4:
+            raise ValueError("max_faces must be at least four")
         self._device = device
+        self._max_faces = max_faces
 
     def load(self, path: Path) -> object:
         try:
@@ -350,6 +386,9 @@ class PyTorch3DObjectMeshRenderer:
         vertex_colors = getattr(geometry.visual, "vertex_colors", None)
         if vertex_colors is not None and len(vertex_colors) == len(vertices):
             colors = np.asarray(vertex_colors[:, :3], dtype=np.float32) / 255.0
+        vertices, faces, colors = _decimate_mesh_for_render(
+            vertices, faces, colors, max_faces=self._max_faces
+        )
         return Meshes(
             verts=[torch.as_tensor(vertices, device=self._device)],
             faces=[torch.as_tensor(faces, device=self._device)],
@@ -407,6 +446,64 @@ class PyTorch3DObjectMeshRenderer:
         )
 
 
+def _decimate_mesh_for_render(
+    vertices: np.ndarray, faces: np.ndarray, colors: np.ndarray, *, max_faces: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Reduce a dense mesh once with deterministic vertex clustering.
+
+    The source GLB remains untouched.  Clustering preserves broad surface
+    coverage better than sampling isolated faces and yields a compact immutable
+    mesh that can remain resident on the compositor GPU.
+    """
+
+    if len(faces) <= max_faces:
+        return vertices, faces, colors
+    lower = vertices.min(axis=0)
+    extent = vertices.max(axis=0) - lower
+    active = extent > np.finfo(np.float32).eps
+    if not np.any(active):
+        return vertices, faces, colors
+    target_vertices = max(4, max_faces // 2)
+    for _ in range(8):
+        volume = float(np.prod(extent[active]))
+        base = (target_vertices / volume) ** (1.0 / active.sum())
+        bins = np.ones(3, dtype=np.int64)
+        bins[active] = np.maximum(1, np.floor(extent[active] * base).astype(np.int64))
+        coordinates = np.minimum(
+            ((vertices - lower) / np.where(active, extent, 1.0) * bins).astype(np.int64), bins - 1
+        )
+        _, inverse = np.unique(coordinates, axis=0, return_inverse=True)
+        counts = np.bincount(inverse).astype(np.float32)
+        reduced_vertices = np.empty((len(counts), 3), dtype=np.float32)
+        reduced_colors = np.empty((len(counts), 3), dtype=np.float32)
+        for axis in range(3):
+            reduced_vertices[:, axis] = np.bincount(
+                inverse, weights=vertices[:, axis], minlength=len(counts)
+            ) / counts
+            reduced_colors[:, axis] = np.bincount(
+                inverse, weights=colors[:, axis], minlength=len(counts)
+            ) / counts
+        reduced_faces = inverse[faces]
+        reduced_faces = reduced_faces[
+            (reduced_faces[:, 0] != reduced_faces[:, 1])
+            & (reduced_faces[:, 1] != reduced_faces[:, 2])
+            & (reduced_faces[:, 0] != reduced_faces[:, 2])
+        ]
+        if len(reduced_faces) == 0:
+            return vertices, faces, colors
+        canonical = np.sort(reduced_faces, axis=1)
+        _, unique = np.unique(canonical, axis=0, return_index=True)
+        reduced_faces = reduced_faces[np.sort(unique)]
+        used, reduced_faces = np.unique(reduced_faces.reshape(-1), return_inverse=True)
+        reduced_faces = reduced_faces.reshape(-1, 3).astype(np.int64)
+        reduced_vertices = reduced_vertices[used]
+        reduced_colors = reduced_colors[used]
+        if len(reduced_faces) <= max_faces:
+            return reduced_vertices, reduced_faces, reduced_colors
+        target_vertices = max(4, target_vertices // 2)
+    return reduced_vertices, reduced_faces, reduced_colors
+
+
 @dataclass
 class _MeshAsset:
     state: AssetState
@@ -415,6 +512,12 @@ class _MeshAsset:
     handle: object | None = None
     source_sequence: int | None = None
     source_timestamp_us: int | None = None
+
+
+def _error_detail(error: Exception) -> str:
+    """Keep renderer failures searchable without retaining exception objects."""
+
+    return f"{type(error).__name__}: {error}"
 
 
 class CompositedCameraBackend:

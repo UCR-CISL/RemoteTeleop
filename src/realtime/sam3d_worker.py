@@ -505,7 +505,12 @@ class SAM3DWorkerProcess:
         heartbeat_seconds: float = 1.0,
         residency_lease: GpuResidencyLease | None = None,
         completion_path: Path | None = None,
+        prewarm: bool = False,
+        ready_path: Path | None = None,
+        keep_cuda_resident: bool = False,
     ) -> None:
+        if prewarm and residency_lease is None:
+            raise ValueError("SAM3D prewarm requires a GPU residency lease")
         self._service = service
         self._router = router
         self._assets = assets
@@ -518,6 +523,12 @@ class SAM3DWorkerProcess:
         self._residency_lease = residency_lease
         self._model_loaded = False
         self._completion_path = completion_path
+        self._prewarm = prewarm
+        self._ready_path = ready_path
+        if keep_cuda_resident and residency_lease is None:
+            raise ValueError("resident serialized SAM3D requires a GPU execution lease")
+        self._keep_cuda_resident = keep_cuda_resident
+        self._execution_lease_held = False
         self._input_end: ReconstructionEnd | None = None
         self._completion_written = False
 
@@ -529,7 +540,10 @@ class SAM3DWorkerProcess:
             except Exception as error:
                 self._publish_health(WorkerState.FAILED, detail=f"{type(error).__name__}: {error}")
                 raise
+        elif self._prewarm:
+            self._prewarm_model()
         self._publish_health(WorkerState.READY)
+        self._write_ready()
         future: Future[AssetEvent] | None = None
         next_heartbeat = time.monotonic() + self._heartbeat_seconds
         poller = zmq.Poller()
@@ -589,6 +603,8 @@ class SAM3DWorkerProcess:
                         self._assets.send(terminal)
                         self._append_metrics(terminal)
                         future = None
+                        if self._execution_lease_held:
+                            self._release_execution_lease()
                         if terminal.state is AssetState.FAILED and _is_out_of_memory(
                             terminal.error
                         ):
@@ -614,12 +630,28 @@ class SAM3DWorkerProcess:
                             self._load_model(wait_seconds=acquisition.wait_seconds)
 
                     if future is None and self._model_loaded:
+                        if (
+                            self._keep_cuda_resident
+                            and self._residency_lease is not None
+                            and not self._execution_lease_held
+                            and self._service.queue_depth > 0
+                        ):
+                            acquisition = self._residency_lease.try_acquire()
+                            if acquisition is None:
+                                continue
+                            self._execution_lease_held = True
+                            self._append_lifecycle_metrics(
+                                "execution_lease_acquired",
+                                wait_seconds=acquisition.wait_seconds,
+                            )
                         queued = self._service.pop_next()
                         if queued is not None:
                             self._assets.send(_asset_event(queued.request, AssetState.RUNNING))
                             future = executor.submit(self._service.reconstruct, queued)
-                        elif self._residency_lease is not None:
+                        elif self._residency_lease is not None and not self._keep_cuda_resident:
                             self._unload_model()
+                        elif self._execution_lease_held:
+                            self._release_execution_lease()
 
                     if (
                         self._input_end is not None
@@ -672,6 +704,46 @@ class SAM3DWorkerProcess:
             os.fsync(stream.fileno())
         os.replace(temporary, self._completion_path)
 
+    def _write_ready(self) -> None:
+        """Durably signal that an optional startup prewarm has completed."""
+
+        if self._ready_path is None:
+            return
+        self._ready_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self._ready_path.with_suffix(".tmp")
+        temporary.write_text("ready\n", encoding="utf-8")
+        with temporary.open("rb") as stream:
+            os.fsync(stream.fileno())
+        os.replace(temporary, self._ready_path)
+        descriptor = os.open(self._ready_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    def _prewarm_model(self) -> None:
+        """Pay initial SAM3D construction before live frames can need the GPU.
+
+        In resident mode it remains CUDA-resident; otherwise it is CPU-offloaded.
+        """
+
+        assert self._residency_lease is not None
+        self._publish_health(WorkerState.LOADING)
+        while True:
+            acquisition = self._residency_lease.try_acquire()
+            if acquisition is not None:
+                break
+            time.sleep(0.05)
+        self._append_lifecycle_metrics(
+            "prewarm_residency_acquired", wait_seconds=acquisition.wait_seconds
+        )
+        self._load_model(wait_seconds=acquisition.wait_seconds)
+        if self._keep_cuda_resident:
+            self._residency_lease.release()
+        else:
+            self._unload_model()
+        self._append_lifecycle_metrics("model_prewarmed")
+
     def _load_model(self, *, wait_seconds: float) -> None:
         started = time.perf_counter()
         try:
@@ -701,8 +773,16 @@ class SAM3DWorkerProcess:
             **(transfer_metrics or {}),
             **_cuda_metrics(),
         )
-        if self._residency_lease is not None:
+        if self._execution_lease_held:
+            self._release_execution_lease()
+        elif self._residency_lease is not None and not self._keep_cuda_resident:
             self._residency_lease.release()
+
+    def _release_execution_lease(self) -> None:
+        assert self._residency_lease is not None
+        self._residency_lease.release()
+        self._execution_lease_held = False
+        self._append_lifecycle_metrics("execution_lease_released")
 
     def _publish_health(self, state: WorkerState, *, detail: str | None = None) -> None:
         cuda = _cuda_metrics()
@@ -860,7 +940,25 @@ def main() -> None:
     parser.add_argument(
         "--gpu-residency-lock",
         type=Path,
-        help="enable lazy take-turn residency using this cross-process lock",
+        help=(
+            "shared GPU lease: gates model residency by default, or inference "
+            "execution with --keep-cuda-resident"
+        ),
+    )
+    parser.add_argument(
+        "--prewarm",
+        action="store_true",
+        help="eagerly initialize SAM3D before live input",
+    )
+    parser.add_argument(
+        "--keep-cuda-resident",
+        action="store_true",
+        help="retain CUDA residency after prewarm; lock serializes inference only",
+    )
+    parser.add_argument(
+        "--ready-path",
+        type=Path,
+        help="write this marker once startup initialization is complete",
     )
     args = parser.parse_args()
 
@@ -886,6 +984,8 @@ def main() -> None:
     context = zmq.Context()
     if args.frames_high_water_mark <= 0:
         parser.error("--frames-high-water-mark must be positive")
+    if args.keep_cuda_resident and args.gpu_residency_lock is None:
+        parser.error("--keep-cuda-resident requires --gpu-residency-lock")
     if args.analysis_endpoint:
         if not args.scene_generation:
             parser.error("--scene-generation is required with --analysis-endpoint")
@@ -924,6 +1024,9 @@ def main() -> None:
             else None
         ),
         completion_path=args.completion_path,
+        prewarm=args.prewarm,
+        ready_path=args.ready_path,
+        keep_cuda_resident=args.keep_cuda_resident,
     )
     try:
         worker.run()

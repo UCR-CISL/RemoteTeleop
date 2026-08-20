@@ -45,6 +45,15 @@ holding both models on the 24 GiB GPU. Tracks `12` and `104` produced verified
 GLB assets, which were transferred to alien3's mesh cache. The output is
 480x300 at 10 FPS, 501 frames, and 50.1 seconds.
 
+After retry 11, the deployment launcher changed from take-turn residency to
+resident-serialized inference. It now prewarms SAM3D with selective NF4 and
+SAM3 in FP16, keeps both models on CUDA, and starts the remote compositor and
+vehicle playback only after both durable readiness markers exist. Their shared
+lease gates inference execution only; it does not CPU-offload either model
+between jobs. The older
+default-precision co-resident OOM does not establish that this quantized profile
+is unsafe: checked-in NF4 runs completed meshes with both models resident.
+
 The retry-11 MP4 contains proxies throughout because the compositor completed
 the render pass before the asynchronous meshes arrived. The meshes are valid
 and transferred, but a future proxy-to-mesh demonstration should pace or defer
@@ -208,7 +217,7 @@ PYTHONPATH=/workspace${PYTHONPATH:+:$PYTHONPATH} /usr/bin/python3 \
 On `alien3`, the corresponding compositor command shape is:
 
 ```bash
-/home/coop3r-slam/miniconda3/bin/conda run -n coop3r-slam python \
+.venv/bin/python \
   -m src.realtime.composited_camera_process \
   --frames-endpoint tcp://100.101.224.74:8768 \
   --assets-endpoint tcp://100.101.224.74:8769 \
@@ -231,7 +240,7 @@ SSH local alien4; it runs the vehicle ROS sidecar there and SSHes only alien3.
 ```
 
 Use the SAM-enabled launcher for masking, reconstruction, durable mesh
-transfer, and GPU take-turn residency:
+transfer, co-resident GPU warmup, and serialized inference:
 
 ```bash
 ./.venv/bin/python scripts/deployment/run_remote_teleop_sam_simulation.py \

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections import deque
 from dataclasses import dataclass, replace
+import os
 from pathlib import Path
 import signal
 import time
@@ -465,6 +466,7 @@ class MaskProcessService:
         admission_config: StableTrackAdmissionConfig | None = None,
         residency_lease: GpuResidencyLease | None = None,
         warmup_iterations: int = 3,
+        keep_cuda_resident: bool = False,
     ) -> None:
         if mask_policy not in {"new_tracks", "all_visible"}:
             raise ValueError("mask_policy must be new_tracks or all_visible")
@@ -478,6 +480,9 @@ class MaskProcessService:
         self.mask_policy = mask_policy
         self.admission = StableTrackAdmission(admission_config)
         self.residency_lease = residency_lease
+        if keep_cuda_resident and residency_lease is None:
+            raise ValueError("resident serialized SAM3 requires a GPU execution lease")
+        self.keep_cuda_resident = keep_cuda_resident
         self.warmup_iterations = warmup_iterations
         self._queued_waves: deque[_QueuedAdmissionWave] = deque()
         self._stop = False
@@ -491,6 +496,30 @@ class MaskProcessService:
     def start(self, *, warmup_iterations: int = 3) -> None:
         self.warmup_iterations = warmup_iterations
         if self.residency_lease is not None:
+            if self.keep_cuda_resident:
+                self.heartbeat.update(WorkerState.LOADING)
+                while (acquisition := self.residency_lease.try_acquire()) is None:
+                    time.sleep(0.05)
+                started = time.perf_counter()
+                try:
+                    transfer_metrics = self.worker.start(
+                        warmup_iterations=warmup_iterations
+                    )
+                finally:
+                    self.residency_lease.release()
+                self.metrics.append(
+                    {
+                        "event": "model_prewarmed",
+                        "worker_id": "sam3-mask",
+                        "runtime_mode": "resident_serialized",
+                        "load_seconds": time.perf_counter() - started,
+                        "execution_wait_seconds": acquisition.wait_seconds,
+                        **(transfer_metrics or {}),
+                        **getattr(getattr(self.worker, "backend", None), "model_metrics", {}),
+                    }
+                )
+                self.heartbeat.update(WorkerState.READY)
+                return
             self.metrics.append(
                 {
                     "event": "model_idle",
@@ -723,7 +752,9 @@ class MaskProcessService:
             {
                 "event": "residency_acquired",
                 "worker_id": "sam3-mask",
-                "runtime_mode": "take_turns",
+                "runtime_mode": (
+                    "resident_serialized" if self.keep_cuda_resident else "take_turns"
+                ),
                 "wait_seconds": acquisition.wait_seconds,
                 "admission_queue_seconds": queue_seconds,
                 "tracks": list(queued.track_ids),
@@ -755,7 +786,11 @@ class MaskProcessService:
         segmentations: list[SegmentationMaskBatch] = []
         submitted = 0
         try:
-            if frames and self.residency_lease is not None:
+            if (
+                frames
+                and self.residency_lease is not None
+                and not self.keep_cuda_resident
+            ):
                 load_started = time.perf_counter()
                 self.heartbeat.update(WorkerState.LOADING)
                 transfer_metrics = self.worker.start(
@@ -791,7 +826,11 @@ class MaskProcessService:
                 )
                 self._inference_frames += 1
         finally:
-            if frames and self.residency_lease is not None:
+            if (
+                frames
+                and self.residency_lease is not None
+                and not self.keep_cuda_resident
+            ):
                 unload_started = time.perf_counter()
                 transfer_metrics = self.worker.unload()
                 self.metrics.append(
@@ -804,7 +843,15 @@ class MaskProcessService:
                     }
                 )
                 self.residency_lease.release()
+            elif frames and self.residency_lease is not None:
+                # The resident model remains on CUDA; only execution is
+                # serialized with the SAM3D worker.
+                self.residency_lease.release()
         return batches, segmentations, submitted
+
+    def shutdown(self) -> None:
+        if self.keep_cuda_resident:
+            self.worker.unload()
 
     def _prune_queued_waves(self, frame: FrameDetections) -> None:
         """Do not spend a later GPU turn on tracks that have left the live view."""
@@ -893,9 +940,34 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--gpu-residency-lock",
         type=Path,
-        help="enable lazy take-turn residency using this cross-process lock",
+        help=(
+            "shared GPU lease: gates model residency by default, or inference "
+            "execution with --keep-cuda-resident"
+        ),
     )
+    parser.add_argument(
+        "--keep-cuda-resident",
+        action="store_true",
+        help="prewarm once and retain CUDA residency; lock serializes inference only",
+    )
+    parser.add_argument("--ready-path", type=Path)
     return parser
+
+
+def _write_ready_path(path: Path | None) -> None:
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text("ready\n", encoding="utf-8")
+    with temporary.open("rb") as stream:
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+    descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _build_worker(args: argparse.Namespace) -> MaskWorker:
@@ -924,6 +996,8 @@ def main() -> None:
     context = zmq.Context()
     if args.frames_high_water_mark <= 0:
         raise ValueError("--frames-high-water-mark must be positive")
+    if args.keep_cuda_resident and args.gpu_residency_lock is None:
+        raise ValueError("--keep-cuda-resident requires --gpu-residency-lock")
     if args.analysis_endpoint:
         if not args.scene_generation:
             raise ValueError("--scene-generation is required with --analysis-endpoint")
@@ -980,17 +1054,20 @@ def main() -> None:
             else None
         ),
         warmup_iterations=args.warmup_iterations,
+        keep_cuda_resident=args.keep_cuda_resident,
     )
     signal.signal(signal.SIGINT, service.request_stop)
     signal.signal(signal.SIGTERM, service.request_stop)
     heartbeat.start()
     try:
         service.start(warmup_iterations=args.warmup_iterations)
+        _write_ready_path(args.ready_path)
         service.run()
     except Exception as exc:
         heartbeat.update(WorkerState.FAILED, detail=f"{type(exc).__name__}: {exc}")
         raise
     finally:
+        service.shutdown()
         if service.residency_lease is not None:
             service.residency_lease.close()
         heartbeat.stop()

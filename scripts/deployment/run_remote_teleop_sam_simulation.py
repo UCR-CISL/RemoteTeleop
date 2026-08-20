@@ -28,13 +28,28 @@ class SamLaunchOptions:
     vehicle_python: str = ".venv/bin/python"
     stable_seconds: float = 2.0
     sam_timeout_seconds: float = 1_800.0
-    precision: str = "fp16"
+    # ``precision`` preserves the previous single-switch CLI/API.  The proven
+    # co-resident profile is SAM3 fp16 plus SAM3D selective nf4.
+    precision: str | None = None
+    sam3_precision: str = "fp16"
+    sam3d_precision: str = "nf4"
 
     def __post_init__(self) -> None:
         if self.stable_seconds < 0 or self.sam_timeout_seconds <= 0:
             raise ValueError("SAM stability must be non-negative and timeout positive")
-        if self.precision not in {"default", "fp16", "nf4"}:
+        if any(
+            value not in {"default", "fp16", "nf4"}
+            for value in (self.sam3_precision, self.sam3d_precision)
+        ) or (self.precision is not None and self.precision not in {"default", "fp16", "nf4"}):
             raise ValueError("SAM precision must be default, fp16, or nf4")
+
+    @property
+    def resolved_sam3_precision(self) -> str:
+        return self.precision or self.sam3_precision
+
+    @property
+    def resolved_sam3d_precision(self) -> str:
+        return self.precision or self.sam3d_precision
 
 
 class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
@@ -56,9 +71,15 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
         try:
             self._checked(self._ssh(self.remote, self._remote_preflight_script()), "remote output preflight")
             self._checked(self._ssh(self.vehicle, self._sam_vehicle_preflight_script()), "vehicle SAM preflight")
+            self._launch_sam3d_worker()
+            self._wait_for_sam3d_ready()
+            self._launch_sam3_worker()
+            self._wait_for_sam3_ready()
+            # Do not let the remote request snapshots until both vehicle
+            # models are resident.  This is also the desired deployment
+            # ordering: camera/pose traffic begins only after warm startup.
             self._launch_remote()
             self._launch_vehicle_adapter()
-            self._launch_sam_workers()
             self.sleep(self.options.settle_seconds)
             self._require_alive(self.vehicle, self._vehicle_output_root() / "adapter.pid", "vehicle adapter")
             self._require_alive(self.vehicle, self._vehicle_output_root() / "sam3.pid", "SAM3 worker")
@@ -77,11 +98,13 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
 
     def planned_commands(self) -> tuple[tuple[str, ...], ...]:
         base = super().planned_commands()
-        starts = (
+        starts_and_readiness = (
+            self._ssh(self.vehicle, self._sam3d_start_script()),
+            self._ssh(self.vehicle, self._sam_ready_script("sam3d")),
+            self._ssh(self.vehicle, self._sam3_start_script()),
+            self._ssh(self.vehicle, self._sam_ready_script("sam3")),
             self._ssh(self.remote, self._remote_start_script()),
             self._ssh(self.vehicle, self._vehicle_adapter_script()),
-            self._ssh(self.vehicle, self._sam3d_start_script()),
-            self._ssh(self.vehicle, self._sam3_start_script()),
         )
         stops = tuple(
             self._ssh(self.vehicle, self._sam_stop_script(name))
@@ -89,7 +112,7 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
         )
         return (
             (base[0], self._ssh(self.vehicle, self._sam_vehicle_preflight_script()))
-            + starts
+            + starts_and_readiness
             + (
                 base[5],
             )
@@ -157,9 +180,16 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
             self.vehicle.repo_path, command, root / "logs" / "adapter.log", root / "adapter.pid"
         )
 
-    def _launch_sam_workers(self) -> None:
+    def _launch_sam3d_worker(self) -> None:
         self._checked(self._ssh(self.vehicle, self._sam3d_start_script()), "SAM3D worker")
+
+        # A failed prewarm must clean up the worker even though the remote
+        # compositor has not started yet.
+        self._started = True
+
+    def _launch_sam3_worker(self) -> None:
         self._checked(self._ssh(self.vehicle, self._sam3_start_script()), "SAM3 worker")
+        self._started = True
 
     def _sam3d_start_script(self) -> str:
         root = self._vehicle_output_root()
@@ -175,11 +205,36 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
             "--metrics-path", str(self.options.output_root / self.vehicle.name / "metrics" / "sam3d.jsonl"),
             "--completion-path", str(self.options.output_root / self.vehicle.name / "sam3d-complete.json"),
             "--gpu-residency-lock", str(residency_lock),
-            "--precision", self.sam.precision,
+            "--prewarm",
+            "--keep-cuda-resident",
+            "--ready-path", str(self.options.output_root / self.vehicle.name / "sam3d-ready"),
+            "--precision", self.sam.resolved_sam3d_precision,
         ]
         return self._background_script(
             self.vehicle.repo_path, command, root / "logs" / "sam3d.log", root / "sam3d.pid"
         )
+
+    def _wait_for_sam3d_ready(self) -> None:
+        self._wait_for_sam_ready("sam3d")
+
+    def _wait_for_sam3_ready(self) -> None:
+        self._wait_for_sam_ready("sam3")
+
+    def _wait_for_sam_ready(self, worker: str) -> None:
+        marker = self._vehicle_output_root() / f"{worker}-ready"
+        deadline = self.clock() + self.sam.sam_timeout_seconds
+        while self.clock() < deadline:
+            if self.runner.run(
+                self._ssh(self.vehicle, "test -f " + shlex.quote(str(marker)))
+            ).returncode == 0:
+                return
+            if not self._is_alive(self.vehicle, self._vehicle_output_root() / f"{worker}.pid"):
+                raise LaunchError(f"{worker} exited before completing startup prewarm")
+            self.sleep(self.options.poll_seconds)
+        raise LaunchError(f"timed out waiting for {worker} startup prewarm")
+
+    def _sam_ready_script(self, worker: str) -> str:
+        return "test -f " + shlex.quote(str(self._vehicle_output_root() / f"{worker}-ready"))
 
     def _sam3_start_script(self) -> str:
         root = self._vehicle_output_root()
@@ -195,7 +250,9 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
             "--mask-policy", "new_tracks",
             "--stable-seconds", str(self.sam.stable_seconds),
             "--gpu-residency-lock", str(residency_lock),
-            "--precision", self.sam.precision,
+            "--keep-cuda-resident",
+            "--ready-path", str(self.options.output_root / self.vehicle.name / "sam3-ready"),
+            "--precision", self.sam.resolved_sam3_precision,
         ]
         return self._background_script(
             self.vehicle.repo_path, command, root / "logs" / "sam3.log", root / "sam3.pid"
@@ -206,6 +263,20 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
         if not command:
             raise LaunchError("--vehicle-python must not be empty")
         return command
+
+    def _remote_preflight_script(self) -> str:
+        """Require the remote GLB renderer before starting an asset-enabled run."""
+
+        python = shlex.join(self._remote_python_command())
+        return " && ".join((
+            super()._remote_preflight_script(),
+            python + " -c " + shlex.quote(
+                "import torch, trimesh; "
+                "from pytorch3d.renderer import MeshRasterizer, TexturesVertex; "
+                "from pytorch3d.structures import Meshes; "
+                "assert torch.cuda.is_available()"
+            ),
+        ))
 
     def _local_analysis_endpoint(self) -> str:
         if self.vehicle.analysis_port is None:
@@ -321,7 +392,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("cfg/alien4_alien3.yaml"))
     parser.add_argument("--ros-sidecar", default="remote_teleop_ros_mcap")
-    parser.add_argument("--remote-python", default="/home/coop3r-slam/miniconda3/bin/conda run -n coop3r-slam python")
+    parser.add_argument("--remote-python", default=".venv/bin/python")
     parser.add_argument("--vehicle-python", default=".venv/bin/python")
     parser.add_argument("--mcap", type=_path, default=PurePosixPath("artifacts/cooperscene_take_1_agent_1.mcap"))
     parser.add_argument("--splat", type=_path, default=PurePosixPath("data/riverside_r3.spz"))
@@ -333,7 +404,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--sam-timeout-seconds", type=float, default=1_800.0)
     parser.add_argument("--poll-seconds", type=float, default=1.0)
     parser.add_argument("--stable-seconds", type=float, default=2.0)
-    parser.add_argument("--precision", choices=("default", "fp16", "nf4"), default="fp16")
+    parser.add_argument(
+        "--precision", choices=("default", "fp16", "nf4"),
+        help="legacy override: use one precision for both SAM workers",
+    )
+    parser.add_argument("--sam3-precision", choices=("default", "fp16", "nf4"), default="fp16")
+    parser.add_argument("--sam3d-precision", choices=("default", "fp16", "nf4"), default="nf4")
     parser.add_argument("--scene-generation", default="cooperscene:train:1:1")
     parser.add_argument("--health-port", type=int, default=8770)
     parser.add_argument("--dry-run", action="store_true")
@@ -354,6 +430,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 stable_seconds=args.stable_seconds,
                 sam_timeout_seconds=args.sam_timeout_seconds,
                 precision=args.precision,
+                sam3_precision=args.sam3_precision,
+                sam3d_precision=args.sam3d_precision,
             ),
             dry_run=args.dry_run,
         )

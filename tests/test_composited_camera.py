@@ -9,6 +9,7 @@ from src.viz.composited_camera import (
     MeshRenderBuffers,
     PoseOnlyCompositedCameraBackend,
     RemoteCameraConfig,
+    _decimate_mesh_for_render,
 )
 from src.viz.localization_visualizer import GaussianRenderBuffers
 
@@ -63,10 +64,13 @@ class FakeMeshRenderer:
     def __init__(self):
         self.loads = []
         self.poses = []
+        self.fail_load = False
         self.fail_render = False
 
     def load(self, path: Path):
         self.loads.append(path)
+        if self.fail_load:
+            raise ModuleNotFoundError("No module named 'pytorch3d'")
         return path.name
 
     def render(self, handle, pose, _camera_pose, _intrinsic, image_size):
@@ -83,6 +87,29 @@ class FakeMeshRenderer:
             np.full((height, width), 4.0, dtype=np.float32),
             alpha,
         )
+
+
+def test_cached_mesh_decimation_reduces_faces_while_preserving_surface_extent():
+    coordinates = np.linspace(-2.0, 2.0, 41, dtype=np.float32)
+    x, y = np.meshgrid(coordinates, coordinates)
+    vertices = np.column_stack((x.reshape(-1), y.reshape(-1), np.zeros(x.size, dtype=np.float32)))
+    cells = np.arange(40 * 40, dtype=np.int64).reshape(40, 40)
+    top_left = cells + np.arange(40, dtype=np.int64)[:, None]
+    faces = np.concatenate((
+        np.column_stack((top_left.reshape(-1), (top_left + 1).reshape(-1), (top_left + 41).reshape(-1))),
+        np.column_stack(((top_left + 1).reshape(-1), (top_left + 42).reshape(-1), (top_left + 41).reshape(-1))),
+    ))
+    colors = np.tile(np.array([[0.2, 0.4, 0.6]], dtype=np.float32), (len(vertices), 1))
+
+    reduced_vertices, reduced_faces, reduced_colors = _decimate_mesh_for_render(
+        vertices, faces, colors, max_faces=200
+    )
+
+    assert len(reduced_faces) <= 200
+    assert len(reduced_faces) < len(faces)
+    np.testing.assert_allclose(reduced_vertices[:, :2].min(axis=0), [-2.0, -2.0], atol=0.3)
+    np.testing.assert_allclose(reduced_vertices[:, :2].max(axis=0), [2.0, 2.0], atol=0.3)
+    np.testing.assert_allclose(reduced_colors, np.tile([0.2, 0.4, 0.6], (len(reduced_colors), 1)))
 
 
 def _pose(sequence=0, timestamp_us=0, generation="scene-1", translation=(0, 0, 0)):
@@ -171,12 +198,53 @@ def test_pose_only_mesh_waits_for_its_source_frame_and_uses_snapshot_box_pose(tm
         request_id="request-1", scene_generation="scene-1", track_id="car",
         state=AssetState.READY, aligned_mesh_path=mesh_path, source_sequence=2,
     ))
+    assert backend.drain_mesh_statuses()[0].state == "loaded"
 
     assert backend.render_pose(_pose(sequence=1), (_box(z=4.0),)).track_states == {"car": "proxy"}
     rendered = backend.render_pose(_pose(sequence=2), (_box(z=8.0),))
 
     assert rendered.track_states == {"car": "mesh"}
     np.testing.assert_allclose(meshes.poses[-1][1][:3, 3], [0, 0, 8])
+
+
+def test_pose_only_mesh_load_failure_is_visible_and_keeps_the_proxy(tmp_path):
+    camera = RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24))
+    meshes = FakeMeshRenderer()
+    meshes.fail_load = True
+    backend = PoseOnlyCompositedCameraBackend(FakeGaussianRenderer(), camera, meshes)
+    mesh_path = tmp_path / "car.glb"
+    mesh_path.write_bytes(b"glTF")
+
+    backend.handle_asset_event(AssetEvent(
+        request_id="request-1", scene_generation="scene-1", track_id="car",
+        state=AssetState.READY, aligned_mesh_path=mesh_path, source_sequence=0,
+    ))
+
+    status = backend.drain_mesh_statuses()
+    assert len(status) == 1
+    assert status[0].state == "load_failed"
+    assert "ModuleNotFoundError" in status[0].error
+    assert backend.render_pose(_pose(), (_box(),)).track_states == {"car": "proxy"}
+
+
+def test_pose_only_mesh_render_failure_is_visible_and_keeps_the_proxy(tmp_path):
+    camera = RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24))
+    meshes = FakeMeshRenderer()
+    meshes.fail_render = True
+    backend = PoseOnlyCompositedCameraBackend(FakeGaussianRenderer(), camera, meshes)
+    mesh_path = tmp_path / "car.glb"
+    mesh_path.write_bytes(b"glTF")
+    backend.handle_asset_event(AssetEvent(
+        request_id="request-1", scene_generation="scene-1", track_id="car",
+        state=AssetState.READY, aligned_mesh_path=mesh_path, source_sequence=0,
+    ))
+    backend.drain_mesh_statuses()
+
+    assert backend.render_pose(_pose(), (_box(),)).track_states == {"car": "proxy"}
+    status = backend.drain_mesh_statuses()
+    assert len(status) == 1
+    assert status[0].state == "render_failed"
+    assert "RuntimeError: render failed" == status[0].error
 
 
 def test_pose_only_mesh_without_source_sequence_waits_for_source_timestamp(tmp_path):
