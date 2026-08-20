@@ -26,6 +26,8 @@ from src.realtime.protocol import (
     Acknowledgement,
     BoxPrompt,
     FrameDetections,
+    FrameEnd,
+    ReconstructionEnd,
     ReconstructionRequest,
 )
 from src.realtime.runtime_support import JsonlMetricsWriter
@@ -229,6 +231,17 @@ class _Heartbeat:
 
     def update(self, state, **values):
         self.events.append((state, values))
+
+
+def test_reconstruction_client_sends_explicit_end_after_all_track_requests():
+    dealer = _FakeDealer()
+    dealer.incoming.append(Acknowledgement("take:reconstruction-end", True))
+    client = ReliableReconstructionClient(dealer)
+
+    acknowledgement = client.complete(FrameEnd("take", 500, 50_000_000))
+
+    assert acknowledgement.accepted
+    assert dealer.sent == [ReconstructionEnd("take:reconstruction-end", "take", 500)]
 
 
 class _MaskWorker:

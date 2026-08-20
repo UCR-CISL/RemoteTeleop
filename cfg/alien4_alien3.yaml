@@ -1,0 +1,16 @@
+alien3:
+  role: "remote-ops"
+  host_address: 100.109.210.56
+  port: 8767
+  user: coop3r-slam
+  repo_path: /home/coop3r-slam/Documents/RemoteTeleop
+alien4:
+  role: "vehicle"
+  # This workstation runs the launcher and vehicle role; do not SSH to it.
+  local: true
+  host_address: 100.101.224.74
+  port: 8768
+  asset_port: 8769
+  analysis_port: 8771
+  user: justin
+  repo_path: /home/jyue86/Documents/CISL-Projects/RemoteTeleop

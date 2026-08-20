@@ -14,21 +14,24 @@ import cv2
 import numpy as np
 import zmq
 
+from src.realtime.durable_analysis import AnalysisFrameSource, DurableAnalysisSubscriber
 from src.realtime.protocol import (
     Acknowledgement,
     BoxPrompt,
     FrameDetections,
+    FrameEnd,
     MaskBatch,
     MaskResult,
     ReconstructionRequest,
+    ReconstructionEnd,
     WorkerState,
 )
 from src.realtime.runtime_support import HealthHeartbeat, JsonlMetricsWriter
 from src.realtime.gpu_residency import GpuResidencyLease
 from src.realtime.transport import (
     DealerTransport,
-    LatestValueSubscriber,
     PublisherTransport,
+    SubscriberTransport,
 )
 from src.segmentation import (
     BoxPrompt as SegmentationBoxPrompt,
@@ -302,6 +305,31 @@ class ReliableReconstructionClient:
             )
         return acknowledgements
 
+    def complete(self, end: FrameEnd) -> Acknowledgement:
+        """Reliably tell SAM3D no additional requests will be submitted."""
+
+        if self._pending:
+            raise RuntimeError("cannot complete reconstruction input with pending requests")
+        request = ReconstructionEnd(
+            request_id=f"{end.scene_generation}:reconstruction-end",
+            scene_generation=end.scene_generation,
+            final_sequence=end.final_sequence,
+        )
+        while True:
+            self.transport.send(request)
+            deadline = self._monotonic() + self.retry_seconds
+            while self._monotonic() < deadline:
+                if not self.transport.socket.poll(timeout=10):
+                    continue
+                _, message = self.transport.receive()
+                if (
+                    isinstance(message, Acknowledgement)
+                    and message.request_id == request.request_id
+                ):
+                    if not message.accepted:
+                        raise RuntimeError(message.detail or "SAM3D rejected completion")
+                    return message
+
 
 class OfflineMaskDirectory:
     """Load explicit fallback masks from ``ROOT/FRAME_ID/TRACK_ID.png``."""
@@ -335,7 +363,7 @@ def protocol_frame_to_prompt(
         timestamp_us=frame.timestamp_us,
         image=cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB),
         boxes=tuple(
-            SegmentationBoxPrompt(box.track_id, box.xyxy)
+            SegmentationBoxPrompt(box.track_id, box.xyxy, box.text_label)
             for box in frame.boxes
             if track_ids is None or box.track_id in track_ids
         ),
@@ -414,6 +442,7 @@ def build_reconstruction_requests(
                 world_T_camera=frame.world_T_camera,
                 quality_score=quality_score,
                 seed=seed,
+                source_sequence=frame.source_sequence,
             )
         )
     return tuple(requests)
@@ -426,7 +455,7 @@ class MaskProcessService:
         self,
         *,
         worker: MaskWorker,
-        frames: LatestValueSubscriber,
+        frames: AnalysisFrameSource,
         masks: PublisherTransport,
         reconstructions: ReliableReconstructionClient,
         heartbeat: HealthHeartbeat,
@@ -514,7 +543,7 @@ class MaskProcessService:
                         "detail": acknowledgement.detail,
                     }
                 )
-            if not self.frames.socket.poll(timeout=100):
+            if not self.frames.poll(timeout=100):
                 processed = self._process_queued_take_turn_wave()
                 if processed is not None:
                     _batches, segmentations, submitted, wait_seconds, queue_seconds = processed
@@ -534,13 +563,21 @@ class MaskProcessService:
                     queue_depth=self._work_queue_depth(),
                 )
                 continue
-            _, message, discarded = self.frames.receive_latest()
+            _, message = self.frames.receive()
+            if isinstance(message, FrameEnd):
+                while self.reconstructions.pending_count:
+                    self.reconstructions.service()
+                    time.sleep(0.01)
+                self.reconstructions.complete(message)
+                self.frames.acknowledge(message)
+                return
             if not isinstance(message, FrameDetections):
                 continue
-            self.process_frame(message, discarded_input_frames=discarded)
+            self.process_frame(message)
+            self.frames.acknowledge(message)
 
     def process_frame(
-        self, message: FrameDetections, *, discarded_input_frames: int = 0
+        self, message: FrameDetections
     ) -> None:
         """Mask only tracks that can still generate a new reconstruction request."""
 
@@ -599,7 +636,6 @@ class MaskProcessService:
                 "frame_id": message.frame_id,
                 "scene_generation": message.scene_generation,
                 "end_of_scene": message.end_of_scene,
-                "discarded_input_frames": discarded_input_frames,
                 "input_boxes": len(message.boxes),
                 "candidate_prompts": len(wave.admitted_track_ids),
                 "admission_waves_queued": len(self._queued_waves),
@@ -811,6 +847,12 @@ def _safe_component(value: str) -> str:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frames-endpoint", default="tcp://127.0.0.1:5555")
+    parser.add_argument(
+        "--analysis-endpoint",
+        help="receiver-pulled durable local frame endpoint; replaces --frames-endpoint",
+    )
+    parser.add_argument("--scene-generation")
+    parser.add_argument("--frames-high-water-mark", type=int, default=2_048)
     parser.add_argument("--masks-endpoint", default="tcp://127.0.0.1:5556")
     parser.add_argument("--reconstruction-endpoint", default="tcp://127.0.0.1:5557")
     parser.add_argument("--health-endpoint", default="tcp://127.0.0.1:5559")
@@ -880,13 +922,25 @@ def _build_worker(args: argparse.Namespace) -> MaskWorker:
 def main() -> None:
     args = _parser().parse_args()
     context = zmq.Context()
-    frames = LatestValueSubscriber.open(
-        context,
-        args.frames_endpoint,
-        bind=False,
-        topics=("frame_detections",),
-        high_water_mark=2,
-    )
+    if args.frames_high_water_mark <= 0:
+        raise ValueError("--frames-high-water-mark must be positive")
+    if args.analysis_endpoint:
+        if not args.scene_generation:
+            raise ValueError("--scene-generation is required with --analysis-endpoint")
+        frames: AnalysisFrameSource = DurableAnalysisSubscriber.open(
+            context,
+            args.analysis_endpoint,
+            scene_generation=args.scene_generation,
+            receiver_id="sam3-mask",
+        )
+    else:
+        frames = SubscriberTransport.open(
+            context,
+            args.frames_endpoint,
+            bind=False,
+            topics=("frame_detections",),
+            high_water_mark=args.frames_high_water_mark,
+        )
     masks = PublisherTransport.open(
         context, args.masks_endpoint, bind=True, high_water_mark=10
     )

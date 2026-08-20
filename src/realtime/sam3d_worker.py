@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 import zmq
 
+from src.realtime.durable_analysis import AnalysisFrameSource, DurableAnalysisSubscriber
 from src.common.coordinates import Pose3D
 from src.common.models import CameraObservation
 from src.realtime.protocol import (
@@ -24,16 +25,19 @@ from src.realtime.protocol import (
     AssetEvent,
     AssetState,
     FrameDetections,
+    FrameEnd,
+    ReconstructionEnd,
     ReconstructionRequest,
     WorkerHealth,
     WorkerState,
 )
 from src.realtime.gpu_residency import GpuResidencyLease
 from src.realtime.transport import (
-    LatestValueSubscriber,
     PublisherTransport,
     RouterTransport,
+    SubscriberTransport,
 )
+from src.deployment.vehicle import AssetStorePublisher, VehicleAssetStore
 from src.reconstruction.mesh_alignment import MeshAligner
 from src.reconstruction.models import ReconstructionJob, VehicleDimensions
 from src.reconstruction.sam3d import ObjectReconstructor, SAM3DObjectReconstructor
@@ -492,14 +496,15 @@ class SAM3DWorkerProcess:
         *,
         service: SAM3DReconstructionService,
         router: RouterTransport,
-        assets: PublisherTransport,
+        assets: PublisherTransport | AssetStorePublisher,
         health: PublisherTransport,
         metrics_path: Path,
-        frames: LatestValueSubscriber | None = None,
+        frames: AnalysisFrameSource | None = None,
         worker_id: str = "sam3d-object",
         device: str = "cuda:0",
         heartbeat_seconds: float = 1.0,
         residency_lease: GpuResidencyLease | None = None,
+        completion_path: Path | None = None,
     ) -> None:
         self._service = service
         self._router = router
@@ -512,6 +517,9 @@ class SAM3DWorkerProcess:
         self._heartbeat_seconds = heartbeat_seconds
         self._residency_lease = residency_lease
         self._model_loaded = False
+        self._completion_path = completion_path
+        self._input_end: ReconstructionEnd | None = None
+        self._completion_written = False
 
     def run(self) -> None:
         if self._residency_lease is None:
@@ -526,21 +534,38 @@ class SAM3DWorkerProcess:
         next_heartbeat = time.monotonic() + self._heartbeat_seconds
         poller = zmq.Poller()
         poller.register(self._router.socket, zmq.POLLIN)
-        if self._frames is not None:
-            poller.register(self._frames.socket, zmq.POLLIN)
         with ThreadPoolExecutor(max_workers=1, thread_name_prefix="sam3d-inference") as executor:
             try:
                 while True:
                     ready = dict(poller.poll(timeout=50))
-                    if self._frames is not None and self._frames.socket in ready:
-                        _, message, _discarded = self._frames.receive_latest()
+                    if self._frames is not None and self._frames.poll(timeout=0):
+                        _, message = self._frames.receive()
                         if isinstance(message, FrameDetections):
                             for cancelled in self._service.update_visibility(message):
                                 self._assets.send(cancelled)
                                 self._append_metrics(cancelled)
+                            self._frames.acknowledge(message)
+                        elif isinstance(message, FrameEnd):
+                            self._frames.acknowledge(message)
 
                     if self._router.socket in ready:
                         identity, _topic, message = self._router.receive()
+                        if isinstance(message, ReconstructionEnd):
+                            if self._input_end is not None and message != self._input_end:
+                                self._router.send(
+                                    identity,
+                                    Acknowledgement(
+                                        message.request_id,
+                                        False,
+                                        "conflicting reconstruction completion marker",
+                                    ),
+                                )
+                                continue
+                            self._input_end = message
+                            self._router.send(
+                                identity, Acknowledgement(message.request_id, True)
+                            )
+                            continue
                         if not isinstance(message, ReconstructionRequest):
                             request_id = getattr(message, "request_id", "invalid")
                             self._router.send(
@@ -596,6 +621,15 @@ class SAM3DWorkerProcess:
                         elif self._residency_lease is not None:
                             self._unload_model()
 
+                    if (
+                        self._input_end is not None
+                        and not self._completion_written
+                        and future is None
+                        and self._service.queue_depth == 0
+                    ):
+                        self._write_completion(self._input_end)
+                        self._completion_written = True
+
                     now = time.monotonic()
                     if now >= next_heartbeat:
                         state = WorkerState.BUSY if future is not None else WorkerState.READY
@@ -613,6 +647,30 @@ class SAM3DWorkerProcess:
                 if self._residency_lease is not None:
                     self._unload_model()
                     self._residency_lease.close()
+
+    def _write_completion(self, end: ReconstructionEnd) -> None:
+        self._append_lifecycle_metrics(
+            "sam3d_complete",
+            scene_generation=end.scene_generation,
+            final_sequence=end.final_sequence,
+        )
+        if self._completion_path is None:
+            return
+        self._completion_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self._completion_path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(
+                {
+                    "scene_generation": end.scene_generation,
+                    "final_sequence": end.final_sequence,
+                },
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
+        with temporary.open("rb") as stream:
+            os.fsync(stream.fileno())
+        os.replace(temporary, self._completion_path)
 
     def _load_model(self, *, wait_seconds: float) -> None:
         started = time.perf_counter()
@@ -707,6 +765,9 @@ def _asset_event(
         aligned_mesh_path=aligned_mesh_path,
         error=error,
         metrics=metrics or {},
+        source_sequence=request.source_sequence,
+        source_timestamp_us=request.timestamp_us,
+        source_frame_id=request.frame_id,
     )
 
 
@@ -756,8 +817,18 @@ def _is_out_of_memory(error: str | None) -> bool:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frames-endpoint", default="tcp://127.0.0.1:5555")
+    parser.add_argument(
+        "--analysis-endpoint",
+        help="receiver-pulled durable local frame endpoint; replaces --frames-endpoint",
+    )
+    parser.add_argument("--scene-generation")
+    parser.add_argument("--frames-high-water-mark", type=int, default=2_048)
     parser.add_argument("--reconstruction-endpoint", default="tcp://127.0.0.1:5557")
     parser.add_argument("--assets-endpoint", default="tcp://127.0.0.1:5558")
+    parser.add_argument(
+        "--asset-store-root", type=Path,
+        help="durably journal READY mesh assets locally; deployment-safe alternative to --assets-endpoint",
+    )
     parser.add_argument("--health-endpoint", default="tcp://127.0.0.1:5559")
     parser.add_argument("--output-root", type=Path, default=Path("artifacts/realtime/sam3d"))
     parser.add_argument(
@@ -765,6 +836,7 @@ def main() -> None:
         type=Path,
         default=Path("artifacts/realtime/metrics/sam3d.jsonl"),
     )
+    parser.add_argument("--completion-path", type=Path)
     parser.add_argument(
         "--sam3d-repository", type=Path, default=Path("thirdparty/sam-3d-objects")
     )
@@ -812,15 +884,31 @@ def main() -> None:
         coalesce_seconds=args.coalesce_ms / 1_000.0,
     )
     context = zmq.Context()
-    frames = LatestValueSubscriber.open(
-        context,
-        args.frames_endpoint,
-        bind=False,
-        topics=("frame_detections",),
-        high_water_mark=2,
-    )
+    if args.frames_high_water_mark <= 0:
+        parser.error("--frames-high-water-mark must be positive")
+    if args.analysis_endpoint:
+        if not args.scene_generation:
+            parser.error("--scene-generation is required with --analysis-endpoint")
+        frames: AnalysisFrameSource = DurableAnalysisSubscriber.open(
+            context,
+            args.analysis_endpoint,
+            scene_generation=args.scene_generation,
+            receiver_id="sam3d-object",
+        )
+    else:
+        frames = SubscriberTransport.open(
+            context,
+            args.frames_endpoint,
+            bind=False,
+            topics=("frame_detections",),
+            high_water_mark=args.frames_high_water_mark,
+        )
     router = RouterTransport.open(context, args.reconstruction_endpoint, bind=True)
-    assets = PublisherTransport.open(context, args.assets_endpoint, bind=True)
+    assets = (
+        AssetStorePublisher(VehicleAssetStore(args.asset_store_root))
+        if args.asset_store_root is not None
+        else PublisherTransport.open(context, args.assets_endpoint, bind=True)
+    )
     health = PublisherTransport.open(context, args.health_endpoint, bind=False)
     worker = SAM3DWorkerProcess(
         service=service,
@@ -835,13 +923,15 @@ def main() -> None:
             if args.gpu_residency_lock is not None
             else None
         ),
+        completion_path=args.completion_path,
     )
     try:
         worker.run()
     finally:
         frames.close()
         router.close()
-        assets.close()
+        if isinstance(assets, PublisherTransport):
+            assets.close()
         health.close()
         context.term()
 

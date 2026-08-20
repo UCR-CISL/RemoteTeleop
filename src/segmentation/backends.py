@@ -158,6 +158,7 @@ class _OfficialSAM3ImagePredictor:
         self._precision = config.precision
         self._configured_device = config.device
         self._active_state: dict[str, Any] | None = None
+        self._active_text_label: str | None = None
         self._suspended = False
 
     def set_image(self, image: NDArray[np.uint8]) -> object:
@@ -176,9 +177,28 @@ class _OfficialSAM3ImagePredictor:
             raise TypeError("official SAM 3 processor state must be a dictionary")
         self._processor.reset_all_prompts(state)
         with self._autocast():
+            if self._active_text_label is not None:
+                self._processor.set_text_prompt(
+                    state=state, prompt=self._active_text_label
+                )
             return self._processor.add_geometric_prompt(
                 box=list(normalized_cxcywh), label=True, state=state
             )
+
+    def set_text_prompt(self, state: object, text_label: str) -> object:
+        """Apply the semantic label alongside the projected box prompt.
+
+        SAM 3's image processor keeps prompts in its mutable image state.  The
+        label is deliberately a separate seam so lightweight test predictors
+        can remain geometry-only while the official backend receives both.
+        """
+
+        if not isinstance(state, dict):
+            raise TypeError("official SAM 3 processor state must be a dictionary")
+        self._active_text_label = text_label
+        with self._autocast():
+            result = self._processor.set_text_prompt(state=state, prompt=text_label)
+        return state if result is None else result
 
     def predict_boxes(
         self,
@@ -225,6 +245,7 @@ class _OfficialSAM3ImagePredictor:
         if self._active_state is not None:
             self._active_state.clear()
             self._active_state = None
+        self._active_text_label = None
 
     def suspend(self) -> Mapping[str, Any]:
         if self._suspended:
@@ -420,17 +441,31 @@ class SAM3MaskBackend:
         masks: dict[str, MaskResult] = {}
         rejected: dict[str, str] = {}
         raw_results: tuple[Mapping[str, Any], ...] | None = None
+        set_text_prompt = getattr(self._predictor, "set_text_prompt", None)
         if self.config.prompt_mode == "interactive_batch" and frame.boxes:
-            started = perf_counter()
-            raw_results = self._predictor.predict_boxes(
-                predictor_state,
-                tuple(box.xyxy for box in frame.boxes),
-            )
-            _synchronize_cuda(self.config.device)
-            decoded_seconds += perf_counter() - started
+            can_batch = True
+            if callable(set_text_prompt):
+                labels = {box.text_label for box in frame.boxes}
+                if len(labels) != 1:
+                    # The current interactive SAM API accepts one text prompt
+                    # per encoded image.  Preserve each track's label by using
+                    # the serial path when categories differ.
+                    can_batch = False
+                else:
+                    predictor_state = set_text_prompt(predictor_state, labels.pop())
+            if can_batch:
+                started = perf_counter()
+                raw_results = self._predictor.predict_boxes(
+                    predictor_state,
+                    tuple(box.xyxy for box in frame.boxes),
+                )
+                _synchronize_cuda(self.config.device)
+                decoded_seconds += perf_counter() - started
         for index, box in enumerate(frame.boxes):
             if raw_results is None:
                 started = perf_counter()
+                if callable(set_text_prompt):
+                    predictor_state = set_text_prompt(predictor_state, box.text_label)
                 raw = self._predictor.predict_box(
                     predictor_state, _normalize_box(box.xyxy, frame.image.shape[:2])
                 )

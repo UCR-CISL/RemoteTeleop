@@ -10,13 +10,218 @@ import cv2
 import numpy as np
 
 from src.localization.gaussian_map import GaussianMap
-from src.realtime.protocol import AssetEvent, AssetState, BoxPrompt, FrameDetections
+from src.realtime.protocol import AssetEvent, AssetState, BoxPrompt, EgoPoseSample, FrameDetections
 from src.viz.localization_visualizer import (
     GaussianRenderBuffers,
     _rasterize,
     _single_camera_array,
     prepare_camera_render,
 )
+
+
+@dataclass(frozen=True)
+class RemoteCameraConfig:
+    """Stable remote-side camera calibration used by the pose-only renderer.
+
+    ``ego_T_camera`` maps CV camera coordinates into the ego/LiDAR frame.  In
+    CooperScene this is the inverse of the documented ``camera_T_lidar``.
+    """
+
+    ego_T_camera: np.ndarray
+    camera_intrinsic: np.ndarray
+    image_size: tuple[int, int]
+
+    def __post_init__(self) -> None:
+        ego_T_camera = _rigid_transform(self.ego_T_camera, "ego_T_camera")
+        intrinsic = np.asarray(self.camera_intrinsic, dtype=np.float64)
+        if intrinsic.shape != (3, 3) or not np.isfinite(intrinsic).all():
+            raise ValueError("camera_intrinsic must be a finite 3x3 matrix")
+        width, height = self.image_size
+        if width <= 0 or height <= 0:
+            raise ValueError("image_size width and height must be positive")
+        object.__setattr__(self, "ego_T_camera", ego_T_camera.copy())
+        object.__setattr__(self, "camera_intrinsic", intrinsic.copy())
+        object.__setattr__(self, "image_size", (int(width), int(height)))
+
+    @classmethod
+    def for_cooperscene_agent(
+        cls, agent: str | int, *, image_size: tuple[int, int] = (480, 300)
+    ) -> "RemoteCameraConfig":
+        """Return the front-camera calibration held entirely on the remote side."""
+
+        from src.localization.cooperscene_calibration import camera_T_lidar, camera_intrinsic
+
+        intrinsic = camera_intrinsic(agent).copy()
+        scale_x = image_size[0] / 1920.0
+        scale_y = image_size[1] / 1200.0
+        intrinsic[0] *= scale_x
+        intrinsic[1] *= scale_y
+        return cls(
+            ego_T_camera=np.linalg.inv(camera_T_lidar(agent)),
+            camera_intrinsic=intrinsic,
+            image_size=image_size,
+        )
+
+
+@dataclass(frozen=True)
+class PoseOnlyCompositedFrame:
+    """A GSplat frame rendered solely from an ego pose and local calibration."""
+
+    sequence: int
+    timestamp_us: int
+    scene_generation: str
+    world_T_camera: np.ndarray
+    rgb: np.ndarray
+    track_states: Mapping[str, str]
+
+
+class PoseOnlyCompositedCameraBackend:
+    """Render ordered pose samples with bbox proxies and cached mesh assets.
+
+    Camera calibration stays on the remote machine.  The caller supplies the
+    detection batch joined to each pose sample, so both a proxy and its mesh
+    replacement always use the same object transform.
+    """
+
+    def __init__(
+        self,
+        gaussian_renderer: "GaussianBufferRenderer",
+        camera: RemoteCameraConfig,
+        mesh_renderer: "ObjectMeshRenderer | None" = None,
+        *,
+        proxy_color: tuple[float, float, float] = (0.0, 0.7, 1.0),
+        proxy_thickness: int = 2,
+        alpha_threshold: float = 0.01,
+        depth_tolerance_m: float = 0.03,
+    ) -> None:
+        if proxy_thickness <= 0:
+            raise ValueError("proxy_thickness must be positive")
+        self._gaussian_renderer = gaussian_renderer
+        self.camera = camera
+        self._mesh_renderer = mesh_renderer
+        self._proxy_color = np.asarray(proxy_color, dtype=np.float32)
+        self._proxy_thickness = proxy_thickness
+        self._alpha_threshold = float(alpha_threshold)
+        self._depth_tolerance_m = float(depth_tolerance_m)
+        self._scene_generation: str | None = None
+        self._retired_generations: set[str] = set()
+        self._assets: dict[str, _MeshAsset] = {}
+
+    def handle_asset_event(self, event: AssetEvent) -> None:
+        """Load a verified local mesh once; failures deliberately retain bboxes."""
+
+        if self._mesh_renderer is None:
+            return
+        generation = str(event.scene_generation)
+        if generation in self._retired_generations:
+            return
+        if self._scene_generation is None:
+            self._scene_generation = generation
+        elif generation != self._scene_generation:
+            return
+        previous = self._assets.get(event.track_id)
+        if previous is not None and previous.request_id != event.request_id:
+            return
+        if previous is not None and previous.state in {
+            AssetState.READY, AssetState.FAILED, AssetState.CANCELLED
+        }:
+            return
+        if event.state is not AssetState.READY:
+            self._assets[event.track_id] = _MeshAsset(event.state, event.request_id)
+            return
+        path = Path(event.aligned_mesh_path)  # validated by AssetEvent
+        if not path.is_file():
+            self._assets[event.track_id] = _MeshAsset(AssetState.FAILED, event.request_id)
+            return
+        try:
+            handle = self._mesh_renderer.load(path)
+        except Exception:
+            self._assets[event.track_id] = _MeshAsset(AssetState.FAILED, event.request_id)
+            return
+        self._assets[event.track_id] = _MeshAsset(
+            AssetState.READY, event.request_id, path, handle,
+            event.source_sequence, event.source_timestamp_us,
+        )
+
+    def render_pose(
+        self, pose_sample: EgoPoseSample, boxes: tuple[BoxPrompt, ...] = ()
+    ) -> PoseOnlyCompositedFrame:
+        """Derive the camera pose locally and depth-test lightweight box proxies."""
+
+        generation = str(pose_sample.scene_generation)
+        self._activate_generation(generation)
+        world_T_ego = _rigid_transform(
+            np.asarray(pose_sample.world_T_ego, dtype=np.float64).reshape(4, 4),
+            "world_T_ego",
+        )
+        world_T_camera = world_T_ego @ self.camera.ego_T_camera
+        background = self._gaussian_renderer.render(
+            world_T_camera, self.camera.camera_intrinsic, self.camera.image_size
+        )
+        if background.rgb.shape[:2] != self.camera.image_size[::-1]:
+            raise ValueError("Gaussian renderer returned an unexpected image size")
+        rgb = np.clip(background.rgb.copy(), 0.0, 1.0)
+        track_states: dict[str, str] = {}
+        for box in boxes:
+            asset = self._assets.get(box.track_id)
+            if (
+                asset is not None
+                and asset.state is AssetState.READY
+                and (
+                    asset.source_sequence <= pose_sample.sequence
+                    if asset.source_sequence is not None
+                    else asset.source_timestamp_us is not None
+                    and asset.source_timestamp_us <= pose_sample.timestamp_us
+                )
+            ):
+                assert self._mesh_renderer is not None
+                try:
+                    overlay = self._mesh_renderer.render(
+                        asset.handle,
+                        _matrix4(box.world_T_object),
+                        world_T_camera,
+                        self.camera.camera_intrinsic,
+                        self.camera.image_size,
+                    )
+                    rgb = _composite_mesh(
+                        rgb, background.depth, background.alpha, overlay,
+                        alpha_threshold=self._alpha_threshold,
+                        depth_tolerance_m=self._depth_tolerance_m,
+                    )
+                    track_states[box.track_id] = "mesh"
+                    continue
+                except Exception:
+                    asset.state = AssetState.FAILED
+            _draw_box_proxy(
+                rgb,
+                background.depth,
+                background.alpha,
+                box,
+                world_T_camera,
+                self.camera.camera_intrinsic,
+                self._proxy_color,
+                self._proxy_thickness,
+                self._alpha_threshold,
+                self._depth_tolerance_m,
+            )
+            track_states[box.track_id] = "proxy"
+        return PoseOnlyCompositedFrame(
+            sequence=int(pose_sample.sequence),
+            timestamp_us=int(pose_sample.timestamp_us),
+            scene_generation=generation,
+            world_T_camera=world_T_camera,
+            rgb=rgb,
+            track_states=track_states,
+        )
+
+    def _activate_generation(self, generation: str) -> None:
+        if self._scene_generation == generation:
+            return
+        if self._scene_generation is not None:
+            raise ValueError(
+                f"mismatched scene generation {generation!r}; expected {self._scene_generation!r}"
+            )
+        self._scene_generation = generation
 
 
 @dataclass(frozen=True)
@@ -208,6 +413,8 @@ class _MeshAsset:
     request_id: str
     path: Path | None = None
     handle: object | None = None
+    source_sequence: int | None = None
+    source_timestamp_us: int | None = None
 
 
 class CompositedCameraBackend:
@@ -442,6 +649,16 @@ def _matrix4(values) -> np.ndarray:
     if not np.isfinite(matrix).all() or not np.allclose(matrix[3], [0, 0, 0, 1]):
         raise ValueError("pose must be a finite homogeneous transform")
     return matrix
+
+
+def _rigid_transform(values: np.ndarray, name: str) -> np.ndarray:
+    transform = _matrix4(values)
+    rotation = transform[:3, :3]
+    if not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-6) or not np.isclose(
+        np.linalg.det(rotation), 1.0, atol=1e-6
+    ):
+        raise ValueError(f"{name} rotation must be orthonormal and right-handed")
+    return transform
 
 
 def _jpeg_size(payload: bytes) -> tuple[int, int]:

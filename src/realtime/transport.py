@@ -157,6 +157,14 @@ class SubscriberTransport(_SocketOwner):
     def receive(self, *, flags: int = 0) -> tuple[str, WireMessage]:
         return self.codec.decode(self.socket.recv_multipart(flags=flags))
 
+    def poll(self, timeout: int = 0) -> bool:
+        return bool(self.socket.poll(timeout=timeout))
+
+    def acknowledge(self, message: WireMessage) -> None:
+        """Legacy PUB/SUB sources have no acknowledgement channel."""
+
+        del message
+
 
 class DealerTransport(_SocketOwner):
     """Send typed requests and receive acknowledgements/results."""
@@ -222,12 +230,13 @@ class RouterTransport(_SocketOwner):
         bind: bool = True,
         high_water_mark: int = 10,
     ) -> "RouterTransport":
-        return cls(
-            _configured_socket(
-                context, zmq.ROUTER, endpoint, bind=bind, high_water_mark=high_water_mark
-            ),
-            owns_socket=True,
+        socket = _configured_socket(
+            context, zmq.ROUTER, endpoint, bind=bind, high_water_mark=high_water_mark
         )
+        # Do not silently queue a reply for a receiver that has disconnected.
+        # The caller must retain the durable source and wait for a new hello.
+        socket.setsockopt(zmq.ROUTER_MANDATORY, 1)
+        return cls(socket, owns_socket=True)
 
     def receive(self, *, flags: int = 0) -> tuple[bytes, str, WireMessage]:
         parts = self.socket.recv_multipart(flags=flags)

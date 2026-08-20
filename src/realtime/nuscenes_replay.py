@@ -82,7 +82,7 @@ class NuScenesReplayPublisher:
             if remaining > 0:
                 self._sleep(remaining)
             build_started = self._monotonic()
-            message = frame_to_detections(frame, self.config)
+            message = frame_to_detections(frame, self.config, source_sequence=frame_index)
             self.publisher.send(message)
             last_message = message
             sent_at = self._monotonic()
@@ -132,6 +132,8 @@ class NuScenesReplayPublisher:
 def frame_to_detections(
     frame: NuScenesFrame,
     config: ReplayConfig,
+    *,
+    source_sequence: int | None = None,
 ) -> FrameDetections:
     """Convert one keyframe into the strict real-time wire contract."""
 
@@ -177,6 +179,7 @@ def frame_to_detections(
         world_T_camera=_matrix4_tuple(frame.world_T_camera),
         world_T_ego=_matrix4_tuple(frame.world_T_ego),
         boxes=tuple(boxes),
+        source_sequence=source_sequence,
     )
 
 

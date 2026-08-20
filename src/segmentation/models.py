@@ -26,10 +26,13 @@ class BoxPrompt:
 
     track_id: str
     xyxy: tuple[float, float, float, float]
+    text_label: str = "object"
 
     def __post_init__(self) -> None:
         if not self.track_id:
             raise ValueError("track_id must not be empty")
+        if not self.text_label:
+            raise ValueError("text_label must not be empty")
         values = np.asarray(self.xyxy, dtype=np.float64)
         if values.shape != (4,) or not np.all(np.isfinite(values)):
             raise ValueError("xyxy must contain four finite values")

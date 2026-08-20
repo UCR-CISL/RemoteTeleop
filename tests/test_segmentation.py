@@ -69,6 +69,39 @@ def test_sam3_worker_loads_warms_and_encodes_once_per_frame():
     np.testing.assert_allclose(calls[1][2], (0.3, 0.5, 0.4, 0.6))
 
 
+def test_sam3_passes_each_box_text_label_to_capable_predictor():
+    labels = []
+
+    class Predictor:
+        def set_image(self, image):
+            return {}
+
+        def set_text_prompt(self, state, label):
+            labels.append(label)
+            return state
+
+        def predict_box(self, state, box):
+            mask = np.zeros((1, 1, 10, 20), dtype=bool)
+            mask[0, 0, 2:8, 2:10] = True
+            return {"masks": mask, "scores": np.asarray([0.9])}
+
+    frame = FramePrompt(
+        frame_id="scene:0",
+        timestamp_us=123,
+        image=np.zeros((10, 20, 3), dtype=np.uint8),
+        boxes=(BoxPrompt("car-a", (2.0, 2.0, 10.0, 8.0), "car"),),
+    )
+    worker = MaskWorker(SAM3MaskBackend(
+        SAM3MaskBackendConfig(device="cpu"), predictor_factory=lambda _: Predictor()
+    ))
+    worker.start(frame, warmup_iterations=1)
+    labels.clear()
+
+    worker.process(frame)
+
+    assert labels == ["car"]
+
+
 def test_sam3_interactive_mode_batches_all_boxes_in_one_decode():
     calls: list[object] = []
 

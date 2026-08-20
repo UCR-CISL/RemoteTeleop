@@ -1,0 +1,13 @@
+alien3:
+  role: "remote-ops"
+  host_address: 100.109.210.56
+  port: 8767
+  user: coop3r-slam
+  repo_path: /home/coop3r-slam/Documents/RemoteTeleop
+lambda:
+  role: "vehicle"
+  host_address: 100.97.168.98
+  port: 8768
+  asset_port: 8769
+  user: justin
+  repo_path: /home/justin/Documents/CISL-Projects/RemoteTeleop

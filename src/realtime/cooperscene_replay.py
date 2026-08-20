@@ -114,6 +114,7 @@ class CooperSceneReplayPublisher:
                 self.gaussian_T_cooperscene,
                 timestamp_us=round(published * 1_000_000 / self.config.frames_per_second),
                 timings=conversion_timings,
+                source_sequence=published,
             )
             self.publisher.send(message)
             last_message = message
@@ -158,6 +159,7 @@ def cooper_scene_frame_to_detections(
     *,
     timestamp_us: int,
     timings: dict[str, float] | None = None,
+    source_sequence: int | None = None,
 ) -> FrameDetections:
     """Convert selected-agent GT boxes and its original camera0 image."""
 
@@ -196,6 +198,7 @@ def cooper_scene_frame_to_detections(
             xyxy=tuple(float(value) for value in projected.xyxy),
             dimensions_lwh=vehicle.dimensions_lwh,
             world_T_object=_matrix4_tuple(world_T_object),
+            text_label="car",
             visibility=projected.visible_fraction,
             detection_confidence=1.0,
         ))
@@ -223,6 +226,7 @@ def cooper_scene_frame_to_detections(
         world_T_camera=_matrix4_tuple(world_T_camera),
         world_T_ego=_matrix4_tuple(world_T_ego),
         boxes=tuple(boxes),
+        source_sequence=source_sequence,
     )
 
 
