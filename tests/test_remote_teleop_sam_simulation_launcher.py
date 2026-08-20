@@ -25,7 +25,7 @@ def _launcher(tmp_path):
 
 def test_sam_launcher_keeps_render_and_analysis_endpoints_separate(tmp_path):
     commands = [" ".join(command) for command in _launcher(tmp_path).planned_commands()]
-    adapter = next(command for command in commands if "ros_frame_adapter.py" in command)
+    adapter = next(command for command in commands if "src.deployment.ros_frame_adapter" in command)
     sam3 = next(command for command in commands if "nohup .venv/bin/python -m src.realtime.mask_process" in command)
     sam3d = next(command for command in commands if "nohup .venv/bin/python -m src.realtime.sam3d_worker" in command)
     compositor = next(command for command in commands if "composited_camera_process" in command)
@@ -43,7 +43,7 @@ def test_sam_launcher_keeps_render_and_analysis_endpoints_separate(tmp_path):
 def test_sam_launcher_uses_durable_asset_store_and_completion_marker(tmp_path):
     commands = [" ".join(command) for command in _launcher(tmp_path).planned_commands()]
     sam3d = next(command for command in commands if "nohup .venv/bin/python -m src.realtime.sam3d_worker" in command)
-    adapter = next(command for command in commands if "ros_frame_adapter.py" in command)
+    adapter = next(command for command in commands if "src.deployment.ros_frame_adapter" in command)
 
     assert "--asset-store-root artifacts/sam-test/alien4/asset-store" in sam3d
     assert "--asset-store-root artifacts/sam-test/alien4/asset-store" in adapter
@@ -53,14 +53,18 @@ def test_sam_launcher_uses_durable_asset_store_and_completion_marker(tmp_path):
     assert "--gpu-residency-lock artifacts/sam-test/alien4/gpu-residency.lock" in sam3
 
 
-def test_sam_launcher_replays_metadata_then_images_without_competing_ros_traffic(tmp_path):
+def test_sam_launcher_uses_direct_single_pass_mcap_adapter(tmp_path):
     commands = [" ".join(command) for command in _launcher(tmp_path).planned_commands()]
     plays = [command for command in commands if "ros2 bag play" in command]
+    adapter = next(command for command in commands if "src.deployment.ros_frame_adapter" in command)
 
-    assert len(plays) == 2
-    assert "--topics /camera/frame_detections" in plays[0]
-    assert "--rate 1.0" in plays[0]
-    assert "--topics /camera/image_raw" in plays[1]
-    assert "--rate 0.5" in plays[1]
-    assert all("--wait-for-all-acked 0" in command for command in plays)
-    assert all("--read-ahead-queue-size 10" in command for command in plays)
+    assert not plays
+    assert "nohup .venv/bin/python -m src.deployment.ros_frame_adapter" in adapter
+    assert "--mcap /home/jyue86/Documents/CISL-Projects/RemoteTeleop/artifacts/input.mcap" in adapter
+    assert "--mcap-rate 1.0" in adapter
+    assert "docker exec" not in adapter
+    preflight = next(command for command in commands if "import mcap, torch, zmq, cv2" in command)
+    assert "test -f /home/jyue86/Documents/CISL-Projects/RemoteTeleop/artifacts/input.mcap" in preflight
+    assert "import mcap, torch, zmq, cv2" in preflight
+    assert "docker inspect" not in preflight
+    assert all("docker exec" not in command for command in commands)

@@ -2,7 +2,7 @@
 
 Status: the lossless split-system SAM replay completed successfully on 2026-08-19.
 The latest validated output is
-`artifacts/split_system_sam_alien4_alien3_20260819_retry7/composited/composited.mp4`
+`artifacts/split_system_sam_alien4_alien3_20260819_retry11/composited/composited.mp4`
 (SHA-256 `de043f53ff1231c566c85e1cdbd34256f54e94d4f698d0f230c36050ab9a3f46`).
 
 ## Current alien4 → alien3 replay configuration
@@ -10,8 +10,9 @@ The latest validated output is
 `cfg/alien4_alien3.yaml` is the current host pairing. `alien4` is this local
 workstation and performs the vehicle role; its `local: true` entry means the
 launcher does not SSH back into alien4. `alien3` remains the remote-ops host
-and is reached over SSH. ROS replay uses image `remote_teleop_ros_mcap:humble`
-in container `remote_teleop_ros_mcap`.
+and is reached over SSH. The basic proxy-only launcher can use the ROS sidecar.
+The SAM launcher now reads the MCAP directly from alien4's project environment,
+so its offline replay does not depend on ROS/DDS delivery.
 
 The replay input is
 `artifacts/cooperscene_take_1_agent_1.mcap`: 3,464,357,142 bytes, SHA-256
@@ -34,17 +35,17 @@ the label `car`, and accepted masks are passed to sequential SAM3D. Remote
 frames always render immediately with bbox proxies and switch to verified
 meshes only when those assets become available.
 
-Retry 7 validated the lossless SAM path with 501 render snapshots, 501 local
-analysis frames, and zero sequence or timestamp gaps. ROS playback is split
-into a metadata-only pass at 1x followed by an image-only pass at 0.5x; each
-must create its own durable end marker. This prevents raw image traffic from
-starving metadata callbacks in the Humble rosbag/DDS path. SAM3 and SAM3D use
+Retry 11 validated the real-time concurrent SAM path with 501 render snapshots,
+501 local analysis frames, and zero sequence or timestamp gaps. A single direct
+MCAP reader delivered both record types chronologically at 10 Hz while alien3
+rendered and alien4 ran SAM3/SAM3D concurrently. Both durable spools reached
+their exact end markers. SAM3 and SAM3D use
 one cross-process GPU residency lock, offloading between turns rather than
 holding both models on the 24 GiB GPU. Tracks `12` and `104` produced verified
 GLB assets, which were transferred to alien3's mesh cache. The output is
 480x300 at 10 FPS, 501 frames, and 50.1 seconds.
 
-The retry-7 MP4 contains proxies throughout because the compositor completed
+The retry-11 MP4 contains proxies throughout because the compositor completed
 the render pass before the asynchronous meshes arrived. The meshes are valid
 and transferred, but a future proxy-to-mesh demonstration should pace or defer
 remote rendering so their arrival occurs before the final source frame.
@@ -117,8 +118,9 @@ data/riverside_r3.spz
    it supplies ROS 2 plus the MCAP rosbag storage plugin.
 6. Copy the Riverside SPZ to `alien3` and verify its venv/render dependencies.
 7. Start the remote receiver/compositor independently.
-8. Start `ros2 bag play` and the vehicle adapter locally on `alien4`, then
-   collect the composited MP4 from `alien3`.
+8. Start the configured vehicle adapter on `alien4`. For the SAM simulation it
+   reads the MCAP directly with `--mcap`; for live deployment it uses incoming
+   ROS callbacks. Collect the composited MP4 from `alien3`.
 
 Use the configured launcher below for the approved split-system simulation;
 it coordinates the two independent host processes and collects results without
@@ -234,6 +236,6 @@ transfer, and GPU take-turn residency:
 ```bash
 ./.venv/bin/python scripts/deployment/run_remote_teleop_sam_simulation.py \
   --config cfg/alien4_alien3.yaml \
-  --output-root artifacts/split_system_sam_alien4_alien3_20260819_retry7 \
+  --output-root artifacts/split_system_sam_alien4_alien3_20260819_retry11 \
   --stable-seconds 2
 ```

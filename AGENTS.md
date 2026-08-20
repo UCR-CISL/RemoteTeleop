@@ -27,5 +27,6 @@ fragments have been removed; do not introduce new Holoscan dependencies. There i
 simple testing that can be used for reference.
 
 Setup environments and dependencies as needed, but do not automate running anything that involves
-both vehicle-side and remote-side. You could possibly test remote-side code, but anything involving
-vehicle-side requires in-person work.
+the real vehicle-side and remote-side. You could possibly test remote-side code, and testing the vehicle with the remote
+side in a data playback-fashion. But anything involving
+real vehicle-side requires in-person work.

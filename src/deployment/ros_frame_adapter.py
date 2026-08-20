@@ -179,6 +179,219 @@ class RosAnalysisAssembler:
             )
 
 
+@dataclass(frozen=True)
+class _McapImage:
+    """The small ``sensor_msgs/Image`` surface consumed by the analysis spool."""
+
+    header: Any
+    height: int
+    width: int
+    step: int
+    encoding: str
+    data: bytes
+
+
+class McapFrameReplay:
+    """Replay the two known CooperScene MCAP records without ROS/DDS delivery.
+
+    This is deliberately playback-only: the live vehicle continues to use the
+    ROS subscriptions below.  The reader keeps MCAP record order (rather than
+    sorting equal timestamps) and paces selected records using their log time.
+    """
+
+    def __init__(
+        self,
+        adapter: "RosFrameAdapter",
+        *,
+        image_topic: str,
+        metadata_topic: str,
+        expected_samples: int | None,
+        rate: float = 1.0,
+        sleep: Any = time.sleep,
+        reader_factory: Any = None,
+    ) -> None:
+        if rate <= 0:
+            raise ValueError("MCAP replay rate must be positive")
+        if not image_topic.startswith("/") or not metadata_topic.startswith("/"):
+            raise ValueError("MCAP topics must be absolute")
+        if image_topic == metadata_topic:
+            raise ValueError("MCAP image and metadata topics must differ")
+        if adapter.analysis_assembler is None:
+            raise ValueError("direct MCAP replay requires an analysis assembler")
+        self.adapter = adapter
+        self.image_topic = image_topic
+        self.metadata_topic = metadata_topic
+        self.expected_samples = expected_samples
+        self.rate = rate
+        self.sleep = sleep
+        self.reader_factory = reader_factory or _mcap_reader
+
+    def replay(self, path: Path) -> None:
+        metadata_count = 0
+        image_count = 0
+        previous_log_time: int | None = None
+        with path.open("rb") as stream:
+            reader = self.reader_factory(stream)
+            for schema, channel, message in reader.iter_messages(
+                topics=(self.image_topic, self.metadata_topic), log_time_order=False
+            ):
+                _validate_mcap_record(
+                    channel.topic,
+                    channel,
+                    schema,
+                    image_topic=self.image_topic,
+                    metadata_topic=self.metadata_topic,
+                )
+                if previous_log_time is not None:
+                    delta_ns = message.log_time - previous_log_time
+                    if delta_ns < 0:
+                        raise ValueError("MCAP source records are not in nondecreasing log-time order")
+                    if delta_ns:
+                        self.sleep(delta_ns / 1_000_000_000.0 / self.rate)
+                previous_log_time = message.log_time
+                if channel.topic == self.image_topic:
+                    self.adapter.analysis_assembler.receive_image(_decode_mcap_image(message.data))
+                    image_count += 1
+                elif channel.topic == self.metadata_topic:
+                    self.adapter.receive_metadata(_decode_mcap_string(message.data))
+                    metadata_count += 1
+        if self.expected_samples is not None:
+            if metadata_count != self.expected_samples:
+                raise RuntimeError(
+                    f"expected {self.expected_samples} MCAP metadata records, got {metadata_count}"
+                )
+            if image_count != self.expected_samples:
+                raise RuntimeError(
+                    f"expected {self.expected_samples} MCAP image records, got {image_count}"
+                )
+        if self.adapter.analysis_assembler is not None:
+            self.adapter.analysis_assembler.raise_if_failed()
+
+
+def _mcap_reader(stream: Any) -> Any:
+    try:
+        from mcap.reader import make_reader
+    except ImportError as error:  # pragma: no cover - deployment environment dependent
+        raise RuntimeError(
+            "direct MCAP replay requires the Python 'mcap' package"
+        ) from error
+    return make_reader(stream)
+
+
+def _validate_mcap_record(
+    topic: str,
+    channel: Any,
+    schema: Any,
+    *,
+    image_topic: str,
+    metadata_topic: str,
+) -> None:
+    if topic == image_topic:
+        expected_schema = "sensor_msgs/msg/Image"
+    elif topic == metadata_topic:
+        expected_schema = "std_msgs/msg/String"
+    else:
+        raise ValueError(f"unexpected direct-MCAP topic: {topic}")
+    if channel.message_encoding != "cdr":
+        raise ValueError(f"MCAP topic {topic} must use CDR encoding")
+    if schema is None or schema.name != expected_schema:
+        actual = None if schema is None else schema.name
+        raise ValueError(f"MCAP topic {topic} has schema {actual!r}, expected {expected_schema!r}")
+
+
+def _decode_mcap_string(data: bytes) -> str:
+    reader = _CdrReader(data)
+    return reader.string()
+
+
+def _decode_mcap_image(data: bytes) -> _McapImage:
+    reader = _CdrReader(data)
+    seconds = reader.i32()
+    nanoseconds = reader.u32()
+    frame_id = reader.string()
+    height = reader.u32()
+    width = reader.u32()
+    encoding = reader.string()
+    reader.u8()
+    reader.align(4)
+    step = reader.u32()
+    pixels = reader.bytes()
+    if reader.remaining:
+        raise ValueError("unexpected trailing bytes in MCAP Image CDR payload")
+    return _McapImage(
+        header=type("Header", (), {
+            "stamp": type("Time", (), {"sec": seconds, "nanosec": nanoseconds})(),
+            "frame_id": frame_id,
+        })(),
+        height=height,
+        width=width,
+        step=step,
+        encoding=encoding,
+        data=pixels,
+    )
+
+
+class _CdrReader:
+    """Minimal little-endian CDR reader for our generated Image/String schemas."""
+
+    def __init__(self, data: bytes) -> None:
+        if data[:4] != b"\x00\x01\x00\x00":
+            raise ValueError("only little-endian CDR MCAP records are supported")
+        self.data = data
+        self.offset = 4
+
+    @property
+    def remaining(self) -> int:
+        return len(self.data) - self.offset
+
+    def align(self, alignment: int) -> None:
+        self.offset = (self.offset + alignment - 1) & -alignment
+        if self.offset > len(self.data):
+            raise ValueError("truncated CDR record")
+
+    def i32(self) -> int:
+        import struct
+        self.align(4)
+        if self.offset + 4 > len(self.data):
+            raise ValueError("truncated CDR int32")
+        value = struct.unpack_from("<i", self.data, self.offset)[0]
+        self.offset += 4
+        return value
+
+    def u32(self) -> int:
+        import struct
+        self.align(4)
+        if self.offset + 4 > len(self.data):
+            raise ValueError("truncated CDR uint32")
+        value = struct.unpack_from("<I", self.data, self.offset)[0]
+        self.offset += 4
+        return value
+
+    def u8(self) -> int:
+        if self.offset >= len(self.data):
+            raise ValueError("truncated CDR uint8")
+        value = self.data[self.offset]
+        self.offset += 1
+        return value
+
+    def bytes(self) -> bytes:
+        length = self.u32()
+        if self.offset + length > len(self.data):
+            raise ValueError("truncated CDR byte array")
+        value = self.data[self.offset:self.offset + length]
+        self.offset += length
+        return value
+
+    def string(self) -> str:
+        value = self.bytes()
+        if not value or value[-1] != 0:
+            raise ValueError("CDR string is missing its NUL terminator")
+        try:
+            return value[:-1].decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ValueError("invalid UTF-8 CDR string") from error
+
+
 class _LocalPosePublisher:
     """Compatibility sink for the local-only pair used by legacy tests/tools."""
 
@@ -438,6 +651,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--metadata-topic", default="/camera/frame_detections")
     parser.add_argument("--image-topic", default="/camera/image_raw")
+    parser.add_argument("--mcap", type=Path)
+    parser.add_argument("--mcap-rate", type=float, default=1.0)
     parser.add_argument("--frames-endpoint", default="tcp://0.0.0.0:5555")
     parser.add_argument("--queue-depth", type=int, default=2_048)
     parser.add_argument("--high-water-mark", type=int, default=2_048)
@@ -456,11 +671,10 @@ def main() -> None:
         parser.error("--queue-depth must be positive")
     if args.high_water_mark <= 0:
         parser.error("--high-water-mark must be positive")
-
-    try:
-        import rclpy
-    except ImportError as error:  # pragma: no cover - requires a sourced ROS environment
-        raise RuntimeError("source ROS 2 before starting the pose adapter") from error
+    if args.mcap_rate <= 0:
+        parser.error("--mcap-rate must be positive")
+    if args.mcap is not None and not args.mcap.is_file():
+        parser.error(f"--mcap does not exist: {args.mcap}")
 
     context = zmq.Context()
     router = RouterTransport.open(
@@ -500,21 +714,43 @@ def main() -> None:
         snapshot_sink=spool,
         analysis_assembler=analysis_assembler,
     )
-    rclpy.init()
-    node = _create_ros_node(
-        adapter,
-        metadata_topic=args.metadata_topic,
-        image_topic=args.image_topic,
-        queue_depth=args.queue_depth,
-    )
+    rclpy = None
+    node = None
+    if args.mcap is None:
+        try:
+            import rclpy as imported_rclpy
+        except ImportError as error:  # pragma: no cover - requires a sourced ROS environment
+            raise RuntimeError("source ROS 2 before starting the pose adapter") from error
+        rclpy = imported_rclpy
+        rclpy.init()
+        node = _create_ros_node(
+            adapter,
+            metadata_topic=args.metadata_topic,
+            image_topic=args.image_topic,
+            queue_depth=args.queue_depth,
+        )
     try:
         service.start()
         if assets_service is not None:
             assets_service.start()
         if analysis_service is not None:
             analysis_service.start()
-        while rclpy.ok():
-            rclpy.spin_once(node, timeout_sec=0.1)
+        if args.mcap is not None:
+            if analysis_assembler is None:
+                raise RuntimeError("direct MCAP replay requires --analysis-endpoint")
+            McapFrameReplay(
+                adapter,
+                image_topic=args.image_topic,
+                metadata_topic=args.metadata_topic,
+                expected_samples=args.expected_samples,
+                rate=args.mcap_rate,
+            ).replay(args.mcap)
+        while rclpy is None or rclpy.ok():
+            if rclpy is not None:
+                assert node is not None
+                rclpy.spin_once(node, timeout_sec=0.1)
+            else:
+                time.sleep(0.1)
             service.raise_if_failed()
             if assets_service is not None:
                 assets_service.raise_if_failed()
@@ -530,8 +766,10 @@ def main() -> None:
             assets_service.stop()
         if analysis_service is not None:
             analysis_service.stop()
-        node.destroy_node()
-        rclpy.shutdown()
+        if node is not None:
+            node.destroy_node()
+        if rclpy is not None:
+            rclpy.shutdown()
         router.close()
         if assets_router is not None:
             assets_router.close()

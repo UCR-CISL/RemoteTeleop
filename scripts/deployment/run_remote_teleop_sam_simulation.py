@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-import math
+import json
 from pathlib import Path, PurePosixPath
 import shlex
 import sys
@@ -65,7 +65,6 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
             self._require_alive(self.vehicle, self._vehicle_output_root() / "sam3d.pid", "SAM3D worker")
             self._require_alive(self.remote, self._remote_output_root() / "compositor.pid", "remote compositor")
             self._play_mcap()
-            # Authoritative pose+bbox rendering completes independently of SAM.
             self._wait_for_remote_metrics()
             self._wait_for_sam3d_completion()
             self._wait_for_asset_sync()
@@ -92,8 +91,6 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
             (base[0], self._ssh(self.vehicle, self._sam_vehicle_preflight_script()))
             + starts
             + (
-                self._ssh(self.vehicle, self._topic_play_script("/camera/frame_detections")),
-                self._ssh(self.vehicle, self._topic_play_script("/camera/image_raw", rate=0.5)),
                 base[5],
             )
             + stops
@@ -101,58 +98,21 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
         )
 
     def _play_mcap(self) -> None:
-        """Replay metadata and images separately across the ROS durability boundary.
+        """Replay the recorded image and detection streams once, in source order.
 
-        Raw image publication can otherwise starve small metadata callbacks in
-        Humble's rosbag/DDS path.  The metadata pass is authoritative for remote
-        rendering; the slower image pass fills the independent local SAM spool.
-        Each pass must install its durable end marker before launch proceeds.
+        The adapter immediately commits each arriving detection snapshot to the
+        render spool and independently joins its image for the SAM analysis
+        spool.  Waiting for both end markers preserves their durable completion
+        checks without preloading future metadata.
         """
 
-        self._checked(
-            self._ssh(
-                self.vehicle,
-                self._topic_play_script("/camera/frame_detections"),
-            ),
-            "MCAP metadata playback",
-        )
         self._wait_for_spool_end("frame-spool", "render snapshot")
         self._require_alive(
             self.remote,
             self._remote_output_root() / "compositor.pid",
             "remote compositor",
         )
-        self._checked(
-            self._ssh(
-                self.vehicle,
-                self._topic_play_script("/camera/image_raw", rate=0.5),
-            ),
-            "MCAP image playback",
-        )
         self._wait_for_spool_end("analysis-spool", "analysis frame")
-
-    def _topic_play_script(self, topic: str, *, rate: float = 1.0) -> str:
-        if not topic.startswith("/") or rate <= 0:
-            raise ValueError("ROS playback topic and rate must be valid")
-        in_container_mcap = PurePosixPath("/workspace") / self.options.mcap_path
-        timeout_seconds = max(1, math.ceil(self.options.timeout_seconds))
-        inner = (
-            "source /opt/ros/humble/setup.sh && timeout --signal=INT "
-            + f"{timeout_seconds}s ros2 bag play -s mcap "
-            + shlex.quote(str(in_container_mcap))
-            + " --disable-keyboard-controls --read-ahead-queue-size 10"
-            + " --wait-for-all-acked 0 --rate "
-            + shlex.quote(str(rate))
-            + " --topics "
-            + shlex.quote(topic)
-        )
-        command = ["docker", "exec", self.options.ros_sidecar, "bash", "-lc", inner]
-        return (
-            "cd "
-            + shlex.quote(str(self.vehicle.repo_path))
-            + " && "
-            + shlex.join(command)
-        )
 
     def _wait_for_spool_end(self, spool_name: str, label: str) -> None:
         root = self._vehicle_output_root() / spool_name
@@ -178,24 +138,21 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
         analysis_port = self.vehicle.analysis_port
         if analysis_port is None:
             raise LaunchError("vehicle configuration requires analysis_port")
-        inner = (
-            "source /opt/ros/humble/setup.sh && cd /workspace && "
-            "PYTHONPATH=/workspace${PYTHONPATH:+:$PYTHONPATH} "
-            + shlex.join([
-                "/usr/bin/python3", "src/deployment/ros_frame_adapter.py",
-                "--frames-endpoint", f"tcp://0.0.0.0:{self.vehicle.port}",
-                "--assets-endpoint", f"tcp://0.0.0.0:{self.vehicle.asset_port}",
-                "--analysis-endpoint", f"tcp://0.0.0.0:{analysis_port}",
-                "--queue-depth", "2048", "--high-water-mark", "2048",
-                "--expected-samples", str(self.options.expected_samples),
-                "--scene-generation", self.options.scene_generation,
-                "--metrics-path", str(self.options.output_root / self.vehicle.name / "ros_ego_pose_adapter.jsonl"),
-                "--spool-root", str(self.options.output_root / self.vehicle.name / "frame-spool"),
-                "--analysis-spool-root", str(self.options.output_root / self.vehicle.name / "analysis-spool"),
-                "--asset-store-root", str(self.options.output_root / self.vehicle.name / "asset-store"),
-            ])
-        )
-        command = ["docker", "exec", self.options.ros_sidecar, "bash", "-lc", inner]
+        command = self._vehicle_python_command() + [
+            "-m", "src.deployment.ros_frame_adapter",
+            "--frames-endpoint", f"tcp://0.0.0.0:{self.vehicle.port}",
+            "--assets-endpoint", f"tcp://0.0.0.0:{self.vehicle.asset_port}",
+            "--analysis-endpoint", f"tcp://0.0.0.0:{analysis_port}",
+            "--queue-depth", "2048", "--high-water-mark", "2048",
+            "--expected-samples", str(self.options.expected_samples),
+            "--scene-generation", self.options.scene_generation,
+            "--metrics-path", str(self.options.output_root / self.vehicle.name / "ros_ego_pose_adapter.jsonl"),
+            "--spool-root", str(self.options.output_root / self.vehicle.name / "frame-spool"),
+            "--analysis-spool-root", str(self.options.output_root / self.vehicle.name / "analysis-spool"),
+            "--asset-store-root", str(self.options.output_root / self.vehicle.name / "asset-store"),
+            "--mcap", str(self.vehicle.repo_path / self.options.mcap_path),
+            "--mcap-rate", "1.0",
+        ]
         return self._background_script(
             self.vehicle.repo_path, command, root / "logs" / "adapter.log", root / "adapter.pid"
         )
@@ -257,11 +214,14 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
 
     def _sam_vehicle_preflight_script(self) -> str:
         python = shlex.join(self._vehicle_python_command())
+        output = self.vehicle.repo_path / self.options.output_root
+        mcap = self.vehicle.repo_path / self.options.mcap_path
         return " && ".join((
-            self._vehicle_preflight_script(),
+            "test ! -e " + shlex.quote(str(output)),
+            "test -f " + shlex.quote(str(mcap)),
             "command -v nvidia-smi >/dev/null",
             python + " -c " + shlex.quote(
-                "import torch, zmq, cv2; assert torch.cuda.is_available(); "
+                "import mcap, torch, zmq, cv2; assert torch.cuda.is_available(); "
                 "import src.realtime.mask_process, src.realtime.sam3d_worker"
             ),
         ))
@@ -299,6 +259,24 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
             self.sleep(self.options.poll_seconds)
         raise LaunchError("timed out waiting for durable meshes to reach the remote cache")
 
+    def _validate_retrieved_metrics(self) -> None:
+        super()._validate_retrieved_metrics()
+        sam3d_metrics = (
+            self.options.local_artifacts
+            / self.vehicle.name
+            / "metrics"
+            / "sam3d.jsonl"
+        )
+        ready = []
+        for line in sam3d_metrics.read_text(encoding="utf-8").splitlines():
+            if not line:
+                continue
+            record = json.loads(line)
+            if record.get("state") == "ready":
+                ready.append(record)
+        if len(ready) < 2:
+            raise LaunchError(f"expected at least two ready meshes, got {len(ready)}")
+
     def _stop_processes(self) -> None:
         for name in ("sam3", "sam3d"):
             self.runner.run(self._ssh(self.vehicle, self._sam_stop_script(name)))
@@ -321,6 +299,12 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
     def _sam_stop_script(self, name: str) -> str:
         return self._stop_script(
             self._vehicle_output_root() / f"{name}.pid", process_group=True
+        )
+
+    def _stop_vehicle_script(self) -> str:
+        """Stop the host-side direct-MCAP adapter without touching a ROS sidecar."""
+        return self._stop_script(
+            self._vehicle_output_root() / "adapter.pid", process_group=True
         )
 
     def _sam_kill_script(self, name: str, signal: str) -> str:

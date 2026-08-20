@@ -8,11 +8,12 @@ import numpy as np
 
 import pytest
 
-from src.deployment.ros_frame_adapter import RosAnalysisAssembler, RosFrameAdapter, RosFrameAdapterConfig
-from src.deployment.vehicle import VehicleAnalysisSpool
+from src.deployment.ros_frame_adapter import McapFrameReplay, RosAnalysisAssembler, RosFrameAdapter, RosFrameAdapterConfig
+from src.deployment.vehicle import VehicleAnalysisSpool, VehicleFrameSpool
 from src.realtime.process_support import JsonlMetrics
-from src.realtime.protocol import ProtocolCodec
+from src.realtime.protocol import FrameDetections, ProtocolCodec
 from src.realtime import EgoPoseSample, FrameObjectDetections
+from src.data.cooperscene_mcap import _serialize_image, _serialize_metadata
 
 
 class _Publisher:
@@ -167,3 +168,125 @@ def test_analysis_assembler_durably_joins_image_and_metadata_in_either_order(tmp
     assert decoded.shape == (4, 6, 3)
     assert decoded[0, 0, 2] > decoded[0, 0, 0]
     assert spool.end(metadata["scene_generation"]) is not None
+
+
+def test_direct_mcap_replay_preserves_record_order_pacing_and_durable_spools(tmp_path):
+    scene = "cooperscene:train:1:1"
+    snapshots = VehicleFrameSpool(tmp_path / "frames")
+    analysis = VehicleAnalysisSpool(tmp_path / "analysis")
+    assembler = RosAnalysisAssembler(analysis, expected_samples=2)
+    adapter = RosFrameAdapter(
+        _Publisher(),
+        RosFrameAdapterConfig(expected_samples=2),
+        snapshot_sink=snapshots,
+        analysis_assembler=assembler,
+    )
+    records = []
+    for sequence, timestamp_us in enumerate((0, 100_000)):
+        payload = _metadata(timestamp_us=timestamp_us, frame_id=str(sequence), generation=scene)
+        detections = FrameDetections(
+            frame_id=payload["frame_id"], request_id=payload["request_id"],
+            scene_generation=scene, timestamp_us=timestamp_us, image_jpeg=b"x",
+            camera_intrinsic=payload["camera_intrinsic"], world_T_camera=payload["world_T_camera"],
+            world_T_ego=payload["world_T_ego"], boxes=(),
+        )
+        image = _serialize_image(
+            timestamp_ns=timestamp_us * 1_000, frame_id="camera0", height=1, width=1,
+            data=bytes((1, 2, 3)),
+        )
+        log_time = timestamp_us * 1_000
+        records.extend((
+            ("/camera/image_raw", image, log_time),
+            ("/camera/frame_detections", _serialize_metadata(detections), log_time),
+        ))
+
+    class Reader:
+        def iter_messages(self, **kwargs):
+            assert kwargs == {
+                "topics": ("/camera/image_raw", "/camera/frame_detections"),
+                "log_time_order": False,
+            }
+            for topic, data, log_time in records:
+                schema_name = "sensor_msgs/msg/Image" if topic.endswith("image_raw") else "std_msgs/msg/String"
+                yield SimpleNamespace(name=schema_name), SimpleNamespace(topic=topic, message_encoding="cdr"), SimpleNamespace(data=data, log_time=log_time)
+
+    waits = []
+    path = tmp_path / "input.mcap"
+    path.write_bytes(b"test")
+    McapFrameReplay(
+        adapter,
+        image_topic="/camera/image_raw",
+        metadata_topic="/camera/frame_detections",
+        expected_samples=2,
+        sleep=waits.append,
+        reader_factory=lambda stream: Reader(),
+    ).replay(path)
+    assembler.close()
+
+    assert waits == [0.1]
+    assert snapshots.end(scene) is not None
+    assert analysis.end(scene) is not None
+    assert [analysis.get(scene, sequence).timestamp_us for sequence in range(2)] == [0, 100_000]
+
+
+def test_direct_mcap_replay_rejects_incomplete_authoritative_stream(tmp_path):
+    adapter = RosFrameAdapter(
+        _Publisher(), RosFrameAdapterConfig(expected_samples=1),
+        snapshot_sink=VehicleFrameSpool(tmp_path / "frames"),
+        analysis_assembler=RosAnalysisAssembler(VehicleAnalysisSpool(tmp_path / "analysis"), expected_samples=1),
+    )
+
+    class Reader:
+        def iter_messages(self, **kwargs):
+            del kwargs
+            return iter(())
+
+    path = tmp_path / "empty.mcap"
+    path.write_bytes(b"test")
+    with pytest.raises(RuntimeError, match="expected 1 MCAP metadata records, got 0"):
+        McapFrameReplay(
+            adapter, image_topic="/camera/image_raw", metadata_topic="/camera/frame_detections",
+            expected_samples=1, reader_factory=lambda stream: Reader(),
+        ).replay(path)
+
+
+def test_direct_mcap_replay_reads_generated_cdr_records(tmp_path):
+    from mcap.writer import Writer
+
+    scene = "cooperscene:train:1:1"
+    payload = _metadata(timestamp_us=0, frame_id="0", generation=scene)
+    detections = FrameDetections(
+        frame_id=payload["frame_id"], request_id=payload["request_id"],
+        scene_generation=scene, timestamp_us=0, image_jpeg=b"x",
+        camera_intrinsic=payload["camera_intrinsic"], world_T_camera=payload["world_T_camera"],
+        world_T_ego=payload["world_T_ego"], boxes=(),
+    )
+    path = tmp_path / "generated.mcap"
+    with path.open("wb") as output:
+        writer = Writer(output)
+        writer.start(profile="ros2")
+        image_schema = writer.register_schema("sensor_msgs/msg/Image", "ros2msg", b"")
+        metadata_schema = writer.register_schema("std_msgs/msg/String", "ros2msg", b"")
+        image_channel = writer.register_channel("/camera/image_raw", "cdr", image_schema)
+        metadata_channel = writer.register_channel("/camera/frame_detections", "cdr", metadata_schema)
+        writer.add_message(
+            image_channel, 0,
+            _serialize_image(timestamp_ns=0, frame_id="camera0", height=1, width=1, data=b"\x01\x02\x03"),
+            0,
+        )
+        writer.add_message(metadata_channel, 0, _serialize_metadata(detections), 0)
+        writer.finish()
+
+    analysis = VehicleAnalysisSpool(tmp_path / "analysis")
+    assembler = RosAnalysisAssembler(analysis, expected_samples=1)
+    adapter = RosFrameAdapter(
+        _Publisher(), RosFrameAdapterConfig(expected_samples=1),
+        snapshot_sink=VehicleFrameSpool(tmp_path / "frames"), analysis_assembler=assembler,
+    )
+    McapFrameReplay(
+        adapter, image_topic="/camera/image_raw", metadata_topic="/camera/frame_detections",
+        expected_samples=1,
+    ).replay(path)
+    assembler.close()
+
+    assert analysis.get(scene, 0).timestamp_us == 0

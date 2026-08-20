@@ -11,7 +11,7 @@ control publication do not wait for reconstruction.
 The authoritative render path and the slow analysis path are independent.
 Every pose+bbox `FrameSnapshot` is durably spooled and receiver-pulled by the
 remote compositor; a mesh is never required to render or acknowledge a frame.
-The ROS image and metadata topics are joined by exact dataset timestamp into a
+The image and metadata records are joined by exact dataset timestamp into a
 separate, vehicle-local `FrameDetections` spool. SAM3 and SAM3D each pull and
 ACK every analysis frame at their own pace, so slow inference cannot overflow
 a PUB/SUB queue and cannot delay remote proxy rendering.
@@ -67,21 +67,24 @@ The timestamps begin at zero and advance at the configured dataset cadence.
 They represent dataset time, not the wall clock used to measure subscriber and
 render latency.
 
-For the SAM launcher, the two ROS topics are replayed in separate passes:
-metadata at 1x, then images at 0.5x. The launcher requires a durable 501-record
-end marker after each pass. This avoids contention between large raw images
-and authoritative metadata while retaining exact timestamps and ordered
-processing; it is not latest-value sampling.
+For the SAM launcher, one direct MCAP reader consumes image and metadata records
+in chronological record order at the recorded 10 Hz cadence. It bypasses the
+offline rosbag/DDS delivery hop, which dropped small metadata callbacks under
+raw-image load, but it does not preload future poses. Each current metadata
+record is immediately committed to the render spool; its matching image is
+independently committed to the analysis spool. The launcher requires exact
+501-record durable end markers for both streams.
 
-`src.deployment.ros_frame_adapter` is the vehicle-side ROS 2 source adapter.
+`src.deployment.ros_frame_adapter` is the vehicle-side source adapter.
 It validates `/camera/frame_detections` and durably appends one image-free
 `FrameSnapshot` containing sequence, timestamp, generation/frame identifiers,
 `world_T_ego`, and boxes. A ROUTER serves those snapshots only when the remote
 DEALER requests its next durable cursor; the compositor ACKs only after the
 rendered PNG and cursor are committed. With `--analysis-endpoint`, the adapter
 also subscribes to `/camera/image_raw`, joins it to metadata locally, and
-durably writes image-bearing `FrameDetections` for SAM. Run it only from a
-sourced ROS 2 environment:
+durably writes image-bearing `FrameDetections` for SAM. Live mode requires a
+sourced ROS 2 environment. Playback mode uses `--mcap` from the project Python
+environment and keeps the live ROS behavior unchanged.
 
 ```bash
 PYTHONPATH=/workspace${PYTHONPATH:+:$PYTHONPATH} /usr/bin/python3 \
