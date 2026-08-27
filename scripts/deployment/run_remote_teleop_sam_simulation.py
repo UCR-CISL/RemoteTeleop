@@ -262,6 +262,8 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
         command = shlex.split(self.sam.vehicle_python)
         if not command:
             raise LaunchError("--vehicle-python must not be empty")
+        if not PurePosixPath(command[0]).is_absolute():
+            command[0] = str(PurePosixPath(self.vehicle.repo_path) / command[0])
         return command
 
     def _remote_preflight_script(self) -> str:

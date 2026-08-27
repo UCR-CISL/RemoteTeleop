@@ -104,6 +104,7 @@ class PoseOnlyCompositedCameraBackend:
         proxy_thickness: int = 2,
         alpha_threshold: float = 0.01,
         depth_tolerance_m: float = 0.03,
+        ground_z: float = 0.0,
     ) -> None:
         if proxy_thickness <= 0:
             raise ValueError("proxy_thickness must be positive")
@@ -114,6 +115,7 @@ class PoseOnlyCompositedCameraBackend:
         self._proxy_thickness = proxy_thickness
         self._alpha_threshold = float(alpha_threshold)
         self._depth_tolerance_m = float(depth_tolerance_m)
+        self._ground_z = float(ground_z)
         self._scene_generation: str | None = None
         self._retired_generations: set[str] = set()
         self._assets: dict[str, _MeshAsset] = {}
@@ -200,7 +202,7 @@ class PoseOnlyCompositedCameraBackend:
                 try:
                     overlay = self._mesh_renderer.render(
                         asset.handle,
-                        _matrix4(box.world_T_object),
+                        _flat_ground_box_pose(box, ground_z=self._ground_z),
                         world_T_camera,
                         self.camera.camera_intrinsic,
                         self.camera.image_size,
@@ -229,6 +231,7 @@ class PoseOnlyCompositedCameraBackend:
                 self._proxy_thickness,
                 self._alpha_threshold,
                 self._depth_tolerance_m,
+                ground_z=self._ground_z,
             )
             track_states[box.track_id] = "proxy"
         return PoseOnlyCompositedFrame(
@@ -537,6 +540,7 @@ class CompositedCameraBackend:
         proxy_thickness: int = 2,
         alpha_threshold: float = 0.01,
         depth_tolerance_m: float = 0.03,
+        ground_z: float = 0.0,
     ) -> None:
         if proxy_thickness <= 0:
             raise ValueError("proxy_thickness must be positive")
@@ -546,6 +550,7 @@ class CompositedCameraBackend:
         self._proxy_thickness = proxy_thickness
         self._alpha_threshold = float(alpha_threshold)
         self._depth_tolerance_m = float(depth_tolerance_m)
+        self._ground_z = float(ground_z)
         self._generation: str | None = None
         self._retired_generations: set[str] = set()
         self._assets: dict[str, _MeshAsset] = {}
@@ -621,7 +626,7 @@ class CompositedCameraBackend:
                 try:
                     overlay = self._mesh_renderer.render(
                         asset.handle,
-                        _matrix4(box.world_T_object),
+                        _flat_ground_box_pose(box, ground_z=self._ground_z),
                         world_T_camera,
                         intrinsic,
                         image_size,
@@ -647,6 +652,7 @@ class CompositedCameraBackend:
                 self._proxy_thickness,
                 self._alpha_threshold,
                 self._depth_tolerance_m,
+                ground_z=self._ground_z,
             )
         return CompositedCameraFrame(frame.frame_id, frame.timestamp_us, rgb, states)
 
@@ -671,14 +677,11 @@ def _draw_box_proxy(
     thickness: int,
     alpha_threshold: float,
     depth_tolerance_m: float,
+    *,
+    ground_z: float = 0.0,
 ) -> None:
-    dimensions = np.asarray(box.dimensions_lwh, dtype=np.float64)
-    signs = np.array(
-        [[-1, -1, -1], [-1, -1, 1], [-1, 1, -1], [-1, 1, 1],
-         [1, -1, -1], [1, -1, 1], [1, 1, -1], [1, 1, 1]], dtype=np.float64
-    )
-    local = signs * dimensions / 2.0
-    world_T_object = _matrix4(box.world_T_object)
+    local = _box_local_corners(box.dimensions_lwh)
+    world_T_object = _flat_ground_box_pose(box, ground_z=ground_z)
     world = local @ world_T_object[:3, :3].T + world_T_object[:3, 3]
     camera_T_world = np.linalg.inv(world_T_camera)
     camera = world @ camera_T_world[:3, :3].T + camera_T_world[:3, 3]
@@ -692,6 +695,25 @@ def _draw_box_proxy(
             camera[start, 2], camera[end, 2], color, thickness,
             alpha_threshold, depth_tolerance_m,
         )
+
+
+def _flat_ground_box_pose(box: BoxPrompt, *, ground_z: float = 0.0) -> np.ndarray:
+    """Anchor an oriented GT box to the flat GSplat ground without changing x/y."""
+
+    world_T_object = _matrix4(box.world_T_object).copy()
+    local = _box_local_corners(box.dimensions_lwh)
+    lowest_z = (local @ world_T_object[:3, :3].T + world_T_object[:3, 3])[:, 2].min()
+    world_T_object[2, 3] += ground_z - lowest_z
+    return world_T_object
+
+
+def _box_local_corners(dimensions_lwh: tuple[float, float, float]) -> np.ndarray:
+    dimensions = np.asarray(dimensions_lwh, dtype=np.float64)
+    signs = np.array(
+        [[-1, -1, -1], [-1, -1, 1], [-1, 1, -1], [-1, 1, 1],
+         [1, -1, -1], [1, -1, 1], [1, 1, -1], [1, 1, 1]], dtype=np.float64
+    )
+    return signs * dimensions / 2.0
 
 
 _BOX_EDGES = (

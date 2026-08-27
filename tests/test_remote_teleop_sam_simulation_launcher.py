@@ -29,8 +29,8 @@ def _launcher(tmp_path):
 def test_sam_launcher_keeps_render_and_analysis_endpoints_separate(tmp_path):
     commands = [" ".join(command) for command in _launcher(tmp_path).planned_commands()]
     adapter = next(command for command in commands if "src.deployment.ros_frame_adapter" in command)
-    sam3 = next(command for command in commands if "nohup .venv/bin/python -m src.realtime.mask_process" in command)
-    sam3d = next(command for command in commands if "nohup .venv/bin/python -m src.realtime.sam3d_worker" in command)
+    sam3 = next(command for command in commands if "nohup /home/jyue86/Documents/CISL-Projects/RemoteTeleop/.venv/bin/python -m src.realtime.mask_process" in command)
+    sam3d = next(command for command in commands if "nohup /home/jyue86/Documents/CISL-Projects/RemoteTeleop/.venv/bin/python -m src.realtime.sam3d_worker" in command)
     compositor = next(command for command in commands if "composited_camera_process" in command)
 
     assert "--frames-endpoint tcp://0.0.0.0:8768" in adapter
@@ -45,7 +45,7 @@ def test_sam_launcher_keeps_render_and_analysis_endpoints_separate(tmp_path):
 
 def test_sam_launcher_uses_durable_asset_store_and_completion_marker(tmp_path):
     commands = [" ".join(command) for command in _launcher(tmp_path).planned_commands()]
-    sam3d = next(command for command in commands if "nohup .venv/bin/python -m src.realtime.sam3d_worker" in command)
+    sam3d = next(command for command in commands if "nohup /home/jyue86/Documents/CISL-Projects/RemoteTeleop/.venv/bin/python -m src.realtime.sam3d_worker" in command)
     adapter = next(command for command in commands if "src.deployment.ros_frame_adapter" in command)
 
     assert "--asset-store-root artifacts/sam-test/alien4/asset-store" in sam3d
@@ -56,7 +56,7 @@ def test_sam_launcher_uses_durable_asset_store_and_completion_marker(tmp_path):
     assert "--keep-cuda-resident" in sam3d
     assert "--ready-path artifacts/sam-test/alien4/sam3d-ready" in sam3d
     assert "--precision nf4" in sam3d
-    sam3 = next(command for command in commands if "nohup .venv/bin/python -m src.realtime.mask_process" in command)
+    sam3 = next(command for command in commands if "nohup /home/jyue86/Documents/CISL-Projects/RemoteTeleop/.venv/bin/python -m src.realtime.mask_process" in command)
     assert "--gpu-residency-lock artifacts/sam-test/alien4/gpu-residency.lock" in sam3
     assert "--keep-cuda-resident" in sam3
     assert "--ready-path artifacts/sam-test/alien4/sam3-ready" in sam3
@@ -83,7 +83,7 @@ def test_sam_launcher_uses_direct_single_pass_mcap_adapter(tmp_path):
     adapter = next(command for command in commands if "src.deployment.ros_frame_adapter" in command)
 
     assert not plays
-    assert "nohup .venv/bin/python -m src.deployment.ros_frame_adapter" in adapter
+    assert "nohup /home/jyue86/Documents/CISL-Projects/RemoteTeleop/.venv/bin/python -m src.deployment.ros_frame_adapter" in adapter
     assert "--mcap /home/jyue86/Documents/CISL-Projects/RemoteTeleop/artifacts/input.mcap" in adapter
     assert "--mcap-rate 1.0" in adapter
     assert "docker exec" not in adapter

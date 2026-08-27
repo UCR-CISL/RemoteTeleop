@@ -376,6 +376,7 @@ class CompositedCameraProcess:
         frames_per_second: float = 10.0,
         device: str = "cuda",
         mesh_max_faces: int = 100_000,
+        ground_z: float = -2.8,
         cursor_path: Path | None = None,
         mesh_cache_dir: Path | None = None,
     ) -> None:
@@ -391,6 +392,7 @@ class CompositedCameraProcess:
             CudaGaussianBufferRenderer(gaussian_map, device=device, downsample=1),
             camera,
             PyTorch3DObjectMeshRenderer(device=device, max_faces=mesh_max_faces),
+            ground_z=ground_z,
         )
         self._cursor = FrameCursor(cursor_path or output_dir / "frame-cursor.json", scene_generation)
         self._writer.reconcile(self._cursor.next_sequence)
@@ -544,6 +546,7 @@ def main() -> None:
     parser.add_argument("--frames-per-second", type=float, default=10.0)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--mesh-max-faces", type=int, default=100_000)
+    parser.add_argument("--ground-z", type=float, default=-2.8)
     args = parser.parse_args()
     process = CompositedCameraProcess(
         frames_endpoint=args.frames_endpoint, assets_endpoint=args.assets_endpoint,
@@ -556,6 +559,7 @@ def main() -> None:
         ),
         frames_per_second=args.frames_per_second, device=args.device,
         mesh_max_faces=args.mesh_max_faces,
+        ground_z=args.ground_z,
         cursor_path=args.cursor_path, mesh_cache_dir=args.mesh_cache_dir,
     )
     signal.signal(signal.SIGINT, process.request_stop)

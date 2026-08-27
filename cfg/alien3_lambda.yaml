@@ -9,5 +9,6 @@ lambda:
   host_address: 100.97.168.98
   port: 8768
   asset_port: 8769
+  analysis_port: 8771
   user: justin
   repo_path: /home/justin/Documents/CISL-Projects/RemoteTeleop

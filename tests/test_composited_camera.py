@@ -2,6 +2,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 
 from src.realtime.protocol import AssetEvent, AssetState, BoxPrompt, EgoPoseSample, FrameDetections
 from src.viz.composited_camera import (
@@ -10,6 +11,7 @@ from src.viz.composited_camera import (
     PoseOnlyCompositedCameraBackend,
     RemoteCameraConfig,
     _decimate_mesh_for_render,
+    _flat_ground_box_pose,
 )
 from src.viz.localization_visualizer import GaussianRenderBuffers
 
@@ -33,6 +35,8 @@ def _box(track_id="car", z=4.0):
 
 def _frame(generation="scene-1", boxes=(), frame_id="1"):
     intrinsic = np.array([[20.0, 0.0, 16.0], [0.0, 20.0, 12.0], [0.0, 0.0, 1.0]])
+    world_T_camera = np.eye(4)
+    world_T_camera[2, 3] = -3.0
     identity = tuple(np.eye(4).reshape(-1))
     return FrameDetections(
         frame_id=frame_id,
@@ -41,7 +45,7 @@ def _frame(generation="scene-1", boxes=(), frame_id="1"):
         timestamp_us=int(frame_id),
         image_jpeg=_jpeg(),
         camera_intrinsic=tuple(intrinsic.reshape(-1)),
-        world_T_camera=identity,
+        world_T_camera=tuple(world_T_camera.reshape(-1)),
         world_T_ego=identity,
         boxes=tuple(boxes),
     )
@@ -166,8 +170,10 @@ def test_pose_only_renderer_rejects_invalid_pose_or_scene_generation():
 
 
 def test_pose_only_renderer_draws_depth_tested_detection_proxies():
+    ego_T_camera = np.eye(4)
+    ego_T_camera[2, 3] = -3.0
     camera = RemoteCameraConfig(
-        ego_T_camera=np.eye(4),
+        ego_T_camera=ego_T_camera,
         camera_intrinsic=np.array([[20.0, 0.0, 16.0], [0.0, 20.0, 12.0], [0.0, 0.0, 1.0]]),
         image_size=(32, 24),
     )
@@ -204,7 +210,29 @@ def test_pose_only_mesh_waits_for_its_source_frame_and_uses_snapshot_box_pose(tm
     rendered = backend.render_pose(_pose(sequence=2), (_box(z=8.0),))
 
     assert rendered.track_states == {"car": "mesh"}
-    np.testing.assert_allclose(meshes.poses[-1][1][:3, 3], [0, 0, 8])
+    np.testing.assert_allclose(meshes.poses[-1][1][:3, 3], [0, 0, 1])
+
+
+def test_flat_ground_anchor_removes_vertical_jitter_without_changing_xy_or_rotation():
+    pose = np.eye(4)
+    pose[:3, 3] = [4.0, -3.0, 12.0]
+    angle = np.deg2rad(20.0)
+    pose[:3, :3] = [[np.cos(angle), 0.0, np.sin(angle)], [0.0, 1.0, 0.0], [-np.sin(angle), 0.0, np.cos(angle)]]
+    box = BoxPrompt(
+        track_id="car", xyxy=(0, 0, 1, 1), dimensions_lwh=(4.0, 2.0, 1.5),
+        world_T_object=tuple(pose.reshape(-1)),
+    )
+
+    anchored = _flat_ground_box_pose(box)
+    corners = np.array([
+        [-2.0, -1.0, -0.75], [-2.0, -1.0, 0.75], [-2.0, 1.0, -0.75], [-2.0, 1.0, 0.75],
+        [2.0, -1.0, -0.75], [2.0, -1.0, 0.75], [2.0, 1.0, -0.75], [2.0, 1.0, 0.75],
+    ])
+    world = corners @ anchored[:3, :3].T + anchored[:3, 3]
+
+    assert world[:, 2].min() == pytest.approx(0.0)
+    np.testing.assert_allclose(anchored[:2, 3], pose[:2, 3])
+    np.testing.assert_allclose(anchored[:3, :3], pose[:3, :3])
 
 
 def test_pose_only_mesh_load_failure_is_visible_and_keeps_the_proxy(tmp_path):
@@ -298,7 +326,7 @@ def test_ready_mesh_atomically_replaces_proxy_and_tracks_gt_pose(tmp_path):
     backend.render_frame(_frame(boxes=(), frame_id="2"))
     backend.render_frame(_frame(boxes=(_box(z=8.0),), frame_id="3"))
     assert meshes.loads == [mesh_path]
-    np.testing.assert_allclose(meshes.poses[-1][1][:3, 3], [0, 0, 8])
+    np.testing.assert_allclose(meshes.poses[-1][1][:3, 3], [0, 0, 1])
 
 
 def test_failure_retains_proxy_and_scene_reset_rejects_late_asset(tmp_path):
