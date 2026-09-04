@@ -17,3 +17,6 @@ logs/
 artifacts/
 
 /data/
+
+# Dedicated, read-only BEVFusion Docker runtime assets.
+docker/bevfusion/checkpoints/*.pth

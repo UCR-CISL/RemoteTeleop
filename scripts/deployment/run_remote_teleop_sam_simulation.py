@@ -71,6 +71,10 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
         try:
             self._checked(self._ssh(self.remote, self._remote_preflight_script()), "remote output preflight")
             self._checked(self._ssh(self.vehicle, self._sam_vehicle_preflight_script()), "vehicle SAM preflight")
+            if self._uses_bevfusion:
+                self._checked(self._ssh(self.vehicle, self._bevfusion_preflight_script()), "BEVFusion preflight")
+                self._launch_bevfusion()
+                self._wait_for_bevfusion_ready()
             self._launch_sam3d_worker()
             self._wait_for_sam3d_ready()
             self._launch_sam3_worker()
@@ -97,28 +101,38 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
         return self.options.local_artifacts / "composited" / "composited.mp4"
 
     def planned_commands(self) -> tuple[tuple[str, ...], ...]:
-        base = super().planned_commands()
-        starts_and_readiness = (
+        commands = [
+            self._ssh(self.remote, self._remote_preflight_script()),
+            self._ssh(self.vehicle, self._sam_vehicle_preflight_script()),
+        ]
+        if self._uses_bevfusion:
+            commands.extend((
+                self._ssh(self.vehicle, self._bevfusion_preflight_script()),
+                self._ssh(self.vehicle, self._bevfusion_start_script()),
+                self._ssh(self.vehicle, self._bevfusion_ready_script()),
+            ))
+        commands.extend((
             self._ssh(self.vehicle, self._sam3d_start_script()),
             self._ssh(self.vehicle, self._sam_ready_script("sam3d")),
             self._ssh(self.vehicle, self._sam3_start_script()),
             self._ssh(self.vehicle, self._sam_ready_script("sam3")),
             self._ssh(self.remote, self._remote_start_script()),
             self._ssh(self.vehicle, self._vehicle_adapter_script()),
-        )
-        stops = tuple(
-            self._ssh(self.vehicle, self._sam_stop_script(name))
-            for name in ("sam3", "sam3d")
-        )
-        return (
-            (base[0], self._ssh(self.vehicle, self._sam_vehicle_preflight_script()))
-            + starts_and_readiness
-            + (
-                base[5],
-            )
-            + stops
-            + base[6:]
-        )
+            self._ssh(self.remote, self._metrics_count_script()),
+            self._ssh(self.vehicle, self._sam_stop_script("sam3")),
+            self._ssh(self.vehicle, self._sam_stop_script("sam3d")),
+            self._ssh(self.remote, self._stop_remote_script()),
+            self._ssh(self.vehicle, self._stop_vehicle_script()),
+        ))
+        if self._uses_bevfusion:
+            commands.append(self._ssh(self.vehicle, self._stop_bevfusion_script()))
+        commands.extend((
+            self._scp_from(self.remote, self._remote_output_root() / "composited"),
+            self._scp_from(self.remote, self._remote_output_root() / "metrics"),
+            self._scp_from(self.remote, self._remote_output_root() / "logs"),
+            self._scp_from(self.vehicle, self._vehicle_output_root()),
+        ))
+        return tuple(commands)
 
     def _play_mcap(self) -> None:
         """Replay the recorded image and detection streams once, in source order.
@@ -176,6 +190,13 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
             "--mcap", str(self.vehicle.repo_path / self.options.mcap_path),
             "--mcap-rate", "1.0",
         ]
+        if self._uses_bevfusion:
+            command.extend((
+                "--bbox-source", "bevfusion",
+                "--lidar-topic", "/lidar/points",
+                "--bevfusion-endpoint", self.options.bevfusion_endpoint,
+                "--bevfusion-score-threshold", str(self.options.bevfusion_score_threshold),
+            ))
         return self._background_script(
             self.vehicle.repo_path, command, root / "logs" / "adapter.log", root / "adapter.pid"
         )
@@ -340,15 +361,15 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
             / "metrics"
             / "sam3d.jsonl"
         )
-        ready = []
+        complete = []
         for line in sam3d_metrics.read_text(encoding="utf-8").splitlines():
             if not line:
                 continue
             record = json.loads(line)
-            if record.get("state") == "ready":
-                ready.append(record)
-        if len(ready) < 2:
-            raise LaunchError(f"expected at least two ready meshes, got {len(ready)}")
+            if record.get("event") == "sam3d_complete":
+                complete.append(record)
+        if not complete or complete[-1].get("final_sequence") != self.options.expected_samples - 1:
+            raise LaunchError("SAM3D did not durably complete the full scene")
 
     def _stop_processes(self) -> None:
         for name in ("sam3", "sam3d"):
@@ -396,6 +417,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--ros-sidecar", default="remote_teleop_ros_mcap")
     parser.add_argument("--remote-python", default=".venv/bin/python")
     parser.add_argument("--vehicle-python", default=".venv/bin/python")
+    parser.add_argument("--source-mode", choices=("mcap", "nuscenes_mcap"), default="mcap")
     parser.add_argument("--mcap", type=_path, default=PurePosixPath("artifacts/cooperscene_take_1_agent_1.mcap"))
     parser.add_argument("--splat", type=_path, default=PurePosixPath("data/riverside_r3.spz"))
     parser.add_argument("--output-root", type=_path, default=PurePosixPath("artifacts/split_system_sam_simulation"))
@@ -414,6 +436,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--sam3d-precision", choices=("default", "fp16", "nf4"), default="nf4")
     parser.add_argument("--scene-generation", default="cooperscene:train:1:1")
     parser.add_argument("--health-port", type=int, default=8770)
+    parser.add_argument("--bbox-source", choices=("gt", "bevfusion"), default="gt")
+    parser.add_argument("--bevfusion-image", default="remote-teleop-bevfusion:latest")
+    parser.add_argument("--bevfusion-gpu", type=int, default=1)
+    parser.add_argument("--bevfusion-endpoint", default="tcp://127.0.0.1:8772")
+    parser.add_argument("--bevfusion-runtime-dir", type=_path, default=PurePosixPath("docker/bevfusion"))
+    parser.add_argument(
+        "--bevfusion-checkpoint", type=_path,
+        default=PurePosixPath("checkpoints/bevfusion_converted.pth"),
+    )
+    parser.add_argument(
+        "--bevfusion-config", type=_path,
+        default=PurePosixPath("nuscenes_front.py"),
+    )
+    parser.add_argument("--bevfusion-score-threshold", type=float, default=0.2)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -424,6 +460,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             settle_seconds=args.settle_seconds, timeout_seconds=args.timeout_seconds,
             poll_seconds=args.poll_seconds, scene_generation=args.scene_generation,
             health_port=args.health_port,
+            source_mode=args.source_mode,
+            bbox_source=args.bbox_source, bevfusion_image=args.bevfusion_image,
+            bevfusion_gpu=args.bevfusion_gpu,
+            bevfusion_endpoint=args.bevfusion_endpoint,
+            bevfusion_runtime_dir=args.bevfusion_runtime_dir,
+            bevfusion_checkpoint=args.bevfusion_checkpoint,
+            bevfusion_config=args.bevfusion_config,
+            bevfusion_score_threshold=args.bevfusion_score_threshold,
         )
         launcher = SamRemoteTeleopSimulationLauncher(
             options,

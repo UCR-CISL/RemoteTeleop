@@ -73,7 +73,7 @@ class ProcessedNuScenesMcapConfig:
     scene_generation_prefix: str = "nuscenes"
     image_topic: str = "/camera/image_raw"
     metadata_topic: str = "/camera/frame_detections"
-    first_lidar_topic: str = "/lidar/first_frame"
+    lidar_topic: str = "/lidar/points"
     camera_frame_id: str = "CAM_FRONT"
 
     def __post_init__(self) -> None:
@@ -94,11 +94,11 @@ class ProcessedNuScenesMcapConfig:
             raise ValueError("minimum_area_px must be non-negative")
         if not self.scene_generation_prefix or not self.camera_frame_id:
             raise ValueError("scene_generation_prefix and camera_frame_id must be non-empty")
-        for name in ("image_topic", "metadata_topic", "first_lidar_topic"):
+        for name in ("image_topic", "metadata_topic", "lidar_topic"):
             if not getattr(self, name).startswith("/"):
                 raise ValueError(f"{name} must be an absolute ROS topic")
-        if len({self.image_topic, self.metadata_topic, self.first_lidar_topic}) != 3:
-            raise ValueError("image, metadata and first-LiDAR topics must differ")
+        if len({self.image_topic, self.metadata_topic, self.lidar_topic}) != 3:
+            raise ValueError("image, metadata and LiDAR topics must differ")
 
 
 class ProcessedNuScenesMcapProcessor(DataProcessor):
@@ -181,7 +181,7 @@ class ProcessedNuScenesMcapProcessor(DataProcessor):
                     data=ROS2_POINT_CLOUD2_SCHEMA,
                 )
                 lidar_channel = writer.register_channel(
-                    topic=self.config.first_lidar_topic,
+                    topic=self.config.lidar_topic,
                     message_encoding="cdr",
                     schema_id=lidar_schema,
                 )
@@ -219,18 +219,17 @@ class ProcessedNuScenesMcapProcessor(DataProcessor):
                             map_T_nuscenes_global=_matrix4_tuple(sequence.map_T_global),
                         ),
                     )
-                    if index == 0:
-                        writer.add_message(
-                            channel_id=lidar_channel,
-                            log_time=timestamp_ns,
-                            publish_time=timestamp_ns,
-                            sequence=index,
-                            data=_serialize_point_cloud2(
-                                timestamp_ns=timestamp_ns,
-                                frame_id="LIDAR_TOP",
-                                points=frame.lidar_points,
-                            ),
-                        )
+                    writer.add_message(
+                        channel_id=lidar_channel,
+                        log_time=timestamp_ns,
+                        publish_time=timestamp_ns,
+                        sequence=index,
+                        data=_serialize_point_cloud2(
+                            timestamp_ns=timestamp_ns,
+                            frame_id="LIDAR_TOP",
+                            points=frame.lidar_points,
+                        ),
+                    )
             finally:
                 writer.finish()
 
@@ -346,7 +345,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--scene-generation-prefix", default="nuscenes")
     parser.add_argument("--image-topic", default="/camera/image_raw")
     parser.add_argument("--metadata-topic", default="/camera/frame_detections")
-    parser.add_argument("--first-lidar-topic", default="/lidar/first_frame")
+    parser.add_argument("--lidar-topic", default="/lidar/points")
     return parser
 
 
@@ -362,7 +361,7 @@ def main() -> None:
         scene_generation_prefix=args.scene_generation_prefix,
         image_topic=args.image_topic,
         metadata_topic=args.metadata_topic,
-        first_lidar_topic=args.first_lidar_topic,
+        lidar_topic=args.lidar_topic,
     )
     ProcessedNuScenesMcapProcessor(config).process()
 

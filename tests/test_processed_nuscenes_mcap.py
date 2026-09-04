@@ -115,11 +115,11 @@ def test_all_scene_converter_discovers_variable_lengths_and_preserves_geometry(t
     ]
     assert first_writer.schemas[2]["data"] == ROS2_POINT_CLOUD2_SCHEMA
     assert [channel["topic"] for channel in first_writer.channels] == [
-        "/camera/image_raw", "/camera/frame_detections", "/lidar/first_frame"
+        "/camera/image_raw", "/camera/frame_detections", "/lidar/points"
     ]
-    assert len(first_writer.messages) == 5
+    assert len(first_writer.messages) == 6
     assert [message["log_time"] for message in first_writer.messages] == [
-        0, 0, 0, 100_000_000, 100_000_000
+        0, 0, 0, 100_000_000, 100_000_000, 100_000_000
     ]
     metadata = _decode_json_string(first_writer.messages[1]["data"])
     assert metadata["scene_generation"] == "nuscenes:152"
@@ -133,7 +133,7 @@ def test_all_scene_converter_discovers_variable_lengths_and_preserves_geometry(t
     assert [box["track_id"] for box in metadata["boxes"]] == ["stable-car"]
 
 
-def test_first_lidar_is_standard_xyzi_pointcloud2():
+def test_lidar_is_standard_xyzi_pointcloud2():
     points = np.asarray([[1, 2, 3, 0.5], [4, 5, 6, 0.75]], dtype=np.float32)
     reader = _CdrReader(
         _serialize_point_cloud2(timestamp_ns=1_200_000_003, frame_id="LIDAR_TOP", points=points)
@@ -195,10 +195,11 @@ def test_generated_mcap_is_readable_with_expected_realtime_topics(tmp_path):
     assert [channel.topic for _, channel, _ in records] == [
         "/camera/image_raw",
         "/camera/frame_detections",
-        "/lidar/first_frame",
+        "/lidar/points",
         "/camera/image_raw",
         "/camera/frame_detections",
+        "/lidar/points",
     ]
     assert [message.log_time for _, _, message in records] == [
-        0, 0, 0, 100_000_000, 100_000_000
+        0, 0, 0, 100_000_000, 100_000_000, 100_000_000
     ]

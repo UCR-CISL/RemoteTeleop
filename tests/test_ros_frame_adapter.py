@@ -8,7 +8,8 @@ import numpy as np
 
 import pytest
 
-from src.deployment.ros_frame_adapter import McapFrameReplay, RosAnalysisAssembler, RosFrameAdapter, RosFrameAdapterConfig
+from src.deployment.ros_frame_adapter import LatestBevFusionBoxes, McapFrameReplay, RosAnalysisAssembler, RosFrameAdapter, RosFrameAdapterConfig
+from src.realtime.bevfusion import BevFusionBox, BevFusionResult
 from src.deployment.vehicle import VehicleAnalysisSpool, VehicleFrameSpool
 from src.realtime.process_support import JsonlMetrics
 from src.realtime.protocol import FrameDetections, ProtocolCodec
@@ -215,6 +216,10 @@ def test_direct_mcap_replay_preserves_record_order_pacing_and_durable_spools(tmp
                 yield SimpleNamespace(name=schema_name), SimpleNamespace(topic=topic, message_encoding="cdr"), SimpleNamespace(data=data, log_time=log_time)
 
     waits = []
+    now = [0.0]
+    def sleep(seconds):
+        waits.append(seconds)
+        now[0] += seconds
     path = tmp_path / "input.mcap"
     path.write_bytes(b"test")
     McapFrameReplay(
@@ -222,7 +227,8 @@ def test_direct_mcap_replay_preserves_record_order_pacing_and_durable_spools(tmp
         image_topic="/camera/image_raw",
         metadata_topic="/camera/frame_detections",
         expected_samples=2,
-        sleep=waits.append,
+        sleep=sleep,
+        monotonic=lambda: now[0],
         reader_factory=lambda stream: Reader(),
     ).replay(path)
     assembler.close()
@@ -298,3 +304,105 @@ def test_direct_mcap_replay_reads_generated_cdr_records(tmp_path):
     assembler.close()
 
     assert analysis.get(scene, 0).timestamp_us == 0
+
+
+def test_bevfusion_latest_only_reprojects_lidar_boxes_and_drops_gt():
+    class Client:
+        def __init__(self):
+            self.requests = []
+            self.result = None
+        def submit(self, request):
+            self.requests.append(request)
+            return True
+        def poll(self):
+            result, self.result = self.result, None
+            return result
+
+    client = Client()
+    detector = LatestBevFusionBoxes(client, score_threshold=0.2, minimum_area_px=1)
+    payload = _metadata(timestamp_us=0, frame_id="0", generation="nuscenes:152")
+    payload["camera_intrinsic"] = [50.0, 0.0, 50.0, 0.0, 50.0, 50.0, 0.0, 0.0, 1.0]
+    payload["world_T_camera"] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    payload["world_T_ego"] = payload["world_T_camera"]
+    detector.receive_image(_image(0))
+    detector.receive_metadata(payload, 0)
+    detector.receive_lidar(SimpleNamespace(header=SimpleNamespace(stamp=SimpleNamespace(sec=0, nanosec=0)), points=np.zeros((1, 4), dtype=np.float32)))
+    assert len(client.requests) == 1
+    request = client.requests[0]
+    client.result = BevFusionResult(
+        request_id=request.request_id, scene_generation=request.scene_generation,
+        sequence=request.sequence, frame_id=request.frame_id, timestamp_us=request.timestamp_us,
+        config_id=request.config_id,
+        boxes=(BevFusionBox((0, 0, 10), (4, 2, 2), 0, 0.9, class_name="car"),),
+    )
+    next_payload = dict(payload, timestamp_us=100_000, frame_id="1", source_sequence=1)
+    boxes = detector.boxes_for(next_payload, (100, 100))
+    assert [box.track_id for box in boxes] == ["bevfusion:car:0"]
+    assert boxes[0].detection_confidence == 0.9
+    assert boxes[0].text_label == "car"
+
+
+def test_bevfusion_latest_only_replaces_an_older_pending_request():
+    class Client:
+        def __init__(self): self.requests = []
+        def submit(self, request): self.requests.append(request); return True
+        def poll(self): return None
+
+    client = Client()
+    detector = LatestBevFusionBoxes(client, score_threshold=0.2)
+    identity = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    for sequence in range(3):
+        timestamp_us = sequence * 100_000
+        payload = _metadata(
+            timestamp_us=timestamp_us,
+            frame_id=str(sequence),
+            generation="nuscenes:152",
+        )
+        payload.update(
+            camera_intrinsic=[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            world_T_camera=identity,
+            world_T_ego=identity,
+        )
+        detector.receive_image(_image(timestamp_us))
+        detector.receive_metadata(payload, sequence)
+        detector.receive_lidar(SimpleNamespace(
+            header=SimpleNamespace(stamp=SimpleNamespace(
+                sec=timestamp_us // 1_000_000,
+                nanosec=(timestamp_us % 1_000_000) * 1_000,
+            )),
+            points=np.zeros((1, 4), dtype=np.float32),
+        ))
+
+    assert [request.sequence for request in client.requests] == [0]
+    assert detector.replaced_pending_count == 1
+
+
+def test_bevfusion_boxes_are_identical_in_snapshot_and_analysis_spools(tmp_path):
+    class Client:
+        def __init__(self): self.requests = []; self.result = None
+        def submit(self, request): self.requests.append(request); return True
+        def poll(self): result, self.result = self.result, None; return result
+
+    client = Client()
+    detector = LatestBevFusionBoxes(client, score_threshold=0.2, minimum_area_px=1)
+    base = _metadata(timestamp_us=0, frame_id="0", generation="nuscenes:152")
+    identity = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    base.update(camera_intrinsic=[10., 0., 3., 0., 10., 2., 0., 0., 1.], world_T_camera=identity, world_T_ego=identity)
+    detector.receive_image(_image(0)); detector.receive_metadata(base, 0)
+    detector.receive_lidar(SimpleNamespace(header=SimpleNamespace(stamp=SimpleNamespace(sec=0, nanosec=0)), points=np.zeros((1, 4), dtype=np.float32)))
+    request = client.requests[0]
+    client.result = BevFusionResult(request.request_id, request.scene_generation, request.sequence, request.frame_id, request.timestamp_us, request.config_id, (BevFusionBox((0, 0, 10), (4, 2, 2), 0, .9),))
+    frames, analysis = VehicleFrameSpool(tmp_path / "frames"), VehicleAnalysisSpool(tmp_path / "analysis")
+    assembler = RosAnalysisAssembler(analysis, expected_samples=1)
+    adapter = RosFrameAdapter(_Publisher(), RosFrameAdapterConfig(expected_samples=1, bbox_source="bevfusion"), snapshot_sink=frames, analysis_assembler=assembler, bevfusion=detector)
+    current = dict(base, timestamp_us=100_000, frame_id="1")
+    image = _image(100_000)
+    assembler.receive_image(image); detector.receive_image(image)
+    adapter.receive_metadata(current)
+    assembler.close()
+    snapshot = frames.get("nuscenes:152", 0)
+    detected = analysis.get("nuscenes:152", 0)
+    assert snapshot is not None and detected is not None
+    assert snapshot.boxes == detected.boxes
+    assert snapshot.boxes[0].track_id == "bevfusion:car:0"

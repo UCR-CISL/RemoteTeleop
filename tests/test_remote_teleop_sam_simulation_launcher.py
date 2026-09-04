@@ -1,3 +1,4 @@
+import json
 from pathlib import Path, PurePosixPath
 import subprocess
 
@@ -7,7 +8,11 @@ from scripts.deployment.run_remote_teleop_sam_simulation import (
     SamLaunchOptions,
     SamRemoteTeleopSimulationLauncher,
 )
-from scripts.deployment.run_remote_teleop_simulation import LaunchError, LaunchOptions
+from scripts.deployment.run_remote_teleop_simulation import (
+    LaunchError,
+    LaunchOptions,
+    RemoteTeleopSimulationLauncher,
+)
 
 
 def _launcher(tmp_path):
@@ -77,6 +82,32 @@ def test_sam_launcher_uses_durable_asset_store_and_completion_marker(tmp_path):
     assert sam3d_index < sam3d_ready_index < sam3_index < sam3_ready_index < compositor_index < adapter_index
 
 
+def test_sam_validation_allows_no_meshes_after_durable_scene_completion(
+    tmp_path, monkeypatch
+):
+    launcher = _launcher(tmp_path)
+    metrics = (
+        launcher.options.local_artifacts
+        / launcher.vehicle.name
+        / "metrics"
+    )
+    metrics.mkdir(parents=True)
+    metrics.joinpath("sam3d.jsonl").write_text(
+        json.dumps({
+            "event": "sam3d_complete",
+            "final_sequence": launcher.options.expected_samples - 1,
+        }) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        RemoteTeleopSimulationLauncher,
+        "_validate_retrieved_metrics",
+        lambda self: None,
+    )
+
+    launcher._validate_retrieved_metrics()
+
+
 def test_sam_launcher_uses_direct_single_pass_mcap_adapter(tmp_path):
     commands = [" ".join(command) for command in _launcher(tmp_path).planned_commands()]
     plays = [command for command in commands if "ros2 bag play" in command]
@@ -132,3 +163,37 @@ def test_sam3d_prewarm_failure_stops_worker_before_remote_starts(tmp_path):
     assert any("sam3d_worker" in command for command in commands)
     assert any("sam3d.pid" in command and "/bin/kill -INT" in command for command in commands)
     assert not any("composited_camera_process" in command for command in commands)
+
+
+def test_sam_launcher_starts_bevfusion_before_vehicle_adapter_for_nuscenes_mcap(tmp_path):
+    launcher = SamRemoteTeleopSimulationLauncher(
+        LaunchOptions(
+            config_path=Path("cfg/alien3_lambda.yaml"),
+            ros_sidecar="remote_teleop_ros_mcap",
+            remote_python="python",
+            mcap_path=PurePosixPath("artifacts/nuscenes/scene-152.mcap"),
+            splat_path=PurePosixPath("data/map.spz"),
+            output_root=PurePosixPath("artifacts/sam-bevfusion-test"),
+            local_artifacts=tmp_path / "result",
+            source_mode="nuscenes_mcap",
+            bbox_source="bevfusion",
+            bevfusion_gpu=1,
+            expected_samples=2,
+        ),
+        SamLaunchOptions(stable_seconds=2.0),
+        dry_run=True,
+    )
+
+    commands = [" ".join(command) for command in launcher.planned_commands()]
+    bevfusion = next(command for command in commands if "remote-teleop-bevfusion-lambda" in command and "docker run" in command)
+    adapter = next(command for command in commands if "src.deployment.ros_frame_adapter" in command)
+    sam3d = next(command for command in commands if "nohup" in command and "src.realtime.sam3d_worker" in command)
+
+    assert commands.index(bevfusion) < commands.index(sam3d) < commands.index(adapter)
+    assert "--network host --ipc host" in bevfusion
+    assert "--gpus device=1" in bevfusion
+    assert "type=bind,src=/home/justin/Documents/CISL-Projects/RemoteTeleop/docker/bevfusion,dst=/workspace,readonly" in bevfusion
+    assert "--bbox-source bevfusion" in adapter
+    assert "--lidar-topic /lidar/points" in adapter
+    assert "--bevfusion-endpoint tcp://127.0.0.1:8772" in adapter
+    assert any("docker rm -f remote-teleop-bevfusion-lambda" in command for command in commands)

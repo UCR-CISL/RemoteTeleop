@@ -63,6 +63,16 @@ class LaunchOptions:
     camera_cx: float = 816.26701974
     camera_cy: float = 491.50706579
     camera_source_size: tuple[int, int] = (1600, 900)
+    bbox_source: str = "gt"
+    bevfusion_image: str = "remote-teleop-bevfusion:latest"
+    bevfusion_gpu: int = 0
+    bevfusion_endpoint: str = "tcp://127.0.0.1:8772"
+    bevfusion_runtime_dir: PurePosixPath = PurePosixPath("docker/bevfusion")
+    bevfusion_checkpoint: PurePosixPath = PurePosixPath(
+        "checkpoints/bevfusion_converted.pth"
+    )
+    bevfusion_config: PurePosixPath = PurePosixPath("nuscenes_front.py")
+    bevfusion_score_threshold: float = 0.2
 
     def __post_init__(self) -> None:
         if self.expected_samples <= 0:
@@ -77,6 +87,24 @@ class LaunchOptions:
             raise ValueError("nuscenes_scene_root is required for the nuscenes source mode")
         if any(value <= 0 for value in self.camera_source_size):
             raise ValueError("camera_source_size dimensions must be positive")
+        if self.bbox_source not in ("gt", "bevfusion"):
+            raise ValueError("bbox_source must be 'gt' or 'bevfusion'")
+        if self.bbox_source == "bevfusion" and self.source_mode != "nuscenes_mcap":
+            raise ValueError("BEVFusion bbox source requires source_mode='nuscenes_mcap'")
+        if not self.bevfusion_image:
+            raise ValueError("bevfusion_image must be non-empty")
+        if isinstance(self.bevfusion_gpu, bool) or not isinstance(self.bevfusion_gpu, int) or self.bevfusion_gpu < 0:
+            raise ValueError("bevfusion_gpu must be a non-negative integer")
+        if not self.bevfusion_endpoint.startswith("tcp://127.0.0.1:"):
+            raise ValueError("bevfusion_endpoint must be a vehicle-local tcp://127.0.0.1 endpoint")
+        if self.bevfusion_runtime_dir.is_absolute() or ".." in self.bevfusion_runtime_dir.parts:
+            raise ValueError("bevfusion_runtime_dir must be a relative repository path")
+        if self.bevfusion_checkpoint.is_absolute() or ".." in self.bevfusion_checkpoint.parts:
+            raise ValueError("bevfusion_checkpoint must be relative to bevfusion_runtime_dir")
+        if self.bevfusion_config.is_absolute() or ".." in self.bevfusion_config.parts:
+            raise ValueError("bevfusion_config must be relative to bevfusion_runtime_dir")
+        if not 0.0 <= self.bevfusion_score_threshold <= 1.0:
+            raise ValueError("bevfusion_score_threshold must be between zero and one")
 
 
 class RemoteTeleopSimulationLauncher:
@@ -102,6 +130,7 @@ class RemoteTeleopSimulationLauncher:
         self.remote = self.config.remote
         self.vehicle = self.config.vehicle
         self._started = False
+        self._bevfusion_started = False
 
     def run(self) -> Path:
         """Launch, verify all samples, stop services, and retrieve artifacts."""
@@ -117,6 +146,10 @@ class RemoteTeleopSimulationLauncher:
         try:
             self._checked(self._ssh(self.remote, self._remote_preflight_script()), "remote output preflight")
             self._checked(self._ssh(self.vehicle, self._vehicle_preflight_script()), "vehicle output preflight")
+            if self._uses_bevfusion:
+                self._checked(self._ssh(self.vehicle, self._bevfusion_preflight_script()), "BEVFusion preflight")
+                self._launch_bevfusion()
+                self._wait_for_bevfusion_ready()
             self._launch_remote()
             self._launch_vehicle_adapter()
             self.sleep(self.options.settle_seconds)
@@ -137,15 +170,27 @@ class RemoteTeleopSimulationLauncher:
         commands = [
             self._ssh(self.remote, self._remote_preflight_script()),
             self._ssh(self.vehicle, self._vehicle_preflight_script()),
+        ]
+        if self._uses_bevfusion:
+            commands.extend((
+                self._ssh(self.vehicle, self._bevfusion_preflight_script()),
+                self._ssh(self.vehicle, self._bevfusion_start_script()),
+                self._ssh(self.vehicle, self._bevfusion_ready_script()),
+            ))
+        commands.extend((
             self._ssh(self.remote, self._remote_start_script()),
             self._ssh(self.vehicle, self._vehicle_adapter_script()),
-        ]
+        ))
         if self.options.source_mode == "mcap":
             commands.append(self._ssh(self.vehicle, self._bag_play_script()))
         commands.extend((
             self._ssh(self.remote, self._metrics_count_script()),
             self._ssh(self.remote, self._stop_remote_script()),
             self._ssh(self.vehicle, self._stop_vehicle_script()),
+            *(
+                (self._ssh(self.vehicle, self._stop_bevfusion_script()),)
+                if self._uses_bevfusion else ()
+            ),
             self._scp_from(self.remote, self._remote_output_root() / "composited"),
             self._scp_from(self.remote, self._remote_output_root() / "metrics"),
             self._scp_from(self.remote, self._remote_output_root() / "logs"),
@@ -159,6 +204,27 @@ class RemoteTeleopSimulationLauncher:
 
     def _launch_vehicle_adapter(self) -> None:
         self._checked(self._ssh(self.vehicle, self._vehicle_adapter_script()), "vehicle pose adapter")
+
+    @property
+    def _uses_bevfusion(self) -> bool:
+        return self.options.bbox_source == "bevfusion"
+
+    def _launch_bevfusion(self) -> None:
+        self._checked(self._ssh(self.vehicle, self._bevfusion_start_script()), "BEVFusion service")
+        # The service owns the vehicle GPU and must be removed if readiness or
+        # later launch steps fail, even before the remote compositor starts.
+        self._bevfusion_started = True
+        self._started = True
+
+    def _wait_for_bevfusion_ready(self) -> None:
+        deadline = self.clock() + self.options.timeout_seconds
+        while self.clock() < deadline:
+            if self.runner.run(self._ssh(self.vehicle, self._bevfusion_ready_script())).returncode == 0:
+                return
+            if self.runner.run(self._ssh(self.vehicle, self._bevfusion_alive_script())).returncode != 0:
+                raise LaunchError("BEVFusion service exited before becoming ready")
+            self.sleep(self.options.poll_seconds)
+        raise LaunchError("timed out waiting for BEVFusion service readiness")
 
     def _play_mcap(self) -> None:
         self._checked(self._ssh(self.vehicle, self._bag_play_script()), "MCAP playback")
@@ -182,6 +248,10 @@ class RemoteTeleopSimulationLauncher:
                 self.remote, self._remote_output_root() / "compositor.pid"
             ):
                 raise LaunchError("remote compositor exited before producing all pose metrics")
+            if self._uses_bevfusion and self.runner.run(
+                self._ssh(self.vehicle, self._bevfusion_alive_script())
+            ).returncode != 0:
+                raise LaunchError("BEVFusion service exited during playback")
             self.sleep(self.options.poll_seconds)
         raise LaunchError(
             f"remote compositor timed out after {self.options.timeout_seconds:g}s: "
@@ -278,6 +348,25 @@ class RemoteTeleopSimulationLauncher:
         for index, record in enumerate(vehicle_records):
             if record.get("sequence") != index or record.get("source_timestamp_us") != index * 100_000:
                 raise LaunchError(f"unexpected vehicle pose metric at record {index}: {record}")
+        if self._uses_bevfusion:
+            detector_metrics = (
+                self.options.local_artifacts / self.vehicle.name
+                / "metrics" / "bevfusion.jsonl"
+            )
+            if not detector_metrics.is_file():
+                raise LaunchError("BEVFusion metrics were not retrieved")
+            detector_records = [
+                json.loads(line) for line in detector_metrics.read_text(encoding="utf-8").splitlines()
+                if line
+            ]
+            results = [
+                record for record in detector_records
+                if record.get("event") == "bevfusion_result"
+            ]
+            if not results:
+                raise LaunchError("BEVFusion produced no inference results")
+            if any(record.get("error") for record in results):
+                raise LaunchError("BEVFusion reported an inference error")
 
     def _remote_start_script(self) -> str:
         root = self._remote_output_root()
@@ -346,6 +435,13 @@ class RemoteTeleopSimulationLauncher:
                 "--spool-root", str(root / "frame-spool"),
                 "--analysis-spool-root", str(root / "analysis-spool"),
             ]
+            if self._uses_bevfusion:
+                command.extend([
+                    "--bbox-source", "bevfusion",
+                    "--lidar-topic", "/lidar/points",
+                    "--bevfusion-endpoint", self.options.bevfusion_endpoint,
+                    "--bevfusion-score-threshold", str(self.options.bevfusion_score_threshold),
+                ])
             return self._background_script(
                 self.vehicle.repo_path, command, root / "logs" / "adapter.log", root / "adapter.pid"
             )
@@ -411,6 +507,79 @@ class RemoteTeleopSimulationLauncher:
             "docker exec " + sidecar + " bash -lc " + shlex.quote(
                 "source /opt/ros/humble/setup.sh && command -v ros2"
             ),
+        ))
+
+    def _bevfusion_runtime_root(self) -> PurePosixPath:
+        return self.vehicle.repo_path / self.options.bevfusion_runtime_dir
+
+    def _bevfusion_container_name(self) -> str:
+        # Docker names cannot contain the colon used by scene generations.
+        return f"remote-teleop-bevfusion-{self.vehicle.name}"
+
+    def _bevfusion_preflight_script(self) -> str:
+        runtime = self._bevfusion_runtime_root()
+        checkpoint = runtime / self.options.bevfusion_checkpoint
+        config = runtime / self.options.bevfusion_config
+        return " && ".join((
+            "test -d " + shlex.quote(str(runtime)),
+            "test -f " + shlex.quote(str(runtime / "bevfusion_server.py")),
+            "test -f " + shlex.quote(str(checkpoint)),
+            "test -f " + shlex.quote(str(config)),
+            "docker image inspect " + shlex.quote(self.options.bevfusion_image) + " >/dev/null",
+            "! docker container inspect " + shlex.quote(self._bevfusion_container_name()) + " >/dev/null 2>&1",
+        ))
+
+    def _bevfusion_start_script(self) -> str:
+        root = self._vehicle_output_root()
+        runtime = self._bevfusion_runtime_root()
+        container = self._bevfusion_container_name()
+        command = [
+            "docker", "run", "-d", "--rm", "--name", container,
+            "--gpus", f"device={self.options.bevfusion_gpu}", "--network", "host", "--ipc", "host",
+            "--mount", f"type=bind,src={runtime},dst=/workspace,readonly",
+            self.options.bevfusion_image,
+            "python", "/workspace/bevfusion_server.py",
+            "--endpoint", self.options.bevfusion_endpoint,
+            "--config", "/workspace/" + str(self.options.bevfusion_config),
+            "--checkpoint", "/workspace/" + str(self.options.bevfusion_checkpoint),
+            "--score-threshold", str(self.options.bevfusion_score_threshold),
+            "--metrics-path", "/dev/stdout",
+        ]
+        # Keep a durable vehicle-side launch record without granting the
+        # container write access to the repository or output directories.
+        return " && ".join((
+            "mkdir -p " + shlex.quote(str(root / "logs")),
+            shlex.join(command) + " >> " + shlex.quote(str(root / "logs" / "bevfusion.log")) + " 2>&1",
+        ))
+
+    def _bevfusion_alive_script(self) -> str:
+        return (
+            "docker inspect --format '{{.State.Running}}' "
+            + shlex.quote(self._bevfusion_container_name())
+            + " | grep -qx true"
+        )
+
+    def _bevfusion_ready_script(self) -> str:
+        endpoint = self.options.bevfusion_endpoint.removeprefix("tcp://")
+        host, port_text = endpoint.rsplit(":", 1)
+        probe = (
+            "import socket; "
+            f"socket.create_connection(({host!r}, {int(port_text)}), timeout=1).close()"
+        )
+        return self._bevfusion_alive_script() + " && " + shlex.join(
+            self._vehicle_python_command() + ["-c", probe]
+        )
+
+    def _stop_bevfusion_script(self) -> str:
+        container = shlex.quote(self._bevfusion_container_name())
+        metrics = shlex.quote(str(self._vehicle_output_root() / "metrics" / "bevfusion.jsonl"))
+        log = shlex.quote(str(self._vehicle_output_root() / "logs" / "bevfusion-container.log"))
+        return " && ".join((
+            "mkdir -p " + shlex.quote(str(self._vehicle_output_root() / "metrics"))
+            + " " + shlex.quote(str(self._vehicle_output_root() / "logs")),
+            "docker logs " + container + " > " + log + " 2>&1 || true",
+            "sed -n '/^{/p' " + log + " > " + metrics,
+            "docker rm -f " + container + " >/dev/null 2>&1 || true",
         ))
 
     def _metrics_count_script(self) -> str:
@@ -501,10 +670,41 @@ class RemoteTeleopSimulationLauncher:
         if result.returncode != 0:
             self.output(f"warning: could not stop remote process: {result.stderr.strip()}")
         elif not self._wait_for_exit(self.remote, self._remote_output_root() / "compositor.pid", timeout_seconds=10.0):
-            self.output("warning: remote compositor did not exit within 10s; MP4 may not be fully flushed")
+            self.output("warning: remote compositor did not exit within 10s; forcing shutdown")
+            self._force_stop_process_group(
+                self.remote, self._remote_output_root() / "compositor.pid"
+            )
         result = self.runner.run(self._ssh(self.vehicle, self._stop_vehicle_script()))
         if result.returncode != 0:
             self.output(f"warning: could not stop vehicle process: {result.stderr.strip()}")
+        elif not self._wait_for_exit(
+            self.vehicle,
+            self._vehicle_output_root() / "adapter.pid",
+            timeout_seconds=10.0,
+        ):
+            self.output("warning: vehicle adapter did not exit within 10s; forcing shutdown")
+            self._force_stop_process_group(
+                self.vehicle, self._vehicle_output_root() / "adapter.pid"
+            )
+        if self._bevfusion_started:
+            result = self.runner.run(self._ssh(self.vehicle, self._stop_bevfusion_script()))
+            if result.returncode != 0:
+                self.output(f"warning: could not stop BEVFusion service: {result.stderr.strip()}")
+
+    def _force_stop_process_group(
+        self, endpoint: EndpointConfig, pid_path: PurePosixPath
+    ) -> None:
+        for signal, timeout_seconds in (("TERM", 5.0), ("KILL", 2.0)):
+            quoted = shlex.quote(str(pid_path))
+            script = (
+                f"if test -f {quoted}; then /bin/kill -{signal} -- "
+                f'"-$(cat {quoted})" 2>/dev/null || true; fi'
+            )
+            self.runner.run(self._ssh(endpoint, script))
+            if self._wait_for_exit(
+                endpoint, pid_path, timeout_seconds=timeout_seconds
+            ):
+                return
 
     def _wait_for_exit(self, endpoint: EndpointConfig, pid_path: PurePosixPath, *, timeout_seconds: float) -> bool:
         deadline = self.clock() + timeout_seconds
@@ -563,6 +763,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--camera-cy", type=float, default=491.50706579)
     parser.add_argument("--camera-source-width", type=int, default=1600)
     parser.add_argument("--camera-source-height", type=int, default=900)
+    parser.add_argument("--bbox-source", choices=("gt", "bevfusion"), default="gt")
+    parser.add_argument("--bevfusion-image", default="remote-teleop-bevfusion:latest")
+    parser.add_argument("--bevfusion-gpu", type=int, default=0)
+    parser.add_argument("--bevfusion-endpoint", default="tcp://127.0.0.1:8772")
+    parser.add_argument("--bevfusion-runtime-dir", type=_path, default=PurePosixPath("docker/bevfusion"))
+    parser.add_argument(
+        "--bevfusion-checkpoint", type=_path,
+        default=PurePosixPath("checkpoints/bevfusion_converted.pth"),
+    )
+    parser.add_argument(
+        "--bevfusion-config", type=_path,
+        default=PurePosixPath("nuscenes_front.py"),
+    )
+    parser.add_argument("--bevfusion-score-threshold", type=float, default=0.2)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     if args.source_mode in ("nuscenes", "nuscenes_mcap") and args.expected_samples is None:
@@ -580,6 +794,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             camera_fx=args.camera_fx, camera_fy=args.camera_fy,
             camera_cx=args.camera_cx, camera_cy=args.camera_cy,
             camera_source_size=(args.camera_source_width, args.camera_source_height),
+            bbox_source=args.bbox_source, bevfusion_image=args.bevfusion_image,
+            bevfusion_gpu=args.bevfusion_gpu,
+            bevfusion_endpoint=args.bevfusion_endpoint,
+            bevfusion_runtime_dir=args.bevfusion_runtime_dir,
+            bevfusion_checkpoint=args.bevfusion_checkpoint,
+            bevfusion_config=args.bevfusion_config,
+            bevfusion_score_threshold=args.bevfusion_score_threshold,
         ), dry_run=args.dry_run)
         result = launcher.run()
     except (LaunchError, ValueError) as error:

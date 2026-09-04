@@ -277,6 +277,46 @@ def test_nuscenes_mcap_uses_direct_log_time_paced_replay(tmp_path):
     assert "import mcap, zmq, cv2" in commands[1][-1]
 
 
+def test_bevfusion_nuscenes_mcap_starts_a_narrowly_mounted_service_before_adapter(tmp_path):
+    launcher = RemoteTeleopSimulationLauncher(_options(
+        tmp_path,
+        config_path=REPO_ROOT / "cfg/alien4_alien3.yaml",
+        source_mode="nuscenes_mcap",
+        bbox_source="bevfusion",
+        mcap_path=PurePosixPath("artifacts/nuscenes/scene-152.mcap"),
+        splat_path=PurePosixPath("artifacts/nuscenes/scene-152-background.ply"),
+        expected_samples=191,
+        scene_generation="nuscenes:152",
+    ), dry_run=True)
+
+    commands = launcher.planned_commands()
+    service_preflight = commands[2][-1]
+    service_start = commands[3][-1]
+    readiness = commands[4][-1]
+    adapter_start = commands[6][-1]
+
+    assert len(commands) == 15
+    assert "docker image inspect remote-teleop-bevfusion:latest" in service_preflight
+    assert "docker run -d --rm --name remote-teleop-bevfusion-alien4" in service_start
+    assert "--gpus device=0 --network host --ipc host" in service_start
+    assert "type=bind,src=/home/jyue86/Documents/CISL-Projects/RemoteTeleop/docker/bevfusion,dst=/workspace,readonly" in service_start
+    assert "/home/jyue86/Documents/CISL-Projects/RemoteTeleop:/workspace" not in service_start
+    assert "bevfusion_converted.pth" in service_start
+    assert "--config /workspace/nuscenes_front.py" in service_start
+    assert "socket.create_connection" in readiness
+    assert "--bbox-source bevfusion" in adapter_start
+    assert "--lidar-topic /lidar/points" in adapter_start
+    assert "--bevfusion-endpoint tcp://127.0.0.1:8772" in adapter_start
+    assert "--bevfusion-score-threshold 0.2" in adapter_start
+    assert "docker logs remote-teleop-bevfusion-alien4" in commands[10][-1]
+    assert "docker rm -f remote-teleop-bevfusion-alien4" in commands[10][-1]
+
+
+def test_bevfusion_bbox_source_requires_nuscenes_mcap(tmp_path):
+    with pytest.raises(ValueError, match="requires source_mode"):
+        _options(tmp_path, bbox_source="bevfusion")
+
+
 def test_non_dry_run_refuses_an_existing_local_artifact_destination(tmp_path):
     options = _options(tmp_path)
     options.local_artifacts.mkdir()
