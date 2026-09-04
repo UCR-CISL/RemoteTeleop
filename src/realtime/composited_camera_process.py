@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 import zmq
 
-from src.localization.gaussian_map import load_spz_v3
+from src.localization.gaussian_map import load_gaussian_map
 from src.deployment.remote import ResumableRemoteAssetCache
 from src.realtime.protocol import (
     AssetChunk, AssetCommitAck, AssetFetch, AssetManifest, AssetSync,
@@ -376,7 +376,7 @@ class CompositedCameraProcess:
         frames_per_second: float = 10.0,
         device: str = "cuda",
         mesh_max_faces: int = 100_000,
-        ground_z: float = -2.8,
+        ground_z: float | None = -2.8,
         cursor_path: Path | None = None,
         mesh_cache_dir: Path | None = None,
     ) -> None:
@@ -387,7 +387,7 @@ class CompositedCameraProcess:
         self._heartbeat = HealthHeartbeat(endpoint=health_endpoint, worker_id="viewer", device=device)
         self._metrics = JsonlMetricsWriter(metrics_path)
         self._writer = CompositedFrameWriter(output_dir, frames_per_second)
-        gaussian_map = load_spz_v3(splat_path)
+        gaussian_map = load_gaussian_map(splat_path)
         self._backend = PoseOnlyCompositedCameraBackend(
             CudaGaussianBufferRenderer(gaussian_map, device=device, downsample=1),
             camera,
@@ -541,25 +541,63 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--metrics-path", type=Path, required=True)
     parser.add_argument("--agent", default="1")
+    parser.add_argument(
+        "--camera-profile", choices=("cooperscene", "nuscenes"), default="cooperscene"
+    )
+    parser.add_argument("--camera-fx", type=float)
+    parser.add_argument("--camera-fy", type=float)
+    parser.add_argument("--camera-cx", type=float)
+    parser.add_argument("--camera-cy", type=float)
+    parser.add_argument("--camera-source-width", type=int)
+    parser.add_argument("--camera-source-height", type=int)
+    parser.add_argument("--ego-t-camera", type=float, nargs=16)
     parser.add_argument("--render-width", type=int, default=480)
     parser.add_argument("--render-height", type=int, default=300)
     parser.add_argument("--frames-per-second", type=float, default=10.0)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--mesh-max-faces", type=int, default=100_000)
     parser.add_argument("--ground-z", type=float, default=-2.8)
+    parser.add_argument(
+        "--preserve-object-z", action="store_true",
+        help="Use object poses exactly instead of anchoring them to --ground-z",
+    )
     args = parser.parse_args()
+    image_size = (args.render_width, args.render_height)
+    if args.camera_profile == "cooperscene":
+        camera = RemoteCameraConfig.for_cooperscene_agent(args.agent, image_size=image_size)
+    else:
+        values = (
+            args.camera_fx, args.camera_fy, args.camera_cx, args.camera_cy,
+            args.camera_source_width, args.camera_source_height,
+        )
+        if any(value is None for value in values):
+            parser.error(
+                "nuscenes camera profile requires --camera-fx/--camera-fy/--camera-cx/"
+                "--camera-cy and --camera-source-width/--camera-source-height"
+            )
+        ego_T_camera = np.eye(4) if args.ego_t_camera is None else np.asarray(
+            args.ego_t_camera, dtype=np.float64
+        ).reshape(4, 4)
+        camera = RemoteCameraConfig.from_source_calibration(
+            ego_T_camera=ego_T_camera,
+            camera_intrinsic=np.array([
+                [args.camera_fx, 0.0, args.camera_cx],
+                [0.0, args.camera_fy, args.camera_cy],
+                [0.0, 0.0, 1.0],
+            ]),
+            source_image_size=(args.camera_source_width, args.camera_source_height),
+            image_size=image_size,
+        )
     process = CompositedCameraProcess(
         frames_endpoint=args.frames_endpoint, assets_endpoint=args.assets_endpoint,
         scene_generation=args.scene_generation,
         receiver_id=args.receiver_id,
         health_endpoint=args.health_endpoint,
         splat_path=args.splat, output_dir=args.output_dir, metrics_path=args.metrics_path,
-        camera=RemoteCameraConfig.for_cooperscene_agent(
-            args.agent, image_size=(args.render_width, args.render_height)
-        ),
+        camera=camera,
         frames_per_second=args.frames_per_second, device=args.device,
         mesh_max_faces=args.mesh_max_faces,
-        ground_z=args.ground_z,
+        ground_z=None if args.preserve_object_z else args.ground_z,
         cursor_path=args.cursor_path, mesh_cache_dir=args.mesh_cache_dir,
     )
     signal.signal(signal.SIGINT, process.request_stop)

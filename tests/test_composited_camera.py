@@ -4,7 +4,9 @@ import cv2
 import numpy as np
 import pytest
 
-from src.realtime.protocol import AssetEvent, AssetState, BoxPrompt, EgoPoseSample, FrameDetections
+from src.realtime.protocol import (
+    AssetEvent, AssetState, BoxPrompt, EgoPoseSample, FrameDetections, FrameSnapshot,
+)
 from src.viz.composited_camera import (
     CompositedCameraBackend,
     MeshRenderBuffers,
@@ -155,6 +157,39 @@ def test_local_cooperscene_config_scales_intrinsics_and_uses_inverse_extrinsic()
     assert camera.image_size == (480, 300)
 
 
+def test_generic_camera_config_scales_source_intrinsics_independently():
+    camera = RemoteCameraConfig.from_source_calibration(
+        ego_T_camera=np.eye(4),
+        camera_intrinsic=np.array([
+            [1266.0, 0.0, 816.0], [0.0, 1266.0, 491.0], [0.0, 0.0, 1.0]
+        ]),
+        source_image_size=(1600, 900),
+        image_size=(480, 270),
+    )
+
+    np.testing.assert_allclose(
+        camera.camera_intrinsic,
+        [[379.8, 0.0, 244.8], [0.0, 379.8, 147.3], [0.0, 0.0, 1.0]],
+    )
+
+
+def test_pose_only_renderer_prefers_snapshot_exact_camera_pose():
+    exact_pose = np.eye(4)
+    exact_pose[:3, 3] = [7.0, 8.0, 9.0]
+    snapshot = FrameSnapshot(
+        0, 0, "scene-1", "frame-0", tuple(np.eye(4).reshape(-1)),
+        world_T_camera=tuple(exact_pose.reshape(-1)),
+    )
+    backend = PoseOnlyCompositedCameraBackend(
+        FakeGaussianRenderer(),
+        RemoteCameraConfig(np.eye(4), np.eye(3), (20, 12)),
+    )
+
+    rendered = backend.render_pose(snapshot)
+
+    np.testing.assert_allclose(rendered.world_T_camera, exact_pose)
+
+
 def test_pose_only_renderer_rejects_invalid_pose_or_scene_generation():
     backend = PoseOnlyCompositedCameraBackend(
         FakeGaussianRenderer(),
@@ -233,6 +268,14 @@ def test_flat_ground_anchor_removes_vertical_jitter_without_changing_xy_or_rotat
     assert world[:, 2].min() == pytest.approx(0.0)
     np.testing.assert_allclose(anchored[:2, 3], pose[:2, 3])
     np.testing.assert_allclose(anchored[:3, :3], pose[:3, :3])
+
+
+def test_disabled_flat_ground_anchor_preserves_model_frame_object_pose():
+    box = _box(z=12.0)
+
+    preserved = _flat_ground_box_pose(box, ground_z=None)
+
+    np.testing.assert_allclose(preserved, np.asarray(box.world_T_object).reshape(4, 4))
 
 
 def test_pose_only_mesh_load_failure_is_visible_and_keeps_the_proxy(tmp_path):

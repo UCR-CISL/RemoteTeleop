@@ -21,6 +21,8 @@ _EXPORT_MODULES = {
     "VehicleFrameSession": "src.deployment.vehicle",
     "VehicleFrameSpool": "src.deployment.vehicle",
     "publish_mesh_asset": "src.deployment.vehicle",
+    "NuScenesFrameAdapter": "src.deployment.nuscenes_frame_adapter",
+    "NuScenesFrameAdapterConfig": "src.deployment.nuscenes_frame_adapter",
 }
 
 __all__ = list(_EXPORT_MODULES)

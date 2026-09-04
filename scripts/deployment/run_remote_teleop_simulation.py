@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Launch and collect a configured two-host CooperScene teleoperation replay.
+"""Launch and collect a configured two-host dataset teleoperation replay.
 
-The launcher deliberately keeps the vehicle ROS sidecar and the remote GSplat
-process independent.  It only coordinates their lifecycle over SSH, so the
-same script can be used with another two-host ``RemoteTeleopConfig`` YAML.
+The launcher keeps the vehicle replay adapter and remote GSplat process
+independent. It supports legacy ROS/MCAP playback as well as direct processed
+nuScenes and log-time-paced nuScenes MCAP sources.
 """
 
 from __future__ import annotations
@@ -55,12 +55,28 @@ class LaunchOptions:
     poll_seconds: float = 1.0
     scene_generation: str = "cooperscene:train:1:1"
     health_port: int = 8770
+    source_mode: str = "mcap"
+    nuscenes_scene_root: PurePosixPath | None = None
+    vehicle_python: str = ".venv/bin/python"
+    camera_fx: float = 1266.41720305
+    camera_fy: float = 1266.41720305
+    camera_cx: float = 816.26701974
+    camera_cy: float = 491.50706579
+    camera_source_size: tuple[int, int] = (1600, 900)
 
     def __post_init__(self) -> None:
         if self.expected_samples <= 0:
             raise ValueError("expected_samples must be positive")
         if self.settle_seconds < 0 or self.timeout_seconds <= 0 or self.poll_seconds <= 0:
             raise ValueError("settle/timeout/poll durations must be positive (settle may be zero)")
+        if self.source_mode not in ("mcap", "nuscenes", "nuscenes_mcap"):
+            raise ValueError(
+                "source_mode must be 'mcap', 'nuscenes', or 'nuscenes_mcap'"
+            )
+        if self.source_mode == "nuscenes" and self.nuscenes_scene_root is None:
+            raise ValueError("nuscenes_scene_root is required for the nuscenes source mode")
+        if any(value <= 0 for value in self.camera_source_size):
+            raise ValueError("camera_source_size dimensions must be positive")
 
 
 class RemoteTeleopSimulationLauncher:
@@ -106,7 +122,8 @@ class RemoteTeleopSimulationLauncher:
             self.sleep(self.options.settle_seconds)
             self._require_alive(self.vehicle, self._vehicle_output_root() / "adapter.pid", "vehicle pose adapter")
             self._require_alive(self.remote, self._remote_output_root() / "compositor.pid", "remote compositor")
-            self._play_mcap()
+            if self.options.source_mode == "mcap":
+                self._play_mcap()
             self._wait_for_remote_metrics()
         finally:
             if self._started:
@@ -117,12 +134,15 @@ class RemoteTeleopSimulationLauncher:
 
     def planned_commands(self) -> tuple[tuple[str, ...], ...]:
         """Return the launch order as display-safe argv commands."""
-        return (
+        commands = [
             self._ssh(self.remote, self._remote_preflight_script()),
             self._ssh(self.vehicle, self._vehicle_preflight_script()),
             self._ssh(self.remote, self._remote_start_script()),
             self._ssh(self.vehicle, self._vehicle_adapter_script()),
-            self._ssh(self.vehicle, self._bag_play_script()),
+        ]
+        if self.options.source_mode == "mcap":
+            commands.append(self._ssh(self.vehicle, self._bag_play_script()))
+        commands.extend((
             self._ssh(self.remote, self._metrics_count_script()),
             self._ssh(self.remote, self._stop_remote_script()),
             self._ssh(self.vehicle, self._stop_vehicle_script()),
@@ -130,7 +150,8 @@ class RemoteTeleopSimulationLauncher:
             self._scp_from(self.remote, self._remote_output_root() / "metrics"),
             self._scp_from(self.remote, self._remote_output_root() / "logs"),
             self._scp_from(self.vehicle, self._vehicle_output_root()),
-        )
+        ))
+        return tuple(commands)
 
     def _launch_remote(self) -> None:
         self._checked(self._ssh(self.remote, self._remote_start_script()), "remote compositor")
@@ -234,10 +255,24 @@ class RemoteTeleopSimulationLauncher:
         mp4 = self.options.local_artifacts / "composited" / "composited.mp4"
         if not mp4.is_file() or mp4.stat().st_size == 0:
             raise LaunchError(f"remote compositor MP4 was not retrieved: {mp4}")
-        vehicle_metrics = self.options.local_artifacts / self.vehicle.name / "ros_ego_pose_adapter.jsonl"
+        vehicle_metrics = self.options.local_artifacts / self.vehicle.name / self._adapter_metrics_name()
         if not vehicle_metrics.is_file():
             raise LaunchError(f"vehicle adapter metrics were not retrieved: {vehicle_metrics}")
-        vehicle_records = [json.loads(line) for line in vehicle_metrics.read_text(encoding="utf-8").splitlines() if line]
+        vehicle_records = [
+            json.loads(line)
+            for line in vehicle_metrics.read_text(encoding="utf-8").splitlines()
+            if line
+        ]
+        if self.options.source_mode == "nuscenes":
+            vehicle_records = [
+                record for record in vehicle_records
+                if record.get("event") == "frame_spooled"
+            ]
+        elif self.options.source_mode == "nuscenes_mcap":
+            vehicle_records = [
+                record for record in vehicle_records
+                if record.get("event") == "ros_frame_snapshot_spooled"
+            ]
         if len(vehicle_records) != self.options.expected_samples:
             raise LaunchError(f"expected {self.options.expected_samples} vehicle metrics, got {len(vehicle_records)}")
         for index, record in enumerate(vehicle_records):
@@ -249,18 +284,71 @@ class RemoteTeleopSimulationLauncher:
         command = self._remote_python_command() + [
             "-m", "src.realtime.composited_camera_process",
             "--frames-endpoint", self.vehicle.endpoint_uri,
-            "--assets-endpoint", self.vehicle.asset_endpoint_uri,
             "--scene-generation", self.options.scene_generation,
             "--receiver-id", f"{self.remote.name}-compositor",
             "--health-endpoint", f"tcp://127.0.0.1:{self.options.health_port}",
             "--splat", str(self.options.splat_path), "--output-dir", str(root / "composited"),
             "--metrics-path", str(root / "metrics" / "compositor.jsonl"),
-            "--agent", "1", "--render-width", "480", "--render-height", "300",
         ]
+        if self.options.source_mode == "mcap":
+            command.extend([
+                "--assets-endpoint", self.vehicle.asset_endpoint_uri,
+                "--agent", "1", "--render-width", "480", "--render-height", "300",
+            ])
+        else:
+            source_width, source_height = self.options.camera_source_size
+            command.extend([
+                "--camera-profile", "nuscenes",
+                "--camera-fx", str(self.options.camera_fx),
+                "--camera-fy", str(self.options.camera_fy),
+                "--camera-cx", str(self.options.camera_cx),
+                "--camera-cy", str(self.options.camera_cy),
+                "--camera-source-width", str(source_width),
+                "--camera-source-height", str(source_height),
+                "--ego-t-camera",
+                "1", "0", "0", "0", "0", "1", "0", "0",
+                "0", "0", "1", "0", "0", "0", "0", "1",
+                "--render-width", "480", "--render-height", "270",
+                "--preserve-object-z",
+            ])
         return self._background_script(self.remote.repo_path, command, root / "logs" / "compositor.log", root / "compositor.pid")
 
     def _vehicle_adapter_script(self) -> str:
         root = self._vehicle_output_root()
+        if self.options.source_mode == "nuscenes":
+            assert self.options.nuscenes_scene_root is not None
+            command = self._vehicle_python_command() + [
+                "-m", "src.deployment.nuscenes_frame_adapter",
+                "--scene-root", str(self.vehicle.repo_path / self.options.nuscenes_scene_root),
+                "--frames-endpoint", "tcp://0.0.0.0:" + str(self.vehicle.port),
+                "--expected-samples", str(self.options.expected_samples),
+                "--scene-generation", self.options.scene_generation,
+                "--metrics-path", str(root / self._adapter_metrics_name()),
+                "--spool-root", str(root / "frame-spool"),
+                "--frames-per-second", "10",
+            ]
+            return self._background_script(
+                self.vehicle.repo_path, command, root / "logs" / "adapter.log", root / "adapter.pid"
+            )
+        if self.options.source_mode == "nuscenes_mcap":
+            if self.vehicle.analysis_port is None:
+                raise LaunchError("nuscenes_mcap source requires vehicle analysis_port")
+            command = self._vehicle_python_command() + [
+                "-m", "src.deployment.ros_frame_adapter",
+                "--mcap", str(self.vehicle.repo_path / self.options.mcap_path),
+                "--mcap-rate", "1.0",
+                "--frames-endpoint", "tcp://0.0.0.0:" + str(self.vehicle.port),
+                "--analysis-endpoint", "tcp://0.0.0.0:" + str(self.vehicle.analysis_port),
+                "--queue-depth", "2048", "--high-water-mark", "2048",
+                "--expected-samples", str(self.options.expected_samples),
+                "--scene-generation", self.options.scene_generation,
+                "--metrics-path", str(root / self._adapter_metrics_name()),
+                "--spool-root", str(root / "frame-spool"),
+                "--analysis-spool-root", str(root / "analysis-spool"),
+            ]
+            return self._background_script(
+                self.vehicle.repo_path, command, root / "logs" / "adapter.log", root / "adapter.pid"
+            )
         inner = (
             "source /opt/ros/humble/setup.sh && cd /workspace && PYTHONPATH=/workspace${PYTHONPATH:+:$PYTHONPATH} "
             + shlex.join([
@@ -289,9 +377,29 @@ class RemoteTeleopSimulationLauncher:
         return "cd " + shlex.quote(str(self.vehicle.repo_path)) + " && " + shlex.join(command)
 
     def _remote_preflight_script(self) -> str:
-        return "test ! -e " + shlex.quote(str(self._remote_output_root()))
+        return " && ".join((
+            "test ! -e " + shlex.quote(str(self._remote_output_root())),
+            "test -f " + shlex.quote(
+                str(self.remote.repo_path / self.options.splat_path)
+            ),
+        ))
 
     def _vehicle_preflight_script(self) -> str:
+        if self.options.source_mode == "nuscenes":
+            assert self.options.nuscenes_scene_root is not None
+            return " && ".join((
+                "test ! -e " + shlex.quote(str(self.vehicle.repo_path / self.options.output_root)),
+                "test -d " + shlex.quote(
+                    str(self.vehicle.repo_path / self.options.nuscenes_scene_root)
+                ),
+            ))
+        if self.options.source_mode == "nuscenes_mcap":
+            python = shlex.join(self._vehicle_python_command())
+            return " && ".join((
+                "test ! -e " + shlex.quote(str(self.vehicle.repo_path / self.options.output_root)),
+                "test -f " + shlex.quote(str(self.vehicle.repo_path / self.options.mcap_path)),
+                python + " -c " + shlex.quote("import mcap, zmq, cv2"),
+            ))
         host_mcap = self.vehicle.repo_path / self.options.mcap_path
         container_mcap = PurePosixPath("/workspace") / self.options.mcap_path
         sidecar = shlex.quote(self.options.ros_sidecar)
@@ -317,6 +425,8 @@ class RemoteTeleopSimulationLauncher:
         return self._stop_script(self._remote_output_root() / "compositor.pid", process_group=True)
 
     def _stop_vehicle_script(self) -> str:
+        if self.options.source_mode in ("nuscenes", "nuscenes_mcap"):
+            return self._stop_script(self._vehicle_output_root() / "adapter.pid", process_group=True)
         return " && ".join((
             self._stop_script(self._vehicle_output_root() / "adapter.pid"),
             "docker exec " + shlex.quote(self.options.ros_sidecar)
@@ -349,6 +459,21 @@ class RemoteTeleopSimulationLauncher:
         if not PurePosixPath(command[0]).is_absolute():
             command[0] = str(PurePosixPath(self.remote.repo_path) / command[0])
         return command
+
+    def _vehicle_python_command(self) -> list[str]:
+        command = shlex.split(self.options.vehicle_python)
+        if not command:
+            raise LaunchError("--vehicle-python must not be empty")
+        if not PurePosixPath(command[0]).is_absolute():
+            command[0] = str(PurePosixPath(self.vehicle.repo_path) / command[0])
+        return command
+
+    def _adapter_metrics_name(self) -> str:
+        return (
+            "nuscenes_frame_adapter.jsonl"
+            if self.options.source_mode == "nuscenes"
+            else "ros_ego_pose_adapter.jsonl"
+        )
 
     def _remote_output_root(self) -> PurePosixPath:
         return self.remote.repo_path / self.options.output_root
@@ -417,25 +542,44 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, default=Path("cfg/alien4_alien3.yaml"))
     parser.add_argument("--ros-sidecar", default="remote_teleop_ros_mcap")
     parser.add_argument("--remote-python", default=".venv/bin/python")
+    parser.add_argument("--vehicle-python", default=".venv/bin/python")
+    parser.add_argument(
+        "--source-mode", choices=("mcap", "nuscenes", "nuscenes_mcap"), default="mcap"
+    )
     parser.add_argument("--mcap", type=_path, default=PurePosixPath("artifacts/cooperscene_take_1_agent_1.mcap"))
+    parser.add_argument("--nuscenes-scene-root", type=_path)
     parser.add_argument("--splat", type=_path, default=PurePosixPath("data/riverside_r3.spz"))
     parser.add_argument("--output-root", type=_path, default=PurePosixPath("artifacts/split_system_simulation"))
     parser.add_argument("--local-artifacts", type=Path, default=Path("artifacts/split_system_simulation"))
-    parser.add_argument("--expected-samples", type=int, default=501)
+    parser.add_argument("--expected-samples", type=int)
     parser.add_argument("--settle-seconds", type=float, default=3.0)
     parser.add_argument("--timeout-seconds", type=float, default=180.0)
     parser.add_argument("--poll-seconds", type=float, default=1.0)
     parser.add_argument("--scene-generation", default="cooperscene:train:1:1")
     parser.add_argument("--health-port", type=int, default=8770)
+    parser.add_argument("--camera-fx", type=float, default=1266.41720305)
+    parser.add_argument("--camera-fy", type=float, default=1266.41720305)
+    parser.add_argument("--camera-cx", type=float, default=816.26701974)
+    parser.add_argument("--camera-cy", type=float, default=491.50706579)
+    parser.add_argument("--camera-source-width", type=int, default=1600)
+    parser.add_argument("--camera-source-height", type=int, default=900)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    if args.source_mode in ("nuscenes", "nuscenes_mcap") and args.expected_samples is None:
+        parser.error(f"{args.source_mode} source requires --expected-samples")
     try:
         launcher = RemoteTeleopSimulationLauncher(LaunchOptions(
-            config_path=args.config, ros_sidecar=args.ros_sidecar, remote_python=args.remote_python,
+            config_path=args.config, ros_sidecar=args.ros_sidecar,
+            remote_python=args.remote_python, vehicle_python=args.vehicle_python,
             mcap_path=args.mcap, splat_path=args.splat, output_root=args.output_root,
-            local_artifacts=args.local_artifacts, expected_samples=args.expected_samples,
+            local_artifacts=args.local_artifacts,
+            expected_samples=501 if args.expected_samples is None else args.expected_samples,
             settle_seconds=args.settle_seconds, timeout_seconds=args.timeout_seconds,
             poll_seconds=args.poll_seconds, scene_generation=args.scene_generation, health_port=args.health_port,
+            source_mode=args.source_mode, nuscenes_scene_root=args.nuscenes_scene_root,
+            camera_fx=args.camera_fx, camera_fy=args.camera_fy,
+            camera_cx=args.camera_cx, camera_cy=args.camera_cy,
+            camera_source_size=(args.camera_source_width, args.camera_source_height),
         ), dry_run=args.dry_run)
         result = launcher.run()
     except (LaunchError, ValueError) as error:

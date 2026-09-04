@@ -224,7 +224,13 @@ def _serialize_image(
     return bytes(cdr)
 
 
-def _serialize_metadata(detections: Any) -> bytes:
+def _serialize_metadata(
+    detections: Any,
+    *,
+    camera_distortion: tuple[float, ...] | None = None,
+    map_T_lidar: tuple[float, ...] | None = None,
+    map_T_nuscenes_global: tuple[float, ...] | None = None,
+) -> bytes:
     """Serialize the non-image fields of ``FrameDetections`` as ROS String JSON."""
 
     payload = {
@@ -239,6 +245,12 @@ def _serialize_metadata(detections: Any) -> bytes:
         "boxes": [dict(box.to_dict(), text_label="car") for box in detections.boxes],
         "end_of_scene": detections.end_of_scene,
     }
+    if camera_distortion is not None:
+        payload["camera_distortion"] = camera_distortion
+    if map_T_lidar is not None:
+        payload["map_T_lidar"] = map_T_lidar
+    if map_T_nuscenes_global is not None:
+        payload["map_T_nuscenes_global"] = map_T_nuscenes_global
     cdr = bytearray(b"\x00\x01\x00\x00")
     _append_string(cdr, json.dumps(payload, separators=(",", ":"), allow_nan=False))
     return bytes(cdr)

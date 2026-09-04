@@ -62,6 +62,27 @@ class RemoteCameraConfig:
             image_size=image_size,
         )
 
+    @classmethod
+    def from_source_calibration(
+        cls,
+        *,
+        ego_T_camera: np.ndarray,
+        camera_intrinsic: np.ndarray,
+        source_image_size: tuple[int, int],
+        image_size: tuple[int, int],
+    ) -> "RemoteCameraConfig":
+        """Scale a generic source-camera calibration to the render size."""
+
+        source_width, source_height = source_image_size
+        if source_width <= 0 or source_height <= 0:
+            raise ValueError("source_image_size width and height must be positive")
+        intrinsic = np.asarray(camera_intrinsic, dtype=np.float64).copy()
+        if intrinsic.shape != (3, 3):
+            raise ValueError("camera_intrinsic must be a 3x3 matrix")
+        intrinsic[0] *= image_size[0] / source_width
+        intrinsic[1] *= image_size[1] / source_height
+        return cls(ego_T_camera, intrinsic, image_size)
+
 
 @dataclass(frozen=True)
 class PoseOnlyCompositedFrame:
@@ -104,7 +125,7 @@ class PoseOnlyCompositedCameraBackend:
         proxy_thickness: int = 2,
         alpha_threshold: float = 0.01,
         depth_tolerance_m: float = 0.03,
-        ground_z: float = 0.0,
+        ground_z: float | None = 0.0,
     ) -> None:
         if proxy_thickness <= 0:
             raise ValueError("proxy_thickness must be positive")
@@ -115,7 +136,7 @@ class PoseOnlyCompositedCameraBackend:
         self._proxy_thickness = proxy_thickness
         self._alpha_threshold = float(alpha_threshold)
         self._depth_tolerance_m = float(depth_tolerance_m)
-        self._ground_z = float(ground_z)
+        self._ground_z = None if ground_z is None else float(ground_z)
         self._scene_generation: str | None = None
         self._retired_generations: set[str] = set()
         self._assets: dict[str, _MeshAsset] = {}
@@ -178,7 +199,15 @@ class PoseOnlyCompositedCameraBackend:
             np.asarray(pose_sample.world_T_ego, dtype=np.float64).reshape(4, 4),
             "world_T_ego",
         )
-        world_T_camera = world_T_ego @ self.camera.ego_T_camera
+        exact_camera_pose = getattr(pose_sample, "world_T_camera", None)
+        world_T_camera = (
+            world_T_ego @ self.camera.ego_T_camera
+            if exact_camera_pose is None
+            else _rigid_transform(
+                np.asarray(exact_camera_pose, dtype=np.float64).reshape(4, 4),
+                "world_T_camera",
+            )
+        )
         background = self._gaussian_renderer.render(
             world_T_camera, self.camera.camera_intrinsic, self.camera.image_size
         )
@@ -678,7 +707,7 @@ def _draw_box_proxy(
     alpha_threshold: float,
     depth_tolerance_m: float,
     *,
-    ground_z: float = 0.0,
+    ground_z: float | None = 0.0,
 ) -> None:
     local = _box_local_corners(box.dimensions_lwh)
     world_T_object = _flat_ground_box_pose(box, ground_z=ground_z)
@@ -697,10 +726,14 @@ def _draw_box_proxy(
         )
 
 
-def _flat_ground_box_pose(box: BoxPrompt, *, ground_z: float = 0.0) -> np.ndarray:
+def _flat_ground_box_pose(
+    box: BoxPrompt, *, ground_z: float | None = 0.0
+) -> np.ndarray:
     """Anchor an oriented GT box to the flat GSplat ground without changing x/y."""
 
     world_T_object = _matrix4(box.world_T_object).copy()
+    if ground_z is None:
+        return world_T_object
     local = _box_local_corners(box.dimensions_lwh)
     lowest_z = (local @ world_T_object[:3, :3].T + world_T_object[:3, 3])[:, 2].min()
     world_T_object[2, 3] += ground_z - lowest_z

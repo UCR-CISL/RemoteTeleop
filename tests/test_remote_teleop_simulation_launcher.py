@@ -44,6 +44,7 @@ def test_dry_run_builds_ordered_host_specific_commands_without_running(tmp_path)
     assert result == tmp_path / "received"
     assert len(printed) == 12
     assert "test ! -e" in printed[0]
+    assert "test -f /home/coop3r-slam/Documents/RemoteTeleop/data/map.spz" in printed[0]
     assert "test ! -e" in printed[1]
     assert "coop3r-slam@100.109.210.56" in printed[2]
     assert "src.realtime.composited_camera_process" in printed[2]
@@ -211,6 +212,69 @@ def test_vehicle_preflight_requires_ros_sidecar_and_mcap_mount(tmp_path):
     assert "docker inspect --format '{{.State.Running}}' ros-humble-test | grep -qx true" in command
     assert "docker exec ros-humble-test test -f /workspace/artifacts/take.mcap" in command
     assert "source /opt/ros/humble/setup.sh && command -v ros2" in command
+
+
+def test_nuscenes_source_launches_direct_adapter_and_ply_compositor_without_ros(tmp_path):
+    launcher = RemoteTeleopSimulationLauncher(_options(
+        tmp_path,
+        config_path=REPO_ROOT / "cfg/alien4_alien3.yaml",
+        source_mode="nuscenes",
+        nuscenes_scene_root=PurePosixPath(
+            "thirdparty/bilateral-driving/data/nuscenes/processed_10Hz/trainval/152"
+        ),
+        splat_path=PurePosixPath(
+            "thirdparty/bilateral-driving/ckpts/nuscenes_pretrained_checkpoints_6cams/"
+            "152/exports/background_40000.ply"
+        ),
+        expected_samples=191,
+        scene_generation="nuscenes:152",
+    ), dry_run=True)
+
+    commands = launcher.planned_commands()
+    remote_start = commands[2][-1]
+    adapter_start = commands[3][-1]
+
+    assert len(commands) == 11
+    assert "--camera-profile nuscenes" in remote_start
+    assert "--render-width 480 --render-height 270" in remote_start
+    assert "--camera-fx 1266.41720305" in remote_start
+    assert "--camera-source-width 1600 --camera-source-height 900" in remote_start
+    assert "--preserve-object-z" in remote_start
+    assert "--assets-endpoint" not in remote_start
+    assert "src.deployment.nuscenes_frame_adapter" in adapter_start
+    assert "--expected-samples 191" in adapter_start
+    assert "--frames-per-second 10" in adapter_start
+    assert "docker" not in adapter_start
+    assert not any("ros2 bag play" in command[-1] for command in commands)
+    assert "test -d" in commands[1][-1]
+    assert "background_40000.ply" in commands[0][-1]
+
+
+def test_nuscenes_mcap_uses_direct_log_time_paced_replay(tmp_path):
+    launcher = RemoteTeleopSimulationLauncher(_options(
+        tmp_path,
+        config_path=REPO_ROOT / "cfg/alien4_alien3.yaml",
+        source_mode="nuscenes_mcap",
+        mcap_path=PurePosixPath("artifacts/nuscenes/scene-152.mcap"),
+        splat_path=PurePosixPath("artifacts/nuscenes/scene-152-background.ply"),
+        expected_samples=191,
+        scene_generation="nuscenes:152",
+    ), dry_run=True)
+
+    commands = launcher.planned_commands()
+    remote_start = commands[2][-1]
+    adapter_start = commands[3][-1]
+
+    assert len(commands) == 11
+    assert "--camera-profile nuscenes" in remote_start
+    assert "--assets-endpoint" not in remote_start
+    assert "src.deployment.ros_frame_adapter" in adapter_start
+    assert "--mcap /home/jyue86/Documents/CISL-Projects/RemoteTeleop/artifacts/nuscenes/scene-152.mcap" in adapter_start
+    assert "--mcap-rate 1.0" in adapter_start
+    assert "--analysis-endpoint tcp://0.0.0.0:8771" in adapter_start
+    assert "docker" not in adapter_start
+    assert not any("ros2 bag play" in command[-1] for command in commands)
+    assert "import mcap, zmq, cv2" in commands[1][-1]
 
 
 def test_non_dry_run_refuses_an_existing_local_artifact_destination(tmp_path):

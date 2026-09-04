@@ -450,6 +450,7 @@ class FrameSnapshot(WireMessage):
     frame_id: str
     world_T_ego: Matrix4
     boxes: tuple[BoxPrompt, ...] = ()
+    world_T_camera: Matrix4 | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.sequence, bool) or not isinstance(self.sequence, int) or self.sequence < 0:
@@ -462,6 +463,12 @@ class FrameSnapshot(WireMessage):
                 raise ValueError(f"{name} must be a string")
             _non_empty(value, name)
         object.__setattr__(self, "world_T_ego", _rigid_transform(self.world_T_ego, "world_T_ego"))
+        if self.world_T_camera is not None:
+            object.__setattr__(
+                self,
+                "world_T_camera",
+                _rigid_transform(self.world_T_camera, "world_T_camera"),
+            )
         boxes = tuple(self.boxes)
         if not all(isinstance(box, BoxPrompt) for box in boxes):
             raise ValueError("boxes must contain BoxPrompt values")
@@ -470,9 +477,13 @@ class FrameSnapshot(WireMessage):
         object.__setattr__(self, "boxes", boxes)
 
     def _metadata(self) -> dict[str, Any]:
-        return {"sequence": self.sequence, "timestamp_us": self.timestamp_us,
-                "scene_generation": self.scene_generation, "frame_id": self.frame_id,
-                "world_T_ego": self.world_T_ego, "boxes": [box.to_dict() for box in self.boxes]}
+        metadata = {"sequence": self.sequence, "timestamp_us": self.timestamp_us,
+                    "scene_generation": self.scene_generation, "frame_id": self.frame_id,
+                    "world_T_ego": self.world_T_ego, "boxes": [box.to_dict() for box in self.boxes]}
+        # Omit the optional pose to preserve legacy wire bytes and snapshot hashes.
+        if self.world_T_camera is not None:
+            metadata["world_T_camera"] = self.world_T_camera
+        return metadata
 
     @property
     def sha256(self) -> str:

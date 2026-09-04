@@ -1,4 +1,4 @@
-"""Read the legacy gzip-compressed SPZ v3 Gaussian-splat format.
+"""Read SPZ v3 and standard binary little-endian 3DGS Gaussian maps.
 
 SPZ stores its native values in the RUB coordinate system.  This module leaves
 those coordinates unchanged; choosing and applying a map-frame conversion is a
@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import gzip
 from pathlib import Path
 import struct
+from typing import BinaryIO
 
 import numpy as np
 from numpy.typing import NDArray
@@ -21,6 +22,25 @@ _VERSION = 3
 _HEADER_SIZE = 16
 _COLOR_SCALE = np.float32(0.28209479177387814)
 _SQRT_HALF = np.float32(0.7071067811865476)
+_PLY_HEADER_LIMIT = 1 << 20
+_PLY_TYPES = {
+    "char": "i1",
+    "uchar": "u1",
+    "short": "<i2",
+    "ushort": "<u2",
+    "int": "<i4",
+    "uint": "<u4",
+    "float": "<f4",
+    "double": "<f8",
+    "int8": "i1",
+    "uint8": "u1",
+    "int16": "<i2",
+    "uint16": "<u2",
+    "int32": "<i4",
+    "uint32": "<u4",
+    "float32": "<f4",
+    "float64": "<f8",
+}
 
 
 @dataclass(frozen=True)
@@ -40,6 +60,173 @@ class GaussianMap:
     sh_coeffs: NDArray[np.float32]
     sh_degree: int
     antialiased: bool
+
+
+def load_gaussian_map(path: str | Path) -> GaussianMap:
+    """Load a Gaussian map based on its filename extension."""
+
+    path = Path(path)
+    suffix = path.suffix.lower()
+    if suffix == ".spz":
+        return load_spz_v3(path)
+    if suffix == ".ply":
+        return load_ply_3dgs(path)
+    raise ValueError(f"unsupported Gaussian-map extension: {path.suffix or '<none>'}")
+
+
+def load_ply_3dgs(path: str | Path) -> GaussianMap:
+    """Load a binary little-endian PLY using the standard 3DGS schema.
+
+    The ``f_rest_*`` coefficients are expected in the channel-major order used
+    by the original 3D Gaussian Splatting PLY exporter.
+    """
+
+    path = Path(path)
+    with path.open("rb") as stream:
+        properties, vertex_count, data_offset = _read_ply_header(stream)
+
+    required = [
+        "x",
+        "y",
+        "z",
+        "f_dc_0",
+        "f_dc_1",
+        "f_dc_2",
+        *(f"f_rest_{index}" for index in range(45)),
+        "opacity",
+        "scale_0",
+        "scale_1",
+        "scale_2",
+        "rot_0",
+        "rot_1",
+        "rot_2",
+        "rot_3",
+    ]
+    property_types = {name: type_name for type_name, name in properties}
+    missing = [name for name in required if name not in property_types]
+    if missing:
+        raise ValueError(f"PLY is missing required 3DGS properties: {', '.join(missing)}")
+    invalid_types = [
+        name for name in required if property_types[name] not in ("float", "float32")
+    ]
+    if invalid_types:
+        raise ValueError(
+            "3DGS PLY properties must be float32; invalid properties: "
+            + ", ".join(invalid_types)
+        )
+
+    dtype = np.dtype([(name, _PLY_TYPES[type_name]) for type_name, name in properties])
+    expected_size = data_offset + vertex_count * dtype.itemsize
+    actual_size = path.stat().st_size
+    if actual_size != expected_size:
+        raise ValueError(
+            f"PLY payload size mismatch: expected {expected_size} bytes, got {actual_size}"
+        )
+
+    vertices = np.fromfile(path, dtype=dtype, count=vertex_count, offset=data_offset)
+    if len(vertices) != vertex_count:
+        raise ValueError(f"could not read all {vertex_count} PLY vertices")
+
+    means = _stack_ply_properties(vertices, ("x", "y", "z"))
+    dc = _stack_ply_properties(vertices, ("f_dc_0", "f_dc_1", "f_dc_2"))[:, None, :]
+    rest = _stack_ply_properties(vertices, tuple(f"f_rest_{index}" for index in range(45)))
+    rest = rest.reshape(vertex_count, 3, 15).transpose(0, 2, 1)
+    sh_coeffs = np.concatenate((dc, rest), axis=1).astype(np.float32, copy=False)
+
+    opacity_logits = vertices["opacity"].astype(np.float32)
+    opacities = np.empty_like(opacity_logits)
+    positive = opacity_logits >= 0
+    opacities[positive] = 1.0 / (1.0 + np.exp(-opacity_logits[positive]))
+    exponent = np.exp(opacity_logits[~positive])
+    opacities[~positive] = exponent / (1.0 + exponent)
+
+    log_scales = _stack_ply_properties(vertices, ("scale_0", "scale_1", "scale_2"))
+    scales = np.exp(log_scales).astype(np.float32)
+    quats = _stack_ply_properties(vertices, ("rot_0", "rot_1", "rot_2", "rot_3"))
+    norms = np.linalg.norm(quats, axis=1, keepdims=True)
+    if np.any(~np.isfinite(norms)) or np.any(norms == 0):
+        raise ValueError("PLY contains a non-finite or zero-length quaternion")
+    quats = (quats / norms).astype(np.float32)
+
+    arrays = (means, scales, opacities, sh_coeffs)
+    if any(np.any(~np.isfinite(array)) for array in arrays):
+        raise ValueError("PLY contains non-finite Gaussian attributes")
+
+    return GaussianMap(
+        means=means,
+        quats=quats,
+        scales=scales,
+        opacities=opacities,
+        sh_coeffs=sh_coeffs,
+        sh_degree=3,
+        antialiased=False,
+    )
+
+
+def _read_ply_header(stream: BinaryIO) -> tuple[list[tuple[str, str]], int, int]:
+    first_line = stream.readline()
+    if first_line != b"ply\n" and first_line != b"ply\r\n":
+        raise ValueError("PLY file does not start with the ply magic line")
+
+    properties: list[tuple[str, str]] = []
+    vertex_count: int | None = None
+    current_element: str | None = None
+    saw_format = False
+    while stream.tell() <= _PLY_HEADER_LIMIT:
+        raw_line = stream.readline()
+        if not raw_line:
+            raise ValueError("PLY header is missing end_header")
+        try:
+            tokens = raw_line.decode("ascii").strip().split()
+        except UnicodeDecodeError as error:
+            raise ValueError("PLY header is not ASCII") from error
+        if not tokens or tokens[0] in ("comment", "obj_info"):
+            continue
+        if tokens == ["end_header"]:
+            break
+        if tokens[0] == "format":
+            if tokens != ["format", "binary_little_endian", "1.0"] or saw_format:
+                raise ValueError("PLY must use binary_little_endian format 1.0 exactly once")
+            saw_format = True
+        elif tokens[0] == "element":
+            if len(tokens) != 3:
+                raise ValueError("malformed PLY element declaration")
+            if tokens[1] != "vertex" or vertex_count is not None:
+                raise ValueError("3DGS PLY must contain exactly one vertex element")
+            try:
+                vertex_count = int(tokens[2])
+            except ValueError as error:
+                raise ValueError("PLY vertex count is not an integer") from error
+            if vertex_count < 0:
+                raise ValueError("PLY vertex count cannot be negative")
+            current_element = "vertex"
+        elif tokens[0] == "property":
+            if current_element != "vertex" or len(tokens) != 3:
+                raise ValueError("3DGS PLY supports only scalar vertex properties")
+            type_name, name = tokens[1:]
+            if type_name not in _PLY_TYPES:
+                raise ValueError(f"unsupported PLY property type: {type_name}")
+            if any(existing_name == name for _, existing_name in properties):
+                raise ValueError(f"duplicate PLY property: {name}")
+            properties.append((type_name, name))
+        else:
+            raise ValueError(f"unsupported PLY header directive: {tokens[0]}")
+    else:
+        raise ValueError(f"PLY header exceeds {_PLY_HEADER_LIMIT} bytes")
+
+    if not saw_format:
+        raise ValueError("PLY header is missing its format declaration")
+    if vertex_count is None:
+        raise ValueError("PLY header is missing its vertex element")
+    if not properties:
+        raise ValueError("PLY vertex element has no properties")
+    return properties, vertex_count, stream.tell()
+
+
+def _stack_ply_properties(
+    vertices: NDArray, names: tuple[str, ...]
+) -> NDArray[np.float32]:
+    return np.stack([vertices[name] for name in names], axis=1).astype(np.float32)
 
 
 def load_spz_v3(path: str | Path) -> GaussianMap:

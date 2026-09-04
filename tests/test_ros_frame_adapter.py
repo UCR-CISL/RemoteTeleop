@@ -25,8 +25,7 @@ class _Publisher:
 
 
 def _metadata(timestamp_us=100_000, frame_id="100", generation="cooperscene:train:1:1"):
-    # These legacy MCAP fields demonstrate that the adapter does not pass them
-    # through to its focused pose-only contract.
+    # Images/intrinsics remain local; exact camera pose is retained in snapshots.
     return {
         "version": 1,
         "frame_id": frame_id,
@@ -34,7 +33,12 @@ def _metadata(timestamp_us=100_000, frame_id="100", generation="cooperscene:trai
         "scene_generation": generation,
         "timestamp_us": timestamp_us,
         "camera_intrinsic": [1.0] * 9,
-        "world_T_camera": [1.0] * 16,
+        "world_T_camera": [
+            1.0, 0.0, 0.0, 0.5,
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 1.5,
+            0.0, 0.0, 0.0, 1.0,
+        ],
         "world_T_ego": [
             1.0, 0.0, 0.0, 2.0,
             0.0, 1.0, 0.0, 3.0,
@@ -225,6 +229,10 @@ def test_direct_mcap_replay_preserves_record_order_pacing_and_durable_spools(tmp
 
     assert waits == [0.1]
     assert snapshots.end(scene) is not None
+    np.testing.assert_allclose(
+        np.asarray(snapshots.get(scene, 0).world_T_camera).reshape(4, 4)[:3, 3],
+        [0.5, 0.0, 1.5],
+    )
     assert analysis.end(scene) is not None
     assert [analysis.get(scene, sequence).timestamp_us for sequence in range(2)] == [0, 100_000]
 

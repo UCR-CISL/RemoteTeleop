@@ -12,6 +12,7 @@ from src.realtime import (
     DealerTransport,
     EgoPoseSample,
     FrameObjectDetections,
+    FrameSnapshot,
     FrameDetections,
     LatestValueSubscriber,
     MaskBatch,
@@ -73,6 +74,27 @@ def object_detections(sequence: int = 0) -> FrameObjectDetections:
         frame_id=f"frame-{sequence}",
         boxes=frame().boxes,
     )
+
+
+def test_frame_snapshot_optional_camera_pose_round_trips_without_changing_legacy_hash():
+    legacy = FrameSnapshot(0, 0, "scene", "frame-0", IDENTITY_4)
+    expected_legacy_hash = hashlib.sha256(json.dumps(
+        {
+            "sequence": 0, "timestamp_us": 0, "scene_generation": "scene",
+            "frame_id": "frame-0", "world_T_ego": IDENTITY_4, "boxes": [],
+        },
+        sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")).hexdigest()
+    assert legacy.sha256 == expected_legacy_hash
+
+    camera_pose = list(IDENTITY_4)
+    camera_pose[3] = 4.0
+    exact = FrameSnapshot(0, 0, "scene", "frame-0", IDENTITY_4,
+                          world_T_camera=tuple(camera_pose))
+    _, decoded = ProtocolCodec().decode(ProtocolCodec().encode(exact))
+
+    assert decoded == exact
+    assert exact.sha256 != legacy.sha256
 
 
 @pytest.mark.parametrize(

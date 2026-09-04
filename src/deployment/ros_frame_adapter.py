@@ -479,8 +479,8 @@ class RosFrameAdapter:
     ) -> EgoPoseSample:
         """Publish one sample in ROS callback order.
 
-        The existing MCAP metadata includes image and camera fields; they are
-        deliberately ignored so the ZMQ wire message stays pose-only.
+        Image bytes and intrinsics remain vehicle-local. The optional exact
+        camera pose is retained for datasets whose camera is not fixed to ego.
         """
         arrival_ns = time.monotonic_ns() if arrival_ns is None else arrival_ns
         payload = _metadata_payload(message)
@@ -503,7 +503,12 @@ class RosFrameAdapter:
             **common, boxes=_box_prompts(payload.get("boxes", ()))
         )
         pose = EgoPoseSample(**common, world_T_ego=payload.get("world_T_ego"))
-        snapshot = FrameSnapshot(**common, world_T_ego=pose.world_T_ego, boxes=detections.boxes)
+        snapshot = FrameSnapshot(
+            **common,
+            world_T_ego=pose.world_T_ego,
+            world_T_camera=payload.get("world_T_camera"),
+            boxes=detections.boxes,
+        )
         # The spool is the durability boundary: remote delivery is allowed only
         # after this append returns successfully.
         if self.snapshot_sink is not None:

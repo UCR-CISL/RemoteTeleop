@@ -25,3 +25,8 @@ static Gaussian map must never move to follow the ego vehicle.
 
 SAM3D translation and scale are visual reconstruction hints only. The
 authoritative object pose and dimensions come from the tracked metric 3D box.
+For remote rendering, each frame preserves the box's authoritative X/Y pose
+and orientation but shifts it along world Z so its lowest oriented corner lies
+on the configured flat GSplat ground plane. Riverside currently uses
+`z = -2.8 m` (the compositor's `--ground-z` default). The mesh uses the
+identical ground-anchored pose.

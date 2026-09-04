@@ -4,7 +4,12 @@ import struct
 import numpy as np
 import pytest
 
-from src.localization.gaussian_map import _decode_spz_v3, load_spz_v3
+from src.localization.gaussian_map import (
+    _decode_spz_v3,
+    load_gaussian_map,
+    load_ply_3dgs,
+    load_spz_v3,
+)
 
 
 def _pack_position(value: float, fractional_bits: int) -> bytes:
@@ -79,3 +84,108 @@ def test_load_spz_v3_decodes_all_gsplat_attributes(tmp_path):
 def test_spz_v3_validation(payload, message):
     with pytest.raises(ValueError, match=message):
         _decode_spz_v3(payload)
+
+
+def _ply_fixture(*, property_type="float", quaternion=(2.0, 0.0, 0.0, 0.0)) -> bytes:
+    names = [
+        "x",
+        "y",
+        "z",
+        "f_dc_0",
+        "f_dc_1",
+        "f_dc_2",
+        *(f"f_rest_{index}" for index in range(45)),
+        "opacity",
+        "scale_0",
+        "scale_1",
+        "scale_2",
+        "rot_0",
+        "rot_1",
+        "rot_2",
+        "rot_3",
+    ]
+    header = "\n".join(
+        [
+            "ply",
+            "format binary_little_endian 1.0",
+            "comment test fixture",
+            "element vertex 2",
+            *(f"property {property_type} {name}" for name in names),
+            "end_header",
+            "",
+        ]
+    ).encode("ascii")
+    dtype = "<f4" if property_type == "float" else "<f8"
+    values = np.zeros((2, len(names)), dtype=dtype)
+    columns = {name: index for index, name in enumerate(names)}
+    values[:, [columns[axis] for axis in ("x", "y", "z")]] = [
+        [1.0, -2.0, 3.0],
+        [4.0, 5.0, -6.0],
+    ]
+    values[:, [columns[f"f_dc_{index}"] for index in range(3)]] = [
+        [0.1, 0.2, 0.3],
+        [0.4, 0.5, 0.6],
+    ]
+    values[0, [columns[f"f_rest_{index}"] for index in range(45)]] = np.arange(45)
+    values[1, [columns[f"f_rest_{index}"] for index in range(45)]] = np.arange(100, 145)
+    values[:, columns["opacity"]] = [0.0, np.log(3.0)]
+    values[:, [columns[f"scale_{index}"] for index in range(3)]] = [
+        [0.0, np.log(2.0), np.log(3.0)],
+        [np.log(4.0), np.log(5.0), np.log(6.0)],
+    ]
+    values[:, [columns[f"rot_{index}"] for index in range(4)]] = [
+        quaternion,
+        [1.0, 2.0, 2.0, 0.0],
+    ]
+    return header + values.tobytes()
+
+
+def test_load_ply_3dgs_decodes_transforms_and_channel_major_sh(tmp_path):
+    path = tmp_path / "background.ply"
+    path.write_bytes(_ply_fixture())
+
+    splats = load_gaussian_map(path)
+
+    np.testing.assert_allclose(splats.means, [[1.0, -2.0, 3.0], [4.0, 5.0, -6.0]])
+    np.testing.assert_allclose(
+        splats.quats, [[1.0, 0.0, 0.0, 0.0], [1 / 3, 2 / 3, 2 / 3, 0]]
+    )
+    np.testing.assert_allclose(splats.scales, [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    np.testing.assert_allclose(splats.opacities, [0.5, 0.75])
+    assert splats.sh_coeffs.shape == (2, 16, 3)
+    np.testing.assert_allclose(splats.sh_coeffs[0, 0], [0.1, 0.2, 0.3])
+    np.testing.assert_allclose(splats.sh_coeffs[0, 1], [0.0, 15.0, 30.0])
+    np.testing.assert_allclose(splats.sh_coeffs[0, 15], [14.0, 29.0, 44.0])
+    assert splats.sh_degree == 3
+    assert not splats.antialiased
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda payload: payload.replace(
+                b"binary_little_endian", b"ascii               ", 1
+            ),
+            "binary_little_endian",
+        ),
+        (lambda payload: payload.replace(b"property float x\n", b"", 1), "missing required"),
+        (lambda payload: payload[:-4], "payload size mismatch"),
+        (lambda payload: _ply_fixture(property_type="double"), "must be float32"),
+        (
+            lambda payload: _ply_fixture(quaternion=(0.0, 0.0, 0.0, 0.0)),
+            "zero-length quaternion",
+        ),
+    ],
+)
+def test_ply_3dgs_validation(tmp_path, mutate, message):
+    path = tmp_path / "invalid.ply"
+    path.write_bytes(mutate(_ply_fixture()))
+
+    with pytest.raises(ValueError, match=message):
+        load_ply_3dgs(path)
+
+
+def test_load_gaussian_map_rejects_unknown_extension(tmp_path):
+    with pytest.raises(ValueError, match="unsupported Gaussian-map extension"):
+        load_gaussian_map(tmp_path / "map.bin")
