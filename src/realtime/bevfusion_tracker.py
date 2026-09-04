@@ -32,20 +32,23 @@ class TrackedWorldBox:
 
 
 class _KalmanTrack:
-    """Constant-velocity center filter plus smoothed box shape and yaw."""
+    """Constant-velocity center filter plus smoothed box shape and rotation."""
 
     _measurement = np.column_stack((np.eye(3), np.zeros((3, 3))))
-    _measurement_noise = np.diag((1.0, 1.0, 0.5))
+    # The playback map may permute the physical ground and vertical axes, so
+    # all filter covariance must remain independent of a presumed world Z-up.
+    _measurement_noise = np.eye(3, dtype=np.float64)
 
     def __init__(self, track_id: str, detection: WorldDetection, timestamp_us: int) -> None:
         center = np.asarray(detection.world_T_object, dtype=np.float64)[:3, 3]
         self.track_id = track_id
         self.label = detection.label
         self.state = np.concatenate((center, np.zeros(3, dtype=np.float64)))
-        self.covariance = np.diag((4.0, 4.0, 1.0, 100.0, 100.0, 25.0))
+        self.covariance = np.diag((4.0, 4.0, 4.0, 100.0, 100.0, 100.0))
         self.dimensions = np.asarray(detection.dimensions_lwh, dtype=np.float64)
-        rotation = np.asarray(detection.world_T_object, dtype=np.float64)[:3, :3]
-        self.yaw = math.atan2(rotation[1, 0], rotation[0, 0])
+        self.rotation = np.asarray(
+            detection.world_T_object, dtype=np.float64
+        )[:3, :3].copy()
         self.score = detection.score
         self.timestamp_us = timestamp_us
         self.last_observed_us = timestamp_us
@@ -57,8 +60,7 @@ class _KalmanTrack:
         transition = np.eye(6, dtype=np.float64)
         transition[:3, 3:] = np.eye(3) * dt
         process_noise = np.diag(
-            (0.5 * dt * dt, 0.5 * dt * dt, 0.2 * dt * dt,
-             4.0 * max(dt, 1e-3), 4.0 * max(dt, 1e-3), max(dt, 1e-3))
+            (0.5 * dt * dt,) * 3 + (4.0 * max(dt, 1e-3),) * 3
         )
         self.state = transition @ self.state
         self.covariance = transition @ self.covariance @ transition.T + process_noise
@@ -74,14 +76,16 @@ class _KalmanTrack:
         mahalanobis = float(innovation @ np.linalg.solve(innovation_covariance, innovation))
         observation_gap = (timestamp_us - self.last_observed_us) / 1_000_000.0
         distance_gate = min(8.0, 3.0 + 10.0 * observation_gap)
-        if mahalanobis > 11.345 or np.linalg.norm(innovation[:2]) > distance_gate:
+        if mahalanobis > 11.345 or np.linalg.norm(innovation) > distance_gate:
             return math.inf
         dimensions = np.asarray(detection.dimensions_lwh, dtype=np.float64)
         dimension_cost = float(np.abs(np.log(dimensions / self.dimensions)).sum())
         rotation = np.asarray(detection.world_T_object, dtype=np.float64)[:3, :3]
-        yaw = math.atan2(rotation[1, 0], rotation[0, 0])
-        yaw_cost = abs(_axis_angle_delta(yaw, self.yaw))
-        return mahalanobis + dimension_cost + 0.5 * yaw_cost
+        heading_similarity = float(
+            np.clip(abs(rotation[:, 0] @ self.rotation[:, 0]), 0.0, 1.0)
+        )
+        heading_cost = math.acos(heading_similarity)
+        return mahalanobis + dimension_cost + 0.5 * heading_cost
 
     def correct(self, detection: WorldDetection, timestamp_us: int) -> None:
         center = np.asarray(detection.world_T_object, dtype=np.float64)[:3, 3]
@@ -108,19 +112,25 @@ class _KalmanTrack:
             detection.dimensions_lwh, dtype=np.float64
         )
         rotation = np.asarray(detection.world_T_object, dtype=np.float64)[:3, :3]
-        measured_yaw = math.atan2(rotation[1, 0], rotation[0, 0])
-        self.yaw = _wrapped_angle(
-            self.yaw + 0.2 * _axis_angle_delta(measured_yaw, self.yaw)
-        )
+        # Cuboid headings are equivalent modulo 180 degrees.  Align the
+        # measured x/y axes before averaging, then project the blend back onto
+        # SO(3) so arbitrary map-frame rotations remain intact.
+        if rotation[:, 0] @ self.rotation[:, 0] < 0:
+            rotation = rotation.copy()
+            rotation[:, :2] *= -1
+        left, _, right = np.linalg.svd(0.8 * self.rotation + 0.2 * rotation)
+        self.rotation = left @ right
+        if np.linalg.det(self.rotation) < 0:
+            left[:, -1] *= -1
+            self.rotation = left @ right
         self.score = detection.score
         self.last_observed_us = timestamp_us
 
     def snapshot(self, timestamp_us: int) -> TrackedWorldBox:
         dt = max(0.0, (timestamp_us - self.timestamp_us) / 1_000_000.0)
         center = self.state[:3] + self.state[3:] * dt
-        cosine, sine = math.cos(self.yaw), math.sin(self.yaw)
         transform = np.eye(4, dtype=np.float64)
-        transform[:3, :3] = ((cosine, -sine, 0.0), (sine, cosine, 0.0), (0.0, 0.0, 1.0))
+        transform[:3, :3] = self.rotation
         transform[:3, 3] = center
         return TrackedWorldBox(
             track_id=self.track_id,
@@ -196,13 +206,3 @@ class BevFusionKalmanTracker:
             for track in self._tracks
             if timestamp_us - track.last_observed_us <= self.maximum_coast_us
         )
-
-
-def _wrapped_angle(value: float) -> float:
-    return (value + math.pi) % (2.0 * math.pi) - math.pi
-
-
-def _axis_angle_delta(value: float, reference: float) -> float:
-    """Return the smallest heading delta for a cuboid, modulo 180 degrees."""
-
-    return (value - reference + math.pi / 2.0) % math.pi - math.pi / 2.0

@@ -214,6 +214,22 @@ class VehicleFrameSession:
         if (message.scene_generation, message.sequence, message.frame_id) != (
             current.scene_generation, _durable_sequence(current), current.frame_id,
         ):
+            # A pull may be retried just before its reply arrives.  That leaves
+            # a duplicate snapshot queued at the receiver, whose second ACK can
+            # arrive after the next sequence is already in flight.  Validate
+            # and ignore that stale ACK without disturbing the current window.
+            current_sequence = _durable_sequence(current)
+            if (
+                message.scene_generation == current.scene_generation
+                and message.sequence < current_sequence
+            ):
+                stale = self.spool.get(message.scene_generation, message.sequence)
+                if (
+                    stale is not None
+                    and message.frame_id == stale.frame_id
+                    and message.snapshot_sha256 == stale.sha256
+                ):
+                    return
             raise MeshDeliveryError("frame acknowledgement does not match the in-flight snapshot")
         if message.snapshot_sha256 != current.sha256:
             raise MeshDeliveryError("frame acknowledgement snapshot hash does not match in-flight snapshot")

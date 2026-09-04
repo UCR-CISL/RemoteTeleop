@@ -188,6 +188,36 @@ def test_frame_session_is_strict_pull_and_recovers_after_lost_ack(tmp_path):
     assert router.sent[-1] == (identity, snapshots[1])
 
 
+def test_frame_session_ignores_valid_duplicate_ack_behind_current_window(tmp_path):
+    class Router:
+        def __init__(self): self.incoming = []; self.sent = []
+        def receive(self): return self.incoming.pop(0)
+        def send(self, identity, message, *, topic=None): self.sent.append((identity, message))
+
+    identity = b"remote"
+    snapshots = [FrameSnapshot(
+        sequence=index, timestamp_us=index, scene_generation="take", frame_id=f"f{index}",
+        world_T_ego=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1),
+    ) for index in range(2)]
+    spool = VehicleFrameSpool(tmp_path / "frames")
+    for snapshot in snapshots: spool.append(snapshot)
+    router = Router()
+    session = VehicleFrameSession(router, spool)
+
+    router.incoming.append((identity, "", FrameHello("take", "remote", 0)))
+    session.serve_once()
+    router.incoming.append((identity, "", FrameHello("take", "remote", 0)))
+    session.serve_once()
+    router.incoming.append((identity, "", FrameAck("take", 0, "f0", snapshots[0].sha256)))
+    session.serve_once()
+    router.incoming.append((identity, "", FrameHello("take", "remote", 1)))
+    session.serve_once()
+    router.incoming.append((identity, "", FrameAck("take", 0, "f0", snapshots[0].sha256)))
+    session.serve_once()
+
+    assert session._in_flight[identity] == snapshots[1]
+
+
 def test_router_disconnect_after_request_is_resumable(tmp_path):
     class Router:
         def __init__(self): self.incoming = []; self.sent = []; self.disconnect_once = True
