@@ -3,6 +3,7 @@ from threading import Event
 
 import cv2
 import numpy as np
+import pytest
 
 from src.data.processed_nuscenes import ProcessedNuScenesSequence
 from src.deployment.nuscenes_frame_adapter import (
@@ -61,6 +62,40 @@ def test_processed_sequence_uses_bilateral_map_anchor_and_contiguous_10hz(tmp_pa
     assert first.lidar_points.shape == (1, 4)
     assert [vehicle.track_id for vehicle in first.vehicles] == ["stable-car", "ignored-truck"]
     np.testing.assert_allclose(first.vehicles[0].map_T_object[:3, 3], [0, 0, 10])
+
+
+def test_processed_sequence_applies_localized_gaussian_global_alignment(tmp_path):
+    root = tmp_path / "152"
+    _write_scene(root)
+    gaussian_T_nuscenes_global = np.eye(4)
+    gaussian_T_nuscenes_global[:3, 3] = [3, 4, 5]
+    localization = tmp_path / "localization.json"
+    localization.write_text(json.dumps({
+        "gaussian_T_nuscenes_global": gaussian_T_nuscenes_global.tolist(),
+    }))
+
+    first = ProcessedNuScenesSequence(
+        root, expected_frame_count=2, localization_transform=localization
+    )[0]
+
+    np.testing.assert_allclose(first.map_T_camera[:3, 3], [13, 4, 5])
+    np.testing.assert_allclose(first.map_T_lidar[:3, 3], [14, 4, 5])
+    np.testing.assert_allclose(first.vehicles[0].map_T_object[:3, 3], [13, 4, 15])
+
+
+def test_processed_sequence_rejects_localization_for_another_scene(tmp_path):
+    root = tmp_path / "152"
+    _write_scene(root)
+    localization = tmp_path / "localization.json"
+    localization.write_text(json.dumps({
+        "scene_id": "171",
+        "gaussian_T_nuscenes_global": np.eye(4).tolist(),
+    }))
+
+    with pytest.raises(ValueError, match="scene 171, not 152"):
+        ProcessedNuScenesSequence(
+            root, expected_frame_count=2, localization_transform=localization
+        )
 
 
 def test_adapter_spools_only_visible_cars_with_exact_camera_and_lidar_poses(tmp_path):

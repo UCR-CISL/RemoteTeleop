@@ -75,10 +75,13 @@ class ProcessedNuScenesMcapConfig:
     metadata_topic: str = "/camera/frame_detections"
     lidar_topic: str = "/lidar/points"
     camera_frame_id: str = "CAM_FRONT"
+    localization_transform: Path | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "processed_root", Path(self.processed_root))
         object.__setattr__(self, "output_root", Path(self.output_root))
+        if self.localization_transform is not None:
+            object.__setattr__(self, "localization_transform", Path(self.localization_transform))
         if self.scenes is not None:
             scenes = tuple(str(scene) for scene in self.scenes)
             if not scenes or any(not scene for scene in scenes):
@@ -124,15 +127,21 @@ class ProcessedNuScenesMcapProcessor(DataProcessor):
             raise FileNotFoundError(
                 f"no processed nuScenes scene directories under {self.config.processed_root}"
             )
+        if self.config.localization_transform is not None and len(scenes) != 1:
+            raise ValueError(
+                "localization_transform applies to one scene; select exactly one --scene"
+            )
         self.config.output_root.mkdir(parents=True, exist_ok=True)
         total = 0
         for scene in scenes:
             scene_root = self.config.processed_root / scene
-            sequence = self._sequence_factory(
-                scene_root,
-                expected_frame_count=self.config.expected_samples,
-                timestamp_step_us=round(1_000_000 / self.config.frames_per_second),
-            )
+            sequence_kwargs = {
+                "expected_frame_count": self.config.expected_samples,
+                "timestamp_step_us": round(1_000_000 / self.config.frames_per_second),
+            }
+            if self.config.localization_transform is not None:
+                sequence_kwargs["localization_transform"] = self.config.localization_transform
+            sequence = self._sequence_factory(scene_root, **sequence_kwargs)
             output_path = self.config.output_root / f"{scene}.mcap"
             self._write_scene(scene, sequence, output_path)
             self.outputs[scene] = output_path
@@ -217,6 +226,9 @@ class ProcessedNuScenesMcapProcessor(DataProcessor):
                             camera_distortion=tuple(float(value) for value in frame.distortion),
                             map_T_lidar=_matrix4_tuple(frame.map_T_lidar),
                             map_T_nuscenes_global=_matrix4_tuple(sequence.map_T_global),
+                            gaussian_T_nuscenes_global=_matrix4_tuple(
+                                sequence.gaussian_T_nuscenes_global
+                            ),
                         ),
                     )
                     writer.add_message(
@@ -346,6 +358,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--image-topic", default="/camera/image_raw")
     parser.add_argument("--metadata-topic", default="/camera/frame_detections")
     parser.add_argument("--lidar-topic", default="/lidar/points")
+    parser.add_argument("--localization-transform", type=Path)
     return parser
 
 
@@ -362,6 +375,7 @@ def main() -> None:
         image_topic=args.image_topic,
         metadata_topic=args.metadata_topic,
         lidar_topic=args.lidar_topic,
+        localization_transform=args.localization_transform,
     )
     ProcessedNuScenesMcapProcessor(config).process()
 

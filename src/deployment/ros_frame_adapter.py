@@ -663,6 +663,7 @@ class RosFrameAdapterConfig:
     expected_scene_generation: str | None = None
     expected_samples: int | None = None
     bbox_source: str = "gt"
+    gaussian_T_nuscenes_global: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         if self.expected_scene_generation == "":
@@ -671,6 +672,12 @@ class RosFrameAdapterConfig:
             raise ValueError("expected_samples must be positive when provided")
         if self.bbox_source not in {"gt", "bevfusion"}:
             raise ValueError("bbox_source must be gt or bevfusion")
+        if self.gaussian_T_nuscenes_global is not None:
+            object.__setattr__(
+                self,
+                "gaussian_T_nuscenes_global",
+                _rigid_matrix(self.gaussian_T_nuscenes_global, "gaussian_T_nuscenes_global"),
+            )
 
 
 class RosFrameAdapter:
@@ -711,6 +718,10 @@ class RosFrameAdapter:
         """
         arrival_ns = time.monotonic_ns() if arrival_ns is None else arrival_ns
         payload = _metadata_payload(message)
+        if self.config.gaussian_T_nuscenes_global is not None:
+            payload = _relocalize_nuscenes_metadata(
+                payload, self.config.gaussian_T_nuscenes_global
+            )
         generation = _non_empty_string(payload.get("scene_generation"), "scene_generation")
         if self._scene_generation is None:
             self._scene_generation = generation
@@ -806,6 +817,86 @@ def _metadata_payload(message: str | Mapping[str, Any] | Any) -> Mapping[str, An
     if payload.get("version") != 1:
         raise ValueError("metadata version must be 1")
     return payload
+
+
+def _load_gaussian_T_nuscenes_global(
+    path: Path, *, expected_scene_generation: str | None = None
+) -> np.ndarray:
+    """Load the fixed NuScenes-global to Gaussian-map localization result."""
+
+    if path.suffix == ".json":
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        value = payload.get("gaussian_T_nuscenes_global")
+        scene_id = payload.get("scene_id")
+    elif path.suffix == ".npz":
+        with np.load(path) as archive:
+            value = archive["gaussian_T_nuscenes_global"] if "gaussian_T_nuscenes_global" in archive else None
+            scene_id = str(archive["scene_id"]) if "scene_id" in archive else None
+    else:
+        raise ValueError("localization_transform must end in .json or .npz")
+    if value is None:
+        raise ValueError(
+            f"localization transform {path} must contain gaussian_T_nuscenes_global"
+        )
+    if (
+        scene_id
+        and expected_scene_generation is not None
+        and f"nuscenes:{scene_id}" != expected_scene_generation
+    ):
+        raise ValueError(
+            "localization transform scene does not match --scene-generation: "
+            f"nuscenes:{scene_id} != {expected_scene_generation}"
+        )
+    return _rigid_matrix(value, f"gaussian_T_nuscenes_global in {path}")
+
+
+def _relocalize_nuscenes_metadata(
+    payload: Mapping[str, Any], gaussian_T_nuscenes_global: np.ndarray
+) -> dict[str, Any]:
+    """Rebase a legacy NuScenes MCAP from its stored map frame to a localized one."""
+
+    old_alignment = payload.get(
+        "gaussian_T_nuscenes_global", payload.get("map_T_nuscenes_global")
+    )
+    if old_alignment is None:
+        raise ValueError(
+            "NuScenes localization requires MCAP metadata with map_T_nuscenes_global"
+        )
+    old_gaussian_T_nuscenes_global = _rigid_matrix(
+        old_alignment, "stored gaussian_T_nuscenes_global"
+    )
+    map_rebase = gaussian_T_nuscenes_global @ np.linalg.inv(old_gaussian_T_nuscenes_global)
+
+    result = dict(payload)
+    for name in ("world_T_camera", "world_T_ego", "map_T_lidar"):
+        if name in result:
+            result[name] = tuple(float(value) for value in (
+                map_rebase @ _rigid_matrix(result[name], name)
+            ).reshape(-1))
+    rebased_boxes = []
+    for box in result.get("boxes", ()):
+        rebased = dict(box)
+        if "world_T_object" in rebased:
+            rebased["world_T_object"] = tuple(float(value) for value in (
+                map_rebase @ _rigid_matrix(rebased["world_T_object"], "world_T_object")
+            ).reshape(-1))
+        rebased_boxes.append(rebased)
+    result["boxes"] = rebased_boxes
+    alignment = tuple(float(value) for value in gaussian_T_nuscenes_global.reshape(-1))
+    result["gaussian_T_nuscenes_global"] = alignment
+    # Preserve the old field as an alias for existing MCAP consumers.
+    result["map_T_nuscenes_global"] = alignment
+    return result
+
+
+def _rigid_matrix(value: Any, name: str) -> np.ndarray:
+    matrix = np.asarray(value, dtype=np.float64)
+    if matrix.size != 16 or not np.all(np.isfinite(matrix)):
+        raise ValueError(f"{name} must contain a finite 4x4 transform")
+    matrix = matrix.reshape(4, 4)
+    if not np.allclose(matrix[3], (0.0, 0.0, 0.0, 1.0), atol=1e-7):
+        raise ValueError(f"{name} must be homogeneous")
+    return matrix
 
 
 def _non_empty_string(value: Any, name: str) -> str:
@@ -950,6 +1041,7 @@ def main() -> None:
     parser.add_argument("--lidar-topic", default="/lidar/points")
     parser.add_argument("--mcap", type=Path)
     parser.add_argument("--mcap-rate", type=float, default=1.0)
+    parser.add_argument("--localization-transform", type=Path)
     parser.add_argument("--bbox-source", choices=("gt", "bevfusion"), default="gt")
     parser.add_argument("--bevfusion-endpoint")
     parser.add_argument("--bevfusion-score-threshold", type=float, default=0.2)
@@ -975,6 +1067,8 @@ def main() -> None:
         parser.error("--mcap-rate must be positive")
     if args.mcap is not None and not args.mcap.is_file():
         parser.error(f"--mcap does not exist: {args.mcap}")
+    if args.localization_transform is not None and not args.localization_transform.is_file():
+        parser.error(f"--localization-transform does not exist: {args.localization_transform}")
     if not 0 <= args.bevfusion_score_threshold <= 1:
         parser.error("--bevfusion-score-threshold must be between zero and one")
     if args.bbox_source == "bevfusion" and not args.bevfusion_endpoint:
@@ -1020,6 +1114,13 @@ def main() -> None:
         RosFrameAdapterConfig(
             expected_scene_generation=args.scene_generation, expected_samples=args.expected_samples,
             bbox_source=args.bbox_source,
+            gaussian_T_nuscenes_global=(
+                None if args.localization_transform is None
+                else _load_gaussian_T_nuscenes_global(
+                    args.localization_transform,
+                    expected_scene_generation=args.scene_generation,
+                )
+            ),
         ),
         metrics=JsonlMetrics(args.metrics_path),
         snapshot_sink=spool,

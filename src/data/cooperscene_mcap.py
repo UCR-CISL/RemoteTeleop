@@ -224,12 +224,14 @@ def _serialize_image(
     return bytes(cdr)
 
 
+# TODO: remove nuscene-related code from this code
 def _serialize_metadata(
     detections: Any,
     *,
     camera_distortion: tuple[float, ...] | None = None,
     map_T_lidar: tuple[float, ...] | None = None,
     map_T_nuscenes_global: tuple[float, ...] | None = None,
+    gaussian_T_nuscenes_global: tuple[float, ...] | None = None,
 ) -> bytes:
     """Serialize the non-image fields of ``FrameDetections`` as ROS String JSON."""
 
@@ -251,6 +253,8 @@ def _serialize_metadata(
         payload["map_T_lidar"] = map_T_lidar
     if map_T_nuscenes_global is not None:
         payload["map_T_nuscenes_global"] = map_T_nuscenes_global
+    if gaussian_T_nuscenes_global is not None:
+        payload["gaussian_T_nuscenes_global"] = gaussian_T_nuscenes_global
     cdr = bytearray(b"\x00\x01\x00\x00")
     _append_string(cdr, json.dumps(payload, separators=(",", ":"), allow_nan=False))
     return bytes(cdr)

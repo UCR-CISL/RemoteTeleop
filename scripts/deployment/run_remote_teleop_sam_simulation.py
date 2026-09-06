@@ -197,6 +197,11 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
                 "--bevfusion-endpoint", self.options.bevfusion_endpoint,
                 "--bevfusion-score-threshold", str(self.options.bevfusion_score_threshold),
             ))
+        if self.options.nuscenes_localization_transform is not None:
+            command.extend((
+                "--localization-transform",
+                str(self.vehicle.repo_path / self.options.nuscenes_localization_transform),
+            ))
         return self._background_script(
             self.vehicle.repo_path, command, root / "logs" / "adapter.log", root / "adapter.pid"
         )
@@ -311,8 +316,15 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
         output = self.vehicle.repo_path / self.options.output_root
         mcap = self.vehicle.repo_path / self.options.mcap_path
         return " && ".join((
+            "cd " + shlex.quote(str(self.vehicle.repo_path)),
             "test ! -e " + shlex.quote(str(output)),
             "test -f " + shlex.quote(str(mcap)),
+            *(
+                ("test -f " + shlex.quote(str(
+                    self.vehicle.repo_path / self.options.nuscenes_localization_transform
+                )),)
+                if self.options.nuscenes_localization_transform is not None else ()
+            ),
             "command -v nvidia-smi >/dev/null",
             python + " -c " + shlex.quote(
                 "import mcap, torch, zmq, cv2; assert torch.cuda.is_available(); "
@@ -419,6 +431,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--vehicle-python", default=".venv/bin/python")
     parser.add_argument("--source-mode", choices=("mcap", "nuscenes_mcap"), default="mcap")
     parser.add_argument("--mcap", type=_path, default=PurePosixPath("artifacts/cooperscene_take_1_agent_1.mcap"))
+    parser.add_argument("--nuscenes-localization-transform", type=_path)
     parser.add_argument("--splat", type=_path, default=PurePosixPath("data/riverside_r3.spz"))
     parser.add_argument("--output-root", type=_path, default=PurePosixPath("artifacts/split_system_sam_simulation"))
     parser.add_argument("--local-artifacts", type=Path, default=Path("artifacts/split_system_sam_simulation"))
@@ -461,6 +474,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             poll_seconds=args.poll_seconds, scene_generation=args.scene_generation,
             health_port=args.health_port,
             source_mode=args.source_mode,
+            nuscenes_localization_transform=args.nuscenes_localization_transform,
             bbox_source=args.bbox_source, bevfusion_image=args.bevfusion_image,
             bevfusion_gpu=args.bevfusion_gpu,
             bevfusion_endpoint=args.bevfusion_endpoint,

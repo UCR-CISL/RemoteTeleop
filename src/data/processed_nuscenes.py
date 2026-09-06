@@ -40,11 +40,12 @@ class ProcessedNuScenesFrame:
 
 
 class ProcessedNuScenesSequence(Sequence[ProcessedNuScenesFrame]):
-    """A contiguous scene in the same map frame as its Bilateral gsplat.
+    """A contiguous scene expressed in its Gaussian-splat map frame.
 
-    Bilateral Driving anchors a scene with the inverse of the first front
-    camera pose. The loader applies that transform to cameras, LiDAR and object
-    annotations, avoiding a second registration step in replay.
+    Without ``localization_transform``, this is the legacy Bilateral Driving
+    replay: the map is anchored at the first front camera.  Supplying a
+    localization artifact instead applies its ``gaussian_T_nuscenes_global``
+    to the original NuScenes-global camera, LiDAR, and annotation poses.
     """
 
     def __init__(
@@ -53,6 +54,7 @@ class ProcessedNuScenesSequence(Sequence[ProcessedNuScenesFrame]):
         *,
         expected_frame_count: int | None = 191,
         timestamp_step_us: int = 100_000,
+        localization_transform: str | Path | None = None,
     ) -> None:
         self.root = Path(root)
         if expected_frame_count is not None and expected_frame_count <= 0:
@@ -82,7 +84,18 @@ class ProcessedNuScenesSequence(Sequence[ProcessedNuScenesFrame]):
             ((fx, 0.0, cx), (0.0, fy, cy), (0.0, 0.0, 1.0)), dtype=np.float64
         )
         self.distortion = np.pad(intrinsic_values[4:9], (0, max(0, 5 - intrinsic_values[4:9].size)))
-        self.map_T_global = np.linalg.inv(self._load_transform("extrinsics", "000_0.txt"))
+        self.localization_transform = (
+            None if localization_transform is None else Path(localization_transform)
+        )
+        self.gaussian_T_nuscenes_global = (
+            np.linalg.inv(self._load_transform("extrinsics", "000_0.txt"))
+            if self.localization_transform is None
+            else _load_gaussian_T_nuscenes_global(
+                self.localization_transform, expected_scene_id=self.root.name
+            )
+        )
+        # Compatibility alias for pre-localization MCAP metadata consumers.
+        self.map_T_global = self.gaussian_T_nuscenes_global
         self._instances, self._frame_instances = self._load_instances()
 
     def __len__(self) -> int:
@@ -118,8 +131,8 @@ class ProcessedNuScenesSequence(Sequence[ProcessedNuScenesFrame]):
             lidar_path=lidar_path,
             camera_intrinsic=self.camera_intrinsic.copy(),
             distortion=self.distortion.copy(),
-            map_T_camera=self.map_T_global @ self._load_transform("extrinsics", f"{frame_id}_0.txt"),
-            map_T_lidar=self.map_T_global @ self._load_transform("lidar_pose", f"{frame_id}.txt"),
+            map_T_camera=self.gaussian_T_nuscenes_global @ self._load_transform("extrinsics", f"{frame_id}_0.txt"),
+            map_T_lidar=self.gaussian_T_nuscenes_global @ self._load_transform("lidar_pose", f"{frame_id}.txt"),
             vehicles=self._vehicles_for_frame(frame_index),
         )
 
@@ -159,7 +172,7 @@ class ProcessedNuScenesSequence(Sequence[ProcessedNuScenesFrame]):
                 track_id=str(info["id"]),
                 category=str(info["class_name"]),
                 dimensions_lwh=dimensions,
-                map_T_object=self.map_T_global @ _as_transform(
+                map_T_object=self.gaussian_T_nuscenes_global @ _as_transform(
                     annotations["obj_to_world"][annotation_index], f"instance {key} pose"
                 ),
             ))
@@ -185,3 +198,29 @@ def _as_transform(value: object, label: str) -> np.ndarray:
     if not np.allclose(transform[3], (0.0, 0.0, 0.0, 1.0), atol=1e-7):
         raise ValueError(f"{label} must be homogeneous")
     return transform
+
+
+def _load_gaussian_T_nuscenes_global(
+    path: Path, *, expected_scene_id: str | None = None
+) -> np.ndarray:
+    """Read the fixed NuScenes-global to Gaussian-map localization handoff."""
+
+    if path.suffix == ".json":
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        value = payload.get("gaussian_T_nuscenes_global")
+        scene_id = payload.get("scene_id")
+    elif path.suffix == ".npz":
+        with np.load(path) as archive:
+            value = archive["gaussian_T_nuscenes_global"] if "gaussian_T_nuscenes_global" in archive else None
+            scene_id = str(archive["scene_id"]) if "scene_id" in archive else None
+    else:
+        raise ValueError("localization_transform must end in .json or .npz")
+    if value is None:
+        raise ValueError(
+            f"localization transform {path} must contain gaussian_T_nuscenes_global"
+        )
+    if scene_id and expected_scene_id is not None and scene_id != expected_scene_id:
+        raise ValueError(
+            f"localization transform is for scene {scene_id}, not {expected_scene_id}"
+        )
+    return _as_transform(value, f"gaussian_T_nuscenes_global in {path}")

@@ -130,6 +130,7 @@ def test_all_scene_converter_discovers_variable_lengths_and_preserves_geometry(t
     assert len(metadata["world_T_ego"]) == 16
     assert metadata["map_T_lidar"] == metadata["world_T_ego"]
     assert len(metadata["map_T_nuscenes_global"]) == 16
+    assert metadata["gaussian_T_nuscenes_global"] == metadata["map_T_nuscenes_global"]
     assert [box["track_id"] for box in metadata["boxes"]] == ["stable-car"]
 
 
@@ -173,6 +174,28 @@ def test_converter_can_select_one_scene_and_validate_expected_count(tmp_path):
 
     assert processor.process() == 3
     assert list(processor.outputs) == ["171"]
+
+
+def test_converter_uses_localized_gaussian_global_alignment(tmp_path):
+    processed = tmp_path / "processed"
+    _write_scene(processed / "152", frame_count=2)
+    transform = np.eye(4)
+    transform[:3, 3] = [3, 4, 5]
+    localization = tmp_path / "localization.json"
+    localization.write_text(json.dumps({"gaussian_T_nuscenes_global": transform.tolist()}))
+    writers = []
+
+    processor = ProcessedNuScenesMcapProcessor(
+        ProcessedNuScenesMcapConfig(
+            processed_root=processed, output_root=tmp_path / "mcap", scenes=("152",),
+            expected_samples=2, localization_transform=localization,
+        ), writer_factory=lambda _output: writers.append(_Writer()) or writers[-1]
+    )
+
+    assert processor.process() == 2
+    metadata = _decode_json_string(writers[0].messages[1]["data"])
+    assert np.asarray(metadata["gaussian_T_nuscenes_global"]).reshape(4, 4)[0:3, 3].tolist() == [3, 4, 5]
+    assert np.asarray(metadata["world_T_camera"]).reshape(4, 4)[0:3, 3].tolist() == [13, 4, 5]
 
 
 def test_generated_mcap_is_readable_with_expected_realtime_topics(tmp_path):

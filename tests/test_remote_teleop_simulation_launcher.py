@@ -64,6 +64,21 @@ def test_dry_run_builds_ordered_host_specific_commands_without_running(tmp_path)
     assert "scp -r" in printed[-1]
 
 
+def test_localized_nuscenes_mcap_launcher_passes_the_transform_to_the_adapter(tmp_path):
+    options = _options(
+        tmp_path, source_mode="nuscenes_mcap", expected_samples=2,
+        nuscenes_localization_transform=PurePosixPath("artifacts/nuscenes/152/localization.json"),
+    )
+    launcher = RemoteTeleopSimulationLauncher(options, dry_run=True, output=lambda _line: None)
+
+    command = launcher._vehicle_adapter_script()
+    preflight = launcher._vehicle_preflight_script()
+
+    localization = str(launcher.vehicle.repo_path / options.nuscenes_localization_transform)
+    assert f"--localization-transform {localization}" in command
+    assert f"test -f {localization}" in preflight
+
+
 def test_retrieved_metrics_require_ordered_complete_gap_free_mp4(tmp_path):
     options = _options(tmp_path)
     metrics = options.local_artifacts / "metrics"

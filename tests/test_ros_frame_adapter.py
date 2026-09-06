@@ -8,7 +8,7 @@ import numpy as np
 
 import pytest
 
-from src.deployment.ros_frame_adapter import LatestBevFusionBoxes, McapFrameReplay, RosAnalysisAssembler, RosFrameAdapter, RosFrameAdapterConfig
+from src.deployment.ros_frame_adapter import LatestBevFusionBoxes, McapFrameReplay, RosAnalysisAssembler, RosFrameAdapter, RosFrameAdapterConfig, _load_gaussian_T_nuscenes_global
 from src.realtime.bevfusion import BevFusionBox, BevFusionResult
 from src.deployment.vehicle import VehicleAnalysisSpool, VehicleFrameSpool
 from src.realtime.process_support import JsonlMetrics
@@ -93,6 +93,41 @@ def test_adapter_publishes_ordered_pose_only_samples_and_metrics(tmp_path):
     assert all(event["publication_monotonic_ns"] >= event["callback_completed_monotonic_ns"] for event in events)
     assert [event["object_detection_count"] for event in events] == [1, 1]
     assert all(event["transport_contract"] == "durable_frame_snapshot" for event in events)
+
+
+def test_adapter_relocalizes_legacy_nuscenes_mcap_metadata():
+    payload = _metadata(generation="nuscenes:152")
+    stored_alignment = np.eye(4)
+    stored_alignment[:3, 3] = [5, 7, 11]
+    payload["map_T_nuscenes_global"] = tuple(stored_alignment.reshape(-1))
+    payload["map_T_lidar"] = payload["world_T_ego"]
+    alignment = np.eye(4)
+    alignment[:3, 3] = [10, 20, 30]
+    publisher = _Publisher()
+    adapter = RosFrameAdapter(
+        publisher, RosFrameAdapterConfig(gaussian_T_nuscenes_global=alignment)
+    )
+
+    pose = adapter.receive_metadata(payload)
+    detections = publisher.messages[0][1]
+
+    np.testing.assert_allclose(np.asarray(pose.world_T_ego).reshape(4, 4)[:3, 3], [7, 16, 23])
+    np.testing.assert_allclose(
+        np.asarray(detections.boxes[0].world_T_object).reshape(4, 4)[:3, 3], [7, 16, 23]
+    )
+
+
+def test_localization_artifact_rejects_another_scene_generation(tmp_path):
+    artifact = tmp_path / "localization.json"
+    artifact.write_text(json.dumps({
+        "scene_id": "171",
+        "gaussian_T_nuscenes_global": np.eye(4).tolist(),
+    }))
+
+    with pytest.raises(ValueError, match="nuscenes:171 != nuscenes:152"):
+        _load_gaussian_T_nuscenes_global(
+            artifact, expected_scene_generation="nuscenes:152"
+        )
 
 
 def test_adapter_output_round_trips_without_binary_image_parts():

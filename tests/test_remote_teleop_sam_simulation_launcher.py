@@ -177,6 +177,9 @@ def test_sam_launcher_starts_bevfusion_before_vehicle_adapter_for_nuscenes_mcap(
             local_artifacts=tmp_path / "result",
             source_mode="nuscenes_mcap",
             bbox_source="bevfusion",
+            nuscenes_localization_transform=PurePosixPath(
+                "artifacts/nuscenes/152/localization.json"
+            ),
             bevfusion_gpu=1,
             expected_samples=2,
         ),
@@ -196,4 +199,9 @@ def test_sam_launcher_starts_bevfusion_before_vehicle_adapter_for_nuscenes_mcap(
     assert "--bbox-source bevfusion" in adapter
     assert "--lidar-topic /lidar/points" in adapter
     assert "--bevfusion-endpoint tcp://127.0.0.1:8772" in adapter
+    localization = "/home/justin/Documents/CISL-Projects/RemoteTeleop/artifacts/nuscenes/152/localization.json"
+    assert f"--localization-transform {localization}" in adapter
+    preflight = next(command for command in commands if "import mcap, torch, zmq, cv2" in command)
+    assert "cd /home/justin/Documents/CISL-Projects/RemoteTeleop" in preflight
+    assert f"test -f {localization}" in preflight
     assert any("docker rm -f remote-teleop-bevfusion-lambda" in command for command in commands)
