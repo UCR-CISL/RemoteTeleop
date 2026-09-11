@@ -103,6 +103,10 @@ def test_orchestration_registers_synchronized_cooperative_cloud_and_saves_artifa
     np.testing.assert_allclose(refinement_registrar.target, [[1, 2, 3], [4, 5, 6]])
     assert result["synchronized_frame_id"] == "10"
     np.testing.assert_allclose(np.asarray(result["selected_map_T_lidar"])[:3, 3], [11, 20, 0])
+    assert result["initial_localization_error"]["frame_id"] == "10"
+    assert result["initial_localization_error"]["reference_frame"] == "cooperscene_recorded_enu"
+    np.testing.assert_allclose(result["initial_localization_error"]["translation_m"], np.hypot(10, 20))
+    np.testing.assert_allclose(result["initial_localization_error"]["orientation_deg"], 0.0)
     assert len(plots) == len(renders) == 1
     assert (config.output_dir / "localized_trajectory.npz").is_file()
     saved = np.load(config.output_dir / "localized_trajectory.npz")

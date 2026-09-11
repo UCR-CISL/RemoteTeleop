@@ -79,6 +79,22 @@ def test_localized_nuscenes_mcap_launcher_passes_the_transform_to_the_adapter(tm
     assert f"test -f {localization}" in preflight
 
 
+def test_localized_cooperscene_mcap_launcher_passes_both_transforms(tmp_path):
+    target = PurePosixPath("artifacts/cooperscene-new/localization.json")
+    stored = PurePosixPath("artifacts/cooperscene-old/localization.json")
+    options = _options(
+        tmp_path,
+        cooperscene_localization_transform=target,
+        cooperscene_stored_localization_transform=stored,
+    )
+    launcher = RemoteTeleopSimulationLauncher(options, dry_run=True, output=lambda _line: None)
+
+    command = launcher._vehicle_adapter_script()
+
+    assert f"--localization-transform /workspace/{target}" in command
+    assert f"--stored-localization-transform /workspace/{stored}" in command
+
+
 def test_retrieved_metrics_require_ordered_complete_gap_free_mp4(tmp_path):
     options = _options(tmp_path)
     metrics = options.local_artifacts / "metrics"

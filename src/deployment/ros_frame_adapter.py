@@ -664,6 +664,8 @@ class RosFrameAdapterConfig:
     expected_samples: int | None = None
     bbox_source: str = "gt"
     gaussian_T_nuscenes_global: np.ndarray | None = None
+    gaussian_T_cooperscene: np.ndarray | None = None
+    stored_gaussian_T_cooperscene: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         if self.expected_scene_generation == "":
@@ -678,6 +680,16 @@ class RosFrameAdapterConfig:
                 "gaussian_T_nuscenes_global",
                 _rigid_matrix(self.gaussian_T_nuscenes_global, "gaussian_T_nuscenes_global"),
             )
+        if (self.gaussian_T_cooperscene is None) != (
+            self.stored_gaussian_T_cooperscene is None
+        ):
+            raise ValueError(
+                "CooperScene relocalization requires both target and stored alignments"
+            )
+        for name in ("gaussian_T_cooperscene", "stored_gaussian_T_cooperscene"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _rigid_matrix(value, name))
 
 
 class RosFrameAdapter:
@@ -721,6 +733,13 @@ class RosFrameAdapter:
         if self.config.gaussian_T_nuscenes_global is not None:
             payload = _relocalize_nuscenes_metadata(
                 payload, self.config.gaussian_T_nuscenes_global
+            )
+        if self.config.gaussian_T_cooperscene is not None:
+            assert self.config.stored_gaussian_T_cooperscene is not None
+            payload = _relocalize_cooperscene_metadata(
+                payload,
+                self.config.gaussian_T_cooperscene,
+                self.config.stored_gaussian_T_cooperscene,
             )
         generation = _non_empty_string(payload.get("scene_generation"), "scene_generation")
         if self._scene_generation is None:
@@ -848,6 +867,54 @@ def _load_gaussian_T_nuscenes_global(
             f"nuscenes:{scene_id} != {expected_scene_generation}"
         )
     return _rigid_matrix(value, f"gaussian_T_nuscenes_global in {path}")
+
+
+def _load_gaussian_T_cooperscene(path: Path) -> np.ndarray:
+    """Load a CooperScene-global to Gaussian-map localization result."""
+
+    if path.suffix == ".json":
+        value = json.loads(path.read_text(encoding="utf-8")).get(
+            "gaussian_T_cooperscene"
+        )
+    elif path.suffix == ".npz":
+        with np.load(path) as archive:
+            value = archive["gaussian_T_cooperscene"] if "gaussian_T_cooperscene" in archive else None
+    else:
+        raise ValueError("localization_transform must end in .json or .npz")
+    if value is None:
+        raise ValueError(
+            f"localization transform {path} must contain gaussian_T_cooperscene"
+        )
+    return _rigid_matrix(value, f"gaussian_T_cooperscene in {path}")
+
+
+def _relocalize_cooperscene_metadata(
+    payload: Mapping[str, Any],
+    gaussian_T_cooperscene: np.ndarray,
+    stored_gaussian_T_cooperscene: np.ndarray,
+) -> dict[str, Any]:
+    """Rebase CooperScene metadata from its baked map into a new Gaussian map."""
+
+    map_rebase = gaussian_T_cooperscene @ np.linalg.inv(stored_gaussian_T_cooperscene)
+    result = dict(payload)
+    for name in ("world_T_camera", "world_T_ego", "map_T_lidar"):
+        if name in result:
+            result[name] = tuple(float(value) for value in (
+                map_rebase @ _rigid_matrix(result[name], name)
+            ).reshape(-1))
+    rebased_boxes = []
+    for box in result.get("boxes", ()):
+        rebased = dict(box)
+        if "world_T_object" in rebased:
+            rebased["world_T_object"] = tuple(float(value) for value in (
+                map_rebase @ _rigid_matrix(rebased["world_T_object"], "world_T_object")
+            ).reshape(-1))
+        rebased_boxes.append(rebased)
+    result["boxes"] = rebased_boxes
+    result["gaussian_T_cooperscene"] = tuple(
+        float(value) for value in gaussian_T_cooperscene.reshape(-1)
+    )
+    return result
 
 
 def _relocalize_nuscenes_metadata(
@@ -1042,6 +1109,7 @@ def main() -> None:
     parser.add_argument("--mcap", type=Path)
     parser.add_argument("--mcap-rate", type=float, default=1.0)
     parser.add_argument("--localization-transform", type=Path)
+    parser.add_argument("--stored-localization-transform", type=Path)
     parser.add_argument("--bbox-source", choices=("gt", "bevfusion"), default="gt")
     parser.add_argument("--bevfusion-endpoint")
     parser.add_argument("--bevfusion-score-threshold", type=float, default=0.2)
@@ -1069,6 +1137,16 @@ def main() -> None:
         parser.error(f"--mcap does not exist: {args.mcap}")
     if args.localization_transform is not None and not args.localization_transform.is_file():
         parser.error(f"--localization-transform does not exist: {args.localization_transform}")
+    if args.stored_localization_transform is not None and not args.stored_localization_transform.is_file():
+        parser.error(
+            f"--stored-localization-transform does not exist: {args.stored_localization_transform}"
+        )
+    if (args.localization_transform is None) != (args.stored_localization_transform is None):
+        if args.scene_generation is None or args.scene_generation.startswith("cooperscene:"):
+            parser.error(
+                "CooperScene relocalization requires both --localization-transform and "
+                "--stored-localization-transform"
+            )
     if not 0 <= args.bevfusion_score_threshold <= 1:
         parser.error("--bevfusion-score-threshold must be between zero and one")
     if args.bbox_source == "bevfusion" and not args.bevfusion_endpoint:
@@ -1115,11 +1193,20 @@ def main() -> None:
             expected_scene_generation=args.scene_generation, expected_samples=args.expected_samples,
             bbox_source=args.bbox_source,
             gaussian_T_nuscenes_global=(
-                None if args.localization_transform is None
+                None if args.localization_transform is None or not args.scene_generation.startswith("nuscenes:")
                 else _load_gaussian_T_nuscenes_global(
                     args.localization_transform,
                     expected_scene_generation=args.scene_generation,
                 )
+            ),
+            gaussian_T_cooperscene=(
+                _load_gaussian_T_cooperscene(args.localization_transform)
+                if args.localization_transform is not None
+                and args.scene_generation.startswith("cooperscene:") else None
+            ),
+            stored_gaussian_T_cooperscene=(
+                _load_gaussian_T_cooperscene(args.stored_localization_transform)
+                if args.stored_localization_transform is not None else None
             ),
         ),
         metrics=JsonlMetrics(args.metrics_path),

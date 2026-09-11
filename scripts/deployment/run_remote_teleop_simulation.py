@@ -58,6 +58,8 @@ class LaunchOptions:
     source_mode: str = "mcap"
     nuscenes_scene_root: PurePosixPath | None = None
     nuscenes_localization_transform: PurePosixPath | None = None
+    cooperscene_localization_transform: PurePosixPath | None = None
+    cooperscene_stored_localization_transform: PurePosixPath | None = None
     vehicle_python: str = ".venv/bin/python"
     camera_fx: float = 1266.41720305
     camera_fy: float = 1266.41720305
@@ -88,6 +90,14 @@ class LaunchOptions:
             raise ValueError("nuscenes_scene_root is required for the nuscenes source mode")
         if self.nuscenes_localization_transform is not None and self.source_mode != "nuscenes_mcap":
             raise ValueError("nuscenes_localization_transform requires source_mode='nuscenes_mcap'")
+        if (self.cooperscene_localization_transform is None) != (
+            self.cooperscene_stored_localization_transform is None
+        ):
+            raise ValueError(
+                "CooperScene relocalization requires both target and stored transforms"
+            )
+        if self.cooperscene_localization_transform is not None and self.source_mode != "mcap":
+            raise ValueError("cooperscene_localization_transform requires source_mode='mcap'")
         if any(value <= 0 for value in self.camera_source_size):
             raise ValueError("camera_source_size dimensions must be positive")
         if self.bbox_source not in ("gt", "bevfusion"):
@@ -450,6 +460,16 @@ class RemoteTeleopSimulationLauncher:
                     "--localization-transform",
                     str(self.vehicle.repo_path / self.options.nuscenes_localization_transform),
                 ])
+            if self.options.cooperscene_localization_transform is not None:
+                command.extend([
+                    "--localization-transform",
+                    str(self.vehicle.repo_path / self.options.cooperscene_localization_transform),
+                    "--stored-localization-transform",
+                    str(
+                        self.vehicle.repo_path
+                        / self.options.cooperscene_stored_localization_transform
+                    ),
+                ])
             return self._background_script(
                 self.vehicle.repo_path, command, root / "logs" / "adapter.log", root / "adapter.pid"
             )
@@ -465,6 +485,19 @@ class RemoteTeleopSimulationLauncher:
                 "--metrics-path", str(self.options.output_root / self.vehicle.name / "ros_ego_pose_adapter.jsonl"),
                 "--spool-root", str(self.options.output_root / self.vehicle.name / "frame-spool"),
                 "--asset-store-root", str(self.options.output_root / self.vehicle.name / "asset-store"),
+                *(
+                    [
+                        "--localization-transform",
+                        str(PurePosixPath("/workspace") / self.options.cooperscene_localization_transform),
+                        "--stored-localization-transform",
+                        str(
+                            PurePosixPath("/workspace")
+                            / self.options.cooperscene_stored_localization_transform
+                        ),
+                    ]
+                    if self.options.cooperscene_localization_transform is not None
+                    else []
+                ),
             ])
         )
         command = ["docker", "exec", self.options.ros_sidecar, "bash", "-lc", inner]
@@ -516,6 +549,19 @@ class RemoteTeleopSimulationLauncher:
         return " && ".join((
             "test ! -e " + shlex.quote(str(self.vehicle.repo_path / self.options.output_root)),
             "test -f " + shlex.quote(str(host_mcap)),
+            *(
+                (
+                    "test -f " + shlex.quote(str(
+                        self.vehicle.repo_path
+                        / self.options.cooperscene_localization_transform
+                    )),
+                    "test -f " + shlex.quote(str(
+                        self.vehicle.repo_path
+                        / self.options.cooperscene_stored_localization_transform
+                    )),
+                )
+                if self.options.cooperscene_localization_transform is not None else ()
+            ),
             "docker inspect --format '{{.State.Running}}' " + sidecar + " | grep -qx true",
             "docker exec " + sidecar + " test -f " + shlex.quote(str(container_mcap)),
             "docker exec " + sidecar + " bash -lc " + shlex.quote(
@@ -763,6 +809,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--mcap", type=_path, default=PurePosixPath("artifacts/cooperscene_take_1_agent_1.mcap"))
     parser.add_argument("--nuscenes-scene-root", type=_path)
     parser.add_argument("--nuscenes-localization-transform", type=_path)
+    parser.add_argument("--cooperscene-localization-transform", type=_path)
+    parser.add_argument("--cooperscene-stored-localization-transform", type=_path)
     parser.add_argument("--splat", type=_path, default=PurePosixPath("data/riverside_r3.spz"))
     parser.add_argument("--output-root", type=_path, default=PurePosixPath("artifacts/split_system_simulation"))
     parser.add_argument("--local-artifacts", type=Path, default=Path("artifacts/split_system_simulation"))
@@ -807,6 +855,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             poll_seconds=args.poll_seconds, scene_generation=args.scene_generation, health_port=args.health_port,
             source_mode=args.source_mode, nuscenes_scene_root=args.nuscenes_scene_root,
             nuscenes_localization_transform=args.nuscenes_localization_transform,
+            cooperscene_localization_transform=args.cooperscene_localization_transform,
+            cooperscene_stored_localization_transform=(
+                args.cooperscene_stored_localization_transform
+            ),
             camera_fx=args.camera_fx, camera_fy=args.camera_fy,
             camera_cx=args.camera_cx, camera_cy=args.camera_cy,
             camera_source_size=(args.camera_source_width, args.camera_source_height),

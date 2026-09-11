@@ -16,7 +16,7 @@ from src.localization.cooperscene_calibration import (
     camera_intrinsic,
     compose_map_T_camera,
 )
-from src.localization.gaussian_map import GaussianMap, load_spz_v3
+from src.localization.gaussian_map import GaussianMap, load_gaussian_map
 from src.localization.registration import PointCloudRegistrar, RegistrationConfig, RegistrationResult
 from src.viz.localization_visualizer import plot_localization_trajectory, render_gaussian_camera_view
 
@@ -49,7 +49,7 @@ class CooperSceneGaussianLocalizer:
         config: CooperSceneLocalizationConfig,
         *,
         dataset_factory: Callable[[Path], CooperSceneSequenceDataset] = CooperSceneSequenceDataset,
-        map_loader: Callable[[Path], GaussianMap] = load_spz_v3,
+        map_loader: Callable[[Path], GaussianMap] = load_gaussian_map,
         registrar: PointCloudRegistrar | None = None,
         refinement_registrar: PointCloudRegistrar | None = None,
         identity_prior_refinement_registrar: PointCloudRegistrar | None = None,
@@ -160,6 +160,8 @@ class CooperSceneGaussianLocalizer:
         self._trajectory_plotter(trajectory, self.config.output_dir / "trajectory.png")
 
         selected = vehicle_sequence[selected_index]
+        recorded_enu_T_lidar = np.asarray(selected.map_T_lidar, dtype=np.float64)
+        localized_T_lidar = trajectory[selected_index]
         map_T_camera = compose_map_T_camera(trajectory[selected_index], camera_T_lidar(self.config.agent))
         result = {
             "config": {key: str(value) if isinstance(value, Path) else value for key, value in asdict(self.config).items()},
@@ -168,6 +170,11 @@ class CooperSceneGaussianLocalizer:
             "gaussian_T_cooperscene": cooper_to_map.tolist(),
             "selected_map_T_lidar": trajectory[selected_index].tolist(),
             "selected_map_T_camera": map_T_camera.tolist(),
+            "initial_localization_error": _pose_error_json(
+                localized_T_lidar,
+                recorded_enu_T_lidar,
+                frame_id=selected_frame_id,
+            ),
             "coarse_registration": _registration_json(coarse_registration) if coarse_registration is not None else None,
             "final_registration": _registration_json(final_registration),
             "trajectory_path": "localized_trajectory.npz",
@@ -261,6 +268,29 @@ def _registration_json(result: RegistrationResult) -> dict:
     value = asdict(result)
     value["map_T_source"] = np.asarray(result.map_T_source).tolist()
     return value
+
+
+def _pose_error_json(
+    estimated_T_lidar: np.ndarray,
+    reference_T_lidar: np.ndarray,
+    *,
+    frame_id: str,
+) -> dict:
+    """Compare the localized initial LiDAR pose with recorded CooperScene ENU."""
+
+    translation_m = float(
+        np.linalg.norm(estimated_T_lidar[:3, 3] - reference_T_lidar[:3, 3])
+    )
+    delta_rotation = estimated_T_lidar[:3, :3] @ reference_T_lidar[:3, :3].T
+    cosine = float(np.clip((np.trace(delta_rotation) - 1.0) / 2.0, -1.0, 1.0))
+    return {
+        "frame_id": frame_id,
+        "reference_frame": "cooperscene_recorded_enu",
+        "translation_m": translation_m,
+        "orientation_deg": float(np.degrees(np.arccos(cosine))),
+        "recorded_enu_T_lidar": reference_T_lidar.tolist(),
+        "localized_T_lidar": estimated_T_lidar.tolist(),
+    }
 
 
 def _as_transform(values, path: Path) -> np.ndarray:

@@ -117,6 +117,33 @@ def test_adapter_relocalizes_legacy_nuscenes_mcap_metadata():
     )
 
 
+def test_adapter_relocalizes_legacy_cooperscene_mcap_metadata():
+    payload = _metadata()
+    stored_alignment = np.eye(4)
+    stored_alignment[:3, 3] = [5, 7, 11]
+    target_alignment = np.eye(4)
+    target_alignment[:3, 3] = [10, 20, 30]
+    publisher = _Publisher()
+    adapter = RosFrameAdapter(
+        publisher,
+        RosFrameAdapterConfig(
+            gaussian_T_cooperscene=target_alignment,
+            stored_gaussian_T_cooperscene=stored_alignment,
+        ),
+    )
+
+    pose = adapter.receive_metadata(payload)
+    detections = publisher.messages[0][1]
+
+    np.testing.assert_allclose(
+        np.asarray(pose.world_T_ego).reshape(4, 4)[:3, 3], [7, 16, 23]
+    )
+    np.testing.assert_allclose(
+        np.asarray(detections.boxes[0].world_T_object).reshape(4, 4)[:3, 3],
+        [7, 16, 23],
+    )
+
+
 def test_localization_artifact_rejects_another_scene_generation(tmp_path):
     artifact = tmp_path / "localization.json"
     artifact.write_text(json.dumps({
