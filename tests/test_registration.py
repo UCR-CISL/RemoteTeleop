@@ -103,3 +103,35 @@ def test_zero_inliers_reports_infinite_accepted_residuals_and_finite_all_point_m
     assert np.isfinite(result.all_point_p95_residual)
     assert not result.accepted
     assert {"inlier_ratio", "median_residual", "p95_residual"} <= set(result.rejection_reasons)
+
+
+def test_evaluate_scores_a_fixed_transform_without_refining_it():
+    rng = np.random.default_rng(11)
+    source = rng.uniform([-2, -2, -1], [2, 2, 1], size=(500, 3))
+    transform = _transform(3.0, (0.2, -0.1, 0.05))
+    target = _apply(source, transform)
+
+    result = PointCloudRegistrar(RegistrationConfig(
+        refinement_voxel_sizes=(0.4, 0.2),
+    )).evaluate(source, target, transform, np.eye(4))
+
+    np.testing.assert_allclose(result.map_T_source, transform)
+    assert result.accepted
+    assert result.inlier_ratio == 1.0
+    assert result.all_point_p95_residual < 1e-7
+    assert result.correction_translation > 0.0
+
+
+def test_evaluate_rejects_bad_all_point_residuals_despite_good_inlier_tail():
+    source = np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [20.0, 0.0, 0.0]])
+    target = np.array([[0.0, 0.0, 0.0]])
+    result = PointCloudRegistrar(RegistrationConfig(
+        refinement_voxel_sizes=(0.4, 0.2),
+        min_inlier_ratio=0.0,
+        max_all_point_median_residual=5.0,
+        max_all_point_p95_residual=5.0,
+    )).evaluate(source, target, np.eye(4))
+
+    assert not result.accepted
+    assert "all_point_median_residual" in result.rejection_reasons
+    assert "all_point_p95_residual" in result.rejection_reasons

@@ -34,6 +34,8 @@ class RegistrationConfig:
     min_inlier_ratio: float = 0.20
     max_median_residual: float = 0.35
     max_p95_residual: float = 0.80
+    max_all_point_median_residual: float = float("inf")
+    max_all_point_p95_residual: float = float("inf")
     max_correction_translation: float = 3.0
     max_correction_rotation_degrees: float = 30.0
 
@@ -106,6 +108,45 @@ class PointCloudRegistrar:
             )
             initial, coarse_inlier_ratio = self._global_registration(o3d, source_coarse, target_coarse)
         map_T_source = self._refine(o3d, source_cloud, target_cloud, initial)
+        return self._evaluate(
+            o3d, source, target, map_T_source,
+            initial_map_T_source=initial_map_T_source,
+            coarse_inlier_ratio=coarse_inlier_ratio,
+            started=started,
+        )
+
+    def evaluate(
+        self,
+        source_points: NDArray[np.floating],
+        map_points: NDArray[np.floating],
+        map_T_source: NDArray[np.floating],
+        initial_map_T_source: NDArray[np.floating] | None = None,
+    ) -> RegistrationResult:
+        """Evaluate a fixed transform with the same residuals and gates as ICP."""
+
+        o3d = _require_open3d()
+        source = _as_points(source_points, "source_points")
+        target = _as_points(map_points, "map_points")
+        transform = _as_transform(map_T_source)
+        assert transform is not None
+        return self._evaluate(
+            o3d, source, target, transform,
+            initial_map_T_source=initial_map_T_source,
+            coarse_inlier_ratio=None,
+            started=perf_counter(),
+        )
+
+    def _evaluate(
+        self,
+        o3d,
+        source: NDArray[np.float64],
+        target: NDArray[np.float64],
+        map_T_source: NDArray[np.float64],
+        *,
+        initial_map_T_source: NDArray[np.floating] | None,
+        coarse_inlier_ratio: float | None,
+        started: float,
+    ) -> RegistrationResult:
         residuals = _nearest_neighbor_residuals(o3d, source, target, map_T_source)
         final_threshold = self.config.icp_distance_factor * self.config.refinement_voxel_sizes[-1]
         inlier_mask = residuals <= final_threshold
@@ -120,7 +161,8 @@ class PointCloudRegistrar:
         all_point_median_residual = float(np.median(residuals))
         all_point_p90_residual = float(np.percentile(residuals, 90))
         all_point_p95_residual = float(np.percentile(residuals, 95))
-        if initial_map_T_source is None:
+        initial = _as_transform(initial_map_T_source)
+        if initial is None:
             # A global alignment has no prediction to correct.  Its absolute map
             # transform can be arbitrarily far from identity and must not trip
             # online correction gates.
@@ -135,6 +177,8 @@ class PointCloudRegistrar:
             inlier_ratio,
             median_residual,
             p95_residual,
+            all_point_median_residual,
+            all_point_p95_residual,
             correction_translation,
             correction_rotation,
         )
@@ -269,7 +313,9 @@ def _rotation_degrees(rotation: NDArray[np.float64]) -> float:
     return float(np.degrees(np.arccos(cosine)))
 
 
-def _acceptance_reasons(config, inlier_ratio, median, p95, translation, rotation) -> list[str]:
+def _acceptance_reasons(
+    config, inlier_ratio, median, p95, all_median, all_p95, translation, rotation
+) -> list[str]:
     reasons = []
     if inlier_ratio < config.min_inlier_ratio:
         reasons.append("inlier_ratio")
@@ -277,6 +323,10 @@ def _acceptance_reasons(config, inlier_ratio, median, p95, translation, rotation
         reasons.append("median_residual")
     if p95 > config.max_p95_residual:
         reasons.append("p95_residual")
+    if all_median > config.max_all_point_median_residual:
+        reasons.append("all_point_median_residual")
+    if all_p95 > config.max_all_point_p95_residual:
+        reasons.append("all_point_p95_residual")
     if translation > config.max_correction_translation:
         reasons.append("correction_translation")
     if rotation > config.max_correction_rotation_degrees:
