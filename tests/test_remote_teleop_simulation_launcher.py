@@ -95,6 +95,16 @@ def test_localized_cooperscene_mcap_launcher_passes_both_transforms(tmp_path):
     assert f"--stored-localization-transform /workspace/{stored}" in command
 
 
+def test_cooperscene_preserves_localized_object_height_by_default(tmp_path):
+    launcher = RemoteTeleopSimulationLauncher(
+        _options(tmp_path), dry_run=True, output=lambda _line: None
+    )
+
+    command = launcher._remote_start_script()
+    assert "--ground-z" not in command
+    assert "--preserve-object-z" not in command
+
+
 def test_retrieved_metrics_require_ordered_complete_gap_free_mp4(tmp_path):
     options = _options(tmp_path)
     metrics = options.local_artifacts / "metrics"
@@ -270,7 +280,7 @@ def test_nuscenes_source_launches_direct_adapter_and_ply_compositor_without_ros(
     assert "--render-width 480 --render-height 270" in remote_start
     assert "--camera-fx 1266.41720305" in remote_start
     assert "--camera-source-width 1600 --camera-source-height 900" in remote_start
-    assert "--preserve-object-z" in remote_start
+    assert "--ground-z" not in remote_start
     assert "--assets-endpoint" not in remote_start
     assert "src.deployment.nuscenes_frame_adapter" in adapter_start
     assert "--expected-samples 191" in adapter_start

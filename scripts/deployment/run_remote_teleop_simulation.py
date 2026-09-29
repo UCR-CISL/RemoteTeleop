@@ -411,7 +411,6 @@ class RemoteTeleopSimulationLauncher:
                 "1", "0", "0", "0", "0", "1", "0", "0",
                 "0", "0", "1", "0", "0", "0", "0", "1",
                 "--render-width", "480", "--render-height", "270",
-                "--preserve-object-z",
             ])
         return self._background_script(self.remote.repo_path, command, root / "logs" / "compositor.log", root / "compositor.pid")
 

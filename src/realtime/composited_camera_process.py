@@ -376,7 +376,7 @@ class CompositedCameraProcess:
         frames_per_second: float = 10.0,
         device: str = "cuda",
         mesh_max_faces: int = 100_000,
-        ground_z: float | None = -2.8,
+        ground_z: float | None = None,
         cursor_path: Path | None = None,
         mesh_cache_dir: Path | None = None,
     ) -> None:
@@ -556,10 +556,9 @@ def main() -> None:
     parser.add_argument("--frames-per-second", type=float, default=10.0)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--mesh-max-faces", type=int, default=100_000)
-    parser.add_argument("--ground-z", type=float, default=-2.8)
     parser.add_argument(
-        "--preserve-object-z", action="store_true",
-        help="Use object poses exactly instead of anchoring them to --ground-z",
+        "--ground-z", type=float,
+        help="Anchor object bottoms to this Z; omitted preserves localized object poses.",
     )
     args = parser.parse_args()
     image_size = (args.render_width, args.render_height)
@@ -597,7 +596,7 @@ def main() -> None:
         camera=camera,
         frames_per_second=args.frames_per_second, device=args.device,
         mesh_max_faces=args.mesh_max_faces,
-        ground_z=None if args.preserve_object_z else args.ground_z,
+        ground_z=args.ground_z,
         cursor_path=args.cursor_path, mesh_cache_dir=args.mesh_cache_dir,
     )
     signal.signal(signal.SIGINT, process.request_stop)
