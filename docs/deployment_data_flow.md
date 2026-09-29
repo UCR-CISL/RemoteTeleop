@@ -153,3 +153,60 @@ synchronizing before stopping the compositor:
   --output-root artifacts/split_system_sam_simulation \
   --stable-seconds 2
 ```
+
+## Procedural vehicle proxy mode
+
+Add `--asset-proxy` to `scripts/deployment/run_remote_teleop_sam_simulation.py`
+to render supported vehicles from their first detection without SAM3 or SAM3D.
+The remote compositor builds one template per vehicle kind on demand, saves it
+under `composited/vehicle-proxies/`, and caches its topology/colors on the GPU.
+For each bbox it updates body vertices and wheel positions in memory, then
+applies the normal rigid object pose and optional `--ground-z` placement.
+There are no per-frame GLB writes or asset transfers. Successful vehicles count
+as `mesh` in existing render metrics; unsupported labels retain bbox proxies.
+
+Templates cover `car`, `truck`, `bus`, `articulated_bus`, `trailer`,
+`construction_vehicle`, `motorcycle`, `bicycle`, `ambulance`, and `police`.
+The shared label mapping accepts both full nuScenes categories and detector
+shorthand. nuScenes export and adapters preserve vehicle labels instead of
+filtering everything except cars. Existing MCAPs exported with the old car-only
+filter must be regenerated to contain the additional GT tracks; the renderer
+cannot recover discarded annotations. BEVFusion exposes its available vehicle
+classes but does not distinguish emergency vehicles or bus subtypes.
+
+Bodies use white vertex colors, lighter neutral-grey continuous side glazing,
+and soft panel shading. The car cabin is one curved shell: its A- and C-pillars
+share edges and smooth normals with the roof rails, with no separate roof slab.
+Construction vehicles retain their muted equipment paint. Cars retain red rear lamps.
+Wheels keep a fixed metric radius and width per vehicle kind, moving with axle
+positions as the body changes size. Axles retain enough separation to prevent
+adjacent tires intersecting on shortened trucks and trailers. Long and tall cars therefore keep circular
+wheels. Low car bodies preserve clearance above the wheel tops instead of
+compressing their hood through the tires. Only a bbox too small to contain the chosen wheels reduces each wheel
+assembly uniformly. These are generic class silhouettes: they do not infer
+specific models, riders, articulated joint angles, or construction attachments.
+Exact body resizing has no temporal smoothing and may show bbox size jitter.
+As in the existing compositor, object overlays depth-test against the Gaussian
+scene; overlapping mesh objects are composited in track order.
+
+This mode disables SAM startup/completion checks and remote asset reception.
+The MCAP adapter still writes its existing analysis spool; BEVFusion still runs
+when selected. Remote rendering requires torch, PyTorch3D, trimesh, and the
+existing Gaussian renderer. Omitting the flag retains the SAM workflow. Asset
+load/render failures propagate explicitly rather than silently showing boxes.
+
+Render local preview grids without starting either deployment side:
+
+```bash
+python -m src.viz.preview_car_proxy --device cpu --output-dir artifacts/vehicle-proxies-v3
+```
+
+Use `--device cuda` when available. `vehicles.png` shows all ten vehicle kinds;
+`proportions.png` shows standard, limo, tall, wide, compact, low, and extreme
+car proportions. Each also has a `-views.png` grid containing front, side, and
+rear views. `rear.png` and `rear-views.png` emphasize the car C-pillars and
+tail lights, including straight rear views. `edge-cases.png` additionally exercises a tiny box that triggers
+the wheel fit cap, a stretched bicycle, a compact truck, and a wide loader.
+Images use the same proxy deformation and mesh renderer as the compositor,
+fitted independently to show shape rather than relative size.
+The output also contains individual PNGs and nominal metric GLBs in `meshes/`.

@@ -13,6 +13,7 @@ from typing import Callable
 import numpy as np
 import zmq
 
+from src.common.vehicle_categories import vehicle_proxy_kind
 from src.data.processed_nuscenes import ProcessedNuScenesFrame, ProcessedNuScenesSequence
 from src.deployment.ros_frame_adapter import FrameRouterService
 from src.deployment.vehicle import VehicleFrameSession, VehicleFrameSpool
@@ -101,7 +102,7 @@ class NuScenesFrameAdapter:
     def snapshot(self, frame: ProcessedNuScenesFrame, sequence: int) -> FrameSnapshot:
         boxes = []
         for vehicle in frame.vehicles:
-            if vehicle.category != "vehicle.car":
+            if vehicle_proxy_kind(vehicle.category) is None:
                 continue
             projected = project_vehicle_box(
                 world_T_object=vehicle.map_T_object,
@@ -118,7 +119,7 @@ class NuScenesFrameAdapter:
                 xyxy=tuple(float(value) for value in projected.xyxy),
                 dimensions_lwh=vehicle.dimensions_lwh,
                 world_T_object=_matrix4_tuple(vehicle.map_T_object),
-                text_label="car",
+                text_label=vehicle.category,
                 visibility=projected.visible_fraction,
                 detection_confidence=1.0,
             ))

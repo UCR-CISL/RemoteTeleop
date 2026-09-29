@@ -181,3 +181,37 @@ def test_frame_cursor_detects_changed_duplicate_snapshot_and_persists_completion
     cursor.complete(FrameEnd("scene-1", 0, 0))
 
     assert (tmp_path / "frame-complete.json").is_file()
+
+
+def test_process_proxy_mode_initializes_lazy_templates_and_disables_receiver(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    import src.realtime.composited_camera_process as module
+    from src.viz.composited_camera import RemoteCameraConfig
+
+    monkeypatch.setattr(module.zmq, "Context", Mock())
+    monkeypatch.setattr(module.DealerTransport, "open", Mock())
+    monkeypatch.setattr(module, "HealthHeartbeat", Mock())
+    monkeypatch.setattr(module, "JsonlMetricsWriter", Mock())
+    monkeypatch.setattr(module, "CompositedFrameWriter", Mock())
+    monkeypatch.setattr(module, "load_gaussian_map", Mock())
+    monkeypatch.setattr(module, "CudaGaussianBufferRenderer", Mock())
+    renderer_factory = Mock()
+    monkeypatch.setattr(module, "PyTorch3DObjectMeshRenderer", renderer_factory)
+    receiver_factory = Mock()
+    monkeypatch.setattr(module, "RemoteAssetReceiver", receiver_factory)
+    camera = RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24))
+    kwargs = dict(
+        frames_endpoint="tcp://localhost:5555", assets_endpoint="tcp://localhost:5556",
+        scene_generation="test", receiver_id="test", health_endpoint="tcp://localhost:5557",
+        splat_path=tmp_path / "map.spz", metrics_path=tmp_path / "metrics.jsonl", camera=camera,
+    )
+    proxy = module.CompositedCameraProcess(**kwargs, output_dir=tmp_path / "proxy", asset_proxy=True)
+    assert proxy._backend._vehicle_proxies is not None
+    renderer_factory.return_value.load_geometry.assert_not_called()
+    receiver_factory.assert_not_called()
+    assert proxy._assets is None
+
+    default = module.CompositedCameraProcess(**kwargs, output_dir=tmp_path / "default")
+    receiver_factory.assert_called_once()
+    assert default._assets is receiver_factory.return_value
+    assert default._backend._vehicle_proxies is None

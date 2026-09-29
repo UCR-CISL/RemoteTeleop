@@ -10,6 +10,7 @@ from typing import BinaryIO, Callable
 
 import numpy as np
 
+from src.common.vehicle_categories import vehicle_proxy_kind
 from src.data.cooperscene_mcap import (
     McapWriter,
     ROS2_IMAGE_SCHEMA,
@@ -255,7 +256,7 @@ def _frame_to_detections(
 ) -> FrameDetections:
     boxes = []
     for vehicle in frame.vehicles:
-        if vehicle.category != "vehicle.car":
+        if vehicle_proxy_kind(vehicle.category) is None:
             continue
         projected = project_vehicle_box(
             world_T_object=vehicle.map_T_object,
@@ -272,7 +273,7 @@ def _frame_to_detections(
             xyxy=tuple(float(value) for value in projected.xyxy),
             dimensions_lwh=vehicle.dimensions_lwh,
             world_T_object=_matrix4_tuple(vehicle.map_T_object),
-            text_label="car",
+            text_label=vehicle.category,
             visibility=projected.visible_fraction,
             detection_confidence=1.0,
         ))

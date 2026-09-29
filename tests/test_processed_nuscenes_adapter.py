@@ -40,7 +40,7 @@ def _write_scene(root, frame_count=2):
     }
     instances = {
         "0": {"id": "stable-car", "class_name": "vehicle.car", "frame_annotations": annotations},
-        "1": {"id": "ignored-truck", "class_name": "vehicle.truck", "frame_annotations": annotations},
+        "1": {"id": "stable-truck", "class_name": "vehicle.truck", "frame_annotations": annotations},
     }
     frames = {str(index): [0, 1] for index in range(frame_count)}
     (root / "instances" / "instances_info.json").write_text(json.dumps(instances))
@@ -60,7 +60,7 @@ def test_processed_sequence_uses_bilateral_map_anchor_and_contiguous_10hz(tmp_pa
     np.testing.assert_allclose(first.map_T_lidar[:3, 3], [1, 0, 0])
     np.testing.assert_allclose(second.map_T_lidar[:3, 3], [2, 0, 0])
     assert first.lidar_points.shape == (1, 4)
-    assert [vehicle.track_id for vehicle in first.vehicles] == ["stable-car", "ignored-truck"]
+    assert [vehicle.track_id for vehicle in first.vehicles] == ["stable-car", "stable-truck"]
     np.testing.assert_allclose(first.vehicles[0].map_T_object[:3, 3], [0, 0, 10])
 
 
@@ -98,7 +98,7 @@ def test_processed_sequence_rejects_localization_for_another_scene(tmp_path):
         )
 
 
-def test_adapter_spools_only_visible_cars_with_exact_camera_and_lidar_poses(tmp_path):
+def test_adapter_spools_visible_vehicles_with_exact_camera_and_lidar_poses(tmp_path):
     root = tmp_path / "152"
     _write_scene(root)
     sequence = ProcessedNuScenesSequence(root, expected_frame_count=2)
@@ -116,8 +116,8 @@ def test_adapter_spools_only_visible_cars_with_exact_camera_and_lidar_poses(tmp_
     assert adapter.process(sequence) == 2
     first = spool.get("nuscenes-152", 0)
     assert first is not None
-    assert [box.track_id for box in first.boxes] == ["stable-car"]
-    assert first.boxes[0].text_label == "car"
+    assert [box.track_id for box in first.boxes] == ["stable-car", "stable-truck"]
+    assert [box.text_label for box in first.boxes] == ["vehicle.car", "vehicle.truck"]
     np.testing.assert_allclose(np.asarray(first.world_T_ego).reshape(4, 4)[:3, 3], [1, 0, 0])
     np.testing.assert_allclose(np.asarray(first.world_T_camera).reshape(4, 4), np.eye(4))
     assert spool.end("nuscenes-152").final_sequence == 1
@@ -177,3 +177,33 @@ def test_service_spools_scene_and_cleans_up_router(tmp_path):
     assert spool.end("nuscenes:152").final_sequence == 1
     records = [json.loads(line) for line in (tmp_path / "metrics.jsonl").read_text().splitlines()]
     assert [record["source_timestamp_us"] for record in records if record["event"] == "frame_spooled"] == [0, 100_000]
+
+
+def test_vehicle_categories_survive_both_gt_adapter_paths(tmp_path):
+    from dataclasses import replace
+    from src.data.processed_nuscenes_mcap import _frame_to_detections
+
+    root = tmp_path / "152"
+    _write_scene(root)
+    frame = ProcessedNuScenesSequence(root, expected_frame_count=2)[0]
+    labels = [
+        "vehicle.car", "vehicle.truck", "vehicle.bus.rigid", "vehicle.bus.bendy",
+        "vehicle.trailer", "vehicle.construction", "vehicle.motorcycle", "vehicle.bicycle",
+        "vehicle.emergency.ambulance", "vehicle.emergency.police",
+    ]
+    frame = replace(frame, vehicles=tuple(
+        replace(frame.vehicles[0], track_id=label, category=label)
+        for label in labels + ["human.pedestrian.adult", "animal", "movable_object.barrier"]
+    ))
+    adapter = NuScenesFrameAdapter(
+        VehicleFrameSpool(tmp_path / "spool"),
+        NuScenesFrameAdapterConfig("nuscenes-152", minimum_area_px=1),
+    )
+    snapshot = adapter.snapshot(frame, 0)
+    detections = _frame_to_detections(
+        frame, scene_generation="nuscenes-152", source_sequence=0, minimum_area_px=1,
+    )
+    for result in (snapshot, detections):
+        assert [box.text_label for box in result.boxes] == labels
+        assert [box.track_id for box in result.boxes] == labels
+        assert all(box.dimensions_lwh == frame.vehicles[0].dimensions_lwh for box in result.boxes)
