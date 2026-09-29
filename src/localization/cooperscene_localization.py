@@ -16,6 +16,11 @@ from src.localization.cooperscene_calibration import (
     camera_intrinsic,
     compose_map_T_camera,
 )
+from src.localization.enu_prior_fusion import (
+    EnuPriorFuser,
+    EnuPriorFusionConfig,
+    EnuPriorFusionResult,
+)
 from src.localization.gaussian_map import GaussianMap, load_gaussian_map
 from src.localization.registration import PointCloudRegistrar, RegistrationConfig, RegistrationResult
 from src.viz.localization_visualizer import plot_localization_trajectory, render_gaussian_camera_view
@@ -39,6 +44,16 @@ class CooperSceneLocalizationConfig:
     render: bool = False
     render_device: str | None = None
     render_downsample: int = 2
+    mask_dynamic_objects: bool = True
+    dynamic_box_padding_m: float = 0.2
+    enu_prior_transform_path: Path | None = None
+    enu_prior_weight: float = 0.14
+    enu_prior_heading_lever_arm_m: float = 32.0
+    enu_prior_weighting_mode: str = "fixed"
+    enu_prior_position_mode: str = "bev"
+    enu_prior_translation_std_m: float = 0.10
+    enu_prior_vertical_std_m: float = 0.25
+    enu_prior_heading_std_deg: float = 1.0
 
 
 class CooperSceneGaussianLocalizer:
@@ -55,9 +70,20 @@ class CooperSceneGaussianLocalizer:
         identity_prior_refinement_registrar: PointCloudRegistrar | None = None,
         trajectory_plotter: Callable[[np.ndarray, Path], Path] = plot_localization_trajectory,
         camera_renderer: Callable[..., Path] = render_gaussian_camera_view,
+        enu_prior_fuser: EnuPriorFuser | None = None,
     ) -> None:
         if min(config.source_stride, config.map_stride, config.refinement_map_stride, config.render_downsample) < 1:
             raise ValueError("strides and render_downsample must be at least one")
+        if config.dynamic_box_padding_m < 0:
+            raise ValueError("dynamic_box_padding_m must be non-negative")
+        if min(config.enu_prior_weight, config.enu_prior_heading_lever_arm_m) <= 0:
+            raise ValueError("ENU-prior weight and heading lever arm must be positive")
+        if min(
+            config.enu_prior_translation_std_m,
+            config.enu_prior_vertical_std_m,
+            config.enu_prior_heading_std_deg,
+        ) <= 0:
+            raise ValueError("ENU-prior uncertainty values must be positive")
         if config.render_device not in (None, "cpu", "cuda"):
             raise ValueError("render_device must be None, 'cpu', or 'cuda'")
         if config.coarse_agents not in ("all", "selected"):
@@ -86,6 +112,8 @@ class CooperSceneGaussianLocalizer:
                 min_inlier_ratio=0.35,
                 max_median_residual=0.20,
                 max_p95_residual=0.60,
+                max_all_point_median_residual=0.25,
+                max_all_point_p95_residual=0.75,
                 max_correction_translation=1.0,
                 max_correction_rotation_degrees=3.0,
             )
@@ -101,12 +129,23 @@ class CooperSceneGaussianLocalizer:
                 min_inlier_ratio=0.35,
                 max_median_residual=0.20,
                 max_p95_residual=0.60,
+                max_all_point_median_residual=0.25,
+                max_all_point_p95_residual=0.75,
                 max_correction_translation=5.0,
                 max_correction_rotation_degrees=10.0,
             )
         )
         self._trajectory_plotter = trajectory_plotter
         self._camera_renderer = camera_renderer
+        self._enu_prior_fuser = enu_prior_fuser or EnuPriorFuser(EnuPriorFusionConfig(
+            prior_weight=config.enu_prior_weight,
+            heading_lever_arm_m=config.enu_prior_heading_lever_arm_m,
+            weighting_mode=config.enu_prior_weighting_mode,
+            position_mode=config.enu_prior_position_mode,
+            prior_translation_std_m=config.enu_prior_translation_std_m,
+            prior_vertical_std_m=config.enu_prior_vertical_std_m,
+            prior_heading_std_deg=config.enu_prior_heading_std_deg,
+        ))
 
     def run(self) -> dict:
         dataset = self._dataset_factory(self.config.data_root)
@@ -147,9 +186,38 @@ class CooperSceneGaussianLocalizer:
             refinement_registrar = (
                 self._refinement_registrar if initial_transform is not None else self._identity_prior_refinement_registrar
             )
-        final_registration = refinement_registrar.register(refinement_source, refinement_proxy, refinement_initial)
-        if not final_registration.accepted:
-            raise RuntimeError(f"target-agent refinement rejected: {', '.join(final_registration.rejection_reasons)}")
+        scan_registration = refinement_registrar.register(
+            refinement_source, refinement_proxy, refinement_initial
+        )
+        if not scan_registration.accepted:
+            raise RuntimeError(
+                f"target-agent refinement rejected: {', '.join(scan_registration.rejection_reasons)}"
+            )
+
+        enu_prior = self._load_transform(self.config.enu_prior_transform_path)
+        fusion = None
+        final_registration = scan_registration
+        if enu_prior is not None:
+            fusion = self._enu_prior_fuser.fuse(
+                refinement_source,
+                refinement_proxy,
+                scan_registration.map_T_source,
+                enu_prior,
+                np.asarray(target_frame.map_T_lidar, dtype=np.float64),
+            )
+            if not fusion.converged:
+                raise RuntimeError("ENU-prior fusion did not converge")
+            final_registration = refinement_registrar.evaluate(
+                refinement_source,
+                refinement_proxy,
+                fusion.map_T_source,
+                refinement_initial,
+            )
+            if not final_registration.accepted:
+                raise RuntimeError(
+                    "ENU-prior fusion rejected: "
+                    + ", ".join(final_registration.rejection_reasons)
+                )
 
         cooper_to_map = np.asarray(final_registration.map_T_source, dtype=np.float64)
         trajectory = np.stack([cooper_to_map @ frame.map_T_lidar for frame in vehicle_sequence])
@@ -172,11 +240,19 @@ class CooperSceneGaussianLocalizer:
             "selected_map_T_camera": map_T_camera.tolist(),
             "initial_localization_error": _pose_error_json(
                 localized_T_lidar,
-                recorded_enu_T_lidar,
+                recorded_enu_T_lidar if enu_prior is None else enu_prior @ recorded_enu_T_lidar,
                 frame_id=selected_frame_id,
+                reference_frame=(
+                    "cooperscene_recorded_enu"
+                    if enu_prior is None else "gsplat_via_shared_enu_prior"
+                ),
             ),
             "coarse_registration": _registration_json(coarse_registration) if coarse_registration is not None else None,
             "final_registration": _registration_json(final_registration),
+            "scan_registration": (
+                _registration_json(scan_registration) if fusion is not None else None
+            ),
+            "enu_prior_fusion": _fusion_json(fusion),
             "trajectory_path": "localized_trajectory.npz",
             "trajectory_plot": "trajectory.png",
         }
@@ -225,10 +301,23 @@ class CooperSceneGaussianLocalizer:
             clouds.append(self._world_points(frame, stride=self.config.source_stride))
         return np.concatenate(clouds, axis=0)
 
-    @staticmethod
-    def _world_points(frame, *, stride: int) -> np.ndarray:
-        lidar = np.asarray(frame.require_lidar_points()[::stride, :3], dtype=np.float64)
-        return lidar @ frame.map_T_lidar[:3, :3].T + frame.map_T_lidar[:3, 3]
+    def _world_points(self, frame, *, stride: int) -> np.ndarray:
+        lidar = np.asarray(frame.require_lidar_points()[:, :3], dtype=np.float64)
+        world = lidar @ frame.map_T_lidar[:3, :3].T + frame.map_T_lidar[:3, 3]
+        if self.config.mask_dynamic_objects:
+            world = self._exclude_vehicle_boxes(world, frame.vehicle_boxes)
+        return world[::stride]
+
+    def _exclude_vehicle_boxes(self, points: np.ndarray, boxes: object) -> np.ndarray:
+        keep = np.ones(len(points), dtype=bool)
+        padding = self.config.dynamic_box_padding_m
+        for box in boxes:
+            object_points = (
+                points - box.map_T_object[:3, 3]
+            ) @ box.map_T_object[:3, :3]
+            half_dimensions = np.asarray(box.dimensions_lwh, dtype=np.float64) / 2.0
+            keep &= ~np.all(np.abs(object_points) <= half_dimensions + padding, axis=1)
+        return points[keep]
 
     @staticmethod
     def _map_proxy(splats: GaussianMap, *, min_opacity: float, stride: int) -> np.ndarray:
@@ -246,7 +335,10 @@ class CooperSceneGaussianLocalizer:
         return proxy
 
     def _load_initial_transform(self) -> np.ndarray | None:
-        path = self.config.initial_transform_path
+        return self._load_transform(self.config.initial_transform_path)
+
+    @staticmethod
+    def _load_transform(path: Path | None) -> np.ndarray | None:
         if path is None:
             return None
         if path.suffix == ".npz":
@@ -270,11 +362,22 @@ def _registration_json(result: RegistrationResult) -> dict:
     return value
 
 
+def _fusion_json(result: EnuPriorFusionResult | None) -> dict | None:
+    if result is None:
+        return None
+    value = asdict(result)
+    for key, item in tuple(value.items()):
+        if isinstance(item, np.ndarray):
+            value[key] = item.tolist()
+    return value
+
+
 def _pose_error_json(
     estimated_T_lidar: np.ndarray,
     reference_T_lidar: np.ndarray,
     *,
     frame_id: str,
+    reference_frame: str = "cooperscene_recorded_enu",
 ) -> dict:
     """Compare the localized initial LiDAR pose with recorded CooperScene ENU."""
 
@@ -285,8 +388,14 @@ def _pose_error_json(
     cosine = float(np.clip((np.trace(delta_rotation) - 1.0) / 2.0, -1.0, 1.0))
     return {
         "frame_id": frame_id,
-        "reference_frame": "cooperscene_recorded_enu",
+        "reference_frame": reference_frame,
         "translation_m": translation_m,
+        "horizontal_translation_m": float(np.linalg.norm(
+            estimated_T_lidar[:2, 3] - reference_T_lidar[:2, 3]
+        )),
+        "vertical_translation_m": float(abs(
+            estimated_T_lidar[2, 3] - reference_T_lidar[2, 3]
+        )),
         "orientation_deg": float(np.degrees(np.arccos(cosine))),
         "recorded_enu_T_lidar": reference_T_lidar.tolist(),
         "localized_T_lidar": estimated_T_lidar.tolist(),
@@ -323,6 +432,25 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--render", action="store_true")
     parser.add_argument("--render-device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--render-downsample", type=int, default=2)
+    parser.add_argument(
+        "--keep-dynamic-points", action="store_true",
+        help="Keep LiDAR returns inside CooperScene GT vehicle boxes.",
+    )
+    parser.add_argument("--dynamic-box-padding-m", type=float, default=0.2)
+    parser.add_argument("--enu-prior-transform", type=Path)
+    parser.add_argument("--enu-prior-weight", type=float, default=0.14)
+    parser.add_argument("--enu-prior-heading-lever-arm-m", type=float, default=32.0)
+    parser.add_argument(
+        "--enu-prior-weighting-mode", choices=("fixed", "uncertainty"), default="fixed",
+        help="Use the fixed weight or derive translation/yaw weights from scan and pose-prior uncertainty.",
+    )
+    parser.add_argument(
+        "--enu-prior-position-mode", choices=("bev", "xyz"), default="bev",
+        help="Fuse horizontal position only (default), or horizontal and vertical position.",
+    )
+    parser.add_argument("--enu-prior-translation-std-m", type=float, default=0.10)
+    parser.add_argument("--enu-prior-vertical-std-m", type=float, default=0.25)
+    parser.add_argument("--enu-prior-heading-std-deg", type=float, default=1.0)
     args = parser.parse_args(argv)
     result = CooperSceneGaussianLocalizer(CooperSceneLocalizationConfig(
         data_root=args.data_root, splat_path=args.splat, output_dir=args.output_dir,
@@ -333,6 +461,16 @@ def main(argv: list[str] | None = None) -> None:
         skip_coarse=args.skip_coarse,
         render=args.render, render_device=None if args.render_device == "auto" else args.render_device,
         render_downsample=args.render_downsample,
+        mask_dynamic_objects=not args.keep_dynamic_points,
+        dynamic_box_padding_m=args.dynamic_box_padding_m,
+        enu_prior_transform_path=args.enu_prior_transform,
+        enu_prior_weight=args.enu_prior_weight,
+        enu_prior_heading_lever_arm_m=args.enu_prior_heading_lever_arm_m,
+        enu_prior_weighting_mode=args.enu_prior_weighting_mode,
+        enu_prior_position_mode=args.enu_prior_position_mode,
+        enu_prior_translation_std_m=args.enu_prior_translation_std_m,
+        enu_prior_vertical_std_m=args.enu_prior_vertical_std_m,
+        enu_prior_heading_std_deg=args.enu_prior_heading_std_deg,
     )).run()
     print(json.dumps(result, indent=2))
 

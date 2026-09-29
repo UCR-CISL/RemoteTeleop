@@ -189,7 +189,9 @@ class CooperSceneComparisonVideo:
         return {
             "frame_id": str(error["frame_id"]),
             "reference_frame": str(error["reference_frame"]),
-            "translation_m": float(error["translation_m"]),
+            "translation_m": float(error.get(
+                "horizontal_translation_m", error["translation_m"]
+            )),
             "orientation_deg": float(error["orientation_deg"]),
         }
 
@@ -220,7 +222,7 @@ class CooperSceneComparisonVideo:
         cv2.addWeighted(overlay, 0.70, image, 0.30, 0.0, image)
         lines = (
             f"Initial ENU error (frame {error['frame_id']})",
-            f"Translation: {error['translation_m']:.3f} m",
+            f"BEV translation: {error['translation_m']:.3f} m",
             f"Orientation: {error['orientation_deg']:.3f} deg",
         )
         for index, line in enumerate(lines):

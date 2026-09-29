@@ -63,10 +63,17 @@ class CooperSceneLocalizationDiagnostic:
             if frame.frame_id == frame_id
         )
         recorded_T_lidar = np.asarray(frame.map_T_lidar, dtype=np.float64)
-        lidar_points = _transform_points(
+        all_lidar_points = _transform_points(
             np.asarray(frame.require_lidar_points()[:, :3], dtype=np.float64),
             recorded_T_lidar,
         )
+        lidar_points = all_lidar_points
+        if run_config.get("mask_dynamic_objects", False):
+            lidar_points = _exclude_vehicle_boxes(
+                lidar_points,
+                frame.vehicle_boxes,
+                float(run_config.get("dynamic_box_padding_m", 0.0)),
+            )
         gaussian_map = load_gaussian_map(splat_path)
         map_points = _finite_gaussian_centers(gaussian_map.means, gaussian_map.opacities)
         estimated_T = np.asarray(payload["gaussian_T_cooperscene"], dtype=np.float64)
@@ -151,6 +158,8 @@ class CooperSceneLocalizationDiagnostic:
             "error_figure": error_path.name,
             "origin_reconciliation_figure": reconciliation_path.name,
             "alignment_figure": alignment_path.name,
+            "raw_lidar_point_count": len(all_lidar_points),
+            "dynamic_lidar_point_count_removed": len(all_lidar_points) - len(lidar_points),
             **alignment,
         }
         (self.config.output_dir / "diagnostic.json").write_text(
@@ -444,6 +453,17 @@ def _finite_gaussian_centers(means: np.ndarray, opacities: np.ndarray) -> np.nda
 
 def _transform_points(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
     return points @ transform[:3, :3].T + transform[:3, 3]
+
+
+def _exclude_vehicle_boxes(points: np.ndarray, boxes: object, padding_m: float) -> np.ndarray:
+    keep = np.ones(len(points), dtype=bool)
+    for box in boxes:
+        object_points = (
+            points - box.map_T_object[:3, 3]
+        ) @ box.map_T_object[:3, :3]
+        half_dimensions = np.asarray(box.dimensions_lwh, dtype=np.float64) / 2.0
+        keep &= ~np.all(np.abs(object_points) <= half_dimensions + padding_m, axis=1)
+    return points[keep]
 
 
 def _load_transform(path_value: str | None) -> np.ndarray | None:

@@ -1,0 +1,12 @@
+{
+  "description": "CooperScene-to-Riverside-GSplat ENU prior from the shared intersection at 33.975676, -117.339892. Z uses the numeric elevation-origin difference (273.00 - 273.43 m); the GSplat reference is explicitly orthometric, while the historical CooperScene LLA datum is not explicitly labeled. BEV fusion ignores Z, while the optional XYZ mode uses it with explicit vertical uncertainty.",
+  "cooperscene_enu_origin_lla": [33.975676, -117.339873, 273.0],
+  "gsplat_enu_origin_lla": [33.9757064853, -117.3398869498, 273.43],
+  "shared_intersection_lat_lon": [33.975676, -117.339892],
+  "gaussian_T_cooperscene": [
+    [1.0, 0.0, 0.0, 1.2891715943262518],
+    [0.0, 1.0, 0.0, -3.381634466657298],
+    [0.0, 0.0, 1.0, -0.43000102971778076],
+    [0.0, 0.0, 0.0, 1.0]
+  ]
+}

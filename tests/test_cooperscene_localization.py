@@ -2,12 +2,13 @@ import json
 
 import numpy as np
 
-from src.localization.cooperscene import CooperSceneFrame
+from src.localization.cooperscene import CooperSceneFrame, CooperSceneVehicleBox
 from src.localization.cooperscene_calibration import compose_map_T_camera
 from src.localization.cooperscene_localization import (
     CooperSceneGaussianLocalizer,
     CooperSceneLocalizationConfig,
 )
+from src.localization.enu_prior_fusion import EnuPriorFusionResult
 from src.localization.gaussian_map import GaussianMap
 from src.localization.registration import RegistrationResult
 
@@ -37,12 +38,21 @@ class _Registrar:
         self.source = None
         self.target = None
         self.initial_map_T_source = None
+        self.evaluated_transform = None
 
     def register(self, source, target, initial_map_T_source=None):
         self.source, self.target = source, target
         self.initial_map_T_source = initial_map_T_source
+        return self._result(self.transform)
+
+    def evaluate(self, source, target, transform, initial_map_T_source=None):
+        self.evaluated_transform = np.asarray(transform)
+        return self._result(self.evaluated_transform)
+
+    @staticmethod
+    def _result(transform):
         return RegistrationResult(
-            map_T_source=self.transform,
+            map_T_source=transform,
             inlier_ratio=0.9,
             median_residual=0.1,
             p90_residual=0.2,
@@ -54,6 +64,23 @@ class _Registrar:
             correction_rotation_degrees=0.0,
             runtime_seconds=0.01,
             accepted=True,
+        )
+
+
+class _Fuser:
+    def __init__(self, transform):
+        self.transform = transform
+        self.arguments = None
+
+    def fuse(self, *arguments):
+        self.arguments = arguments
+        return EnuPriorFusionResult(
+            map_T_source=self.transform,
+            iterations=3,
+            converged=True,
+            correspondence_count=10,
+            prior_bev_error_m=0.05,
+            prior_heading_error_deg=0.1,
         )
 
 
@@ -106,6 +133,7 @@ def test_orchestration_registers_synchronized_cooperative_cloud_and_saves_artifa
     assert result["initial_localization_error"]["frame_id"] == "10"
     assert result["initial_localization_error"]["reference_frame"] == "cooperscene_recorded_enu"
     np.testing.assert_allclose(result["initial_localization_error"]["translation_m"], np.hypot(10, 20))
+    np.testing.assert_allclose(result["initial_localization_error"]["vertical_translation_m"], 0.0)
     np.testing.assert_allclose(result["initial_localization_error"]["orientation_deg"], 0.0)
     assert len(plots) == len(renders) == 1
     assert (config.output_dir / "localized_trajectory.npz").is_file()
@@ -124,6 +152,42 @@ def test_camera_pose_composition_inverts_lidar_to_camera():
     map_T_camera = compose_map_T_camera(map_T_lidar, camera_T_lidar)
 
     np.testing.assert_allclose(map_T_camera[:3, 3], [2, 5, 6])
+
+
+def test_world_points_exclude_gt_vehicle_boxes_with_padding(tmp_path):
+    pose = np.eye(4)
+    frame = CooperSceneFrame(
+        split="test", scenario="1", agent="1", frame_id="10",
+        lidar_path=None, annotation_path=None,
+        lidar_points=np.array([
+            [0.0, 0.0, 0.0, 1.0],
+            [1.1, 0.0, 0.0, 1.0],
+            [1.3, 0.0, 0.0, 1.0],
+        ], dtype=np.float32),
+        map_T_lidar=pose,
+        vehicle_boxes=(CooperSceneVehicleBox("car", (2.0, 2.0, 2.0), pose),),
+    )
+    localizer = CooperSceneGaussianLocalizer(CooperSceneLocalizationConfig(
+        tmp_path, tmp_path / "map.ply", tmp_path / "out",
+        dynamic_box_padding_m=0.2,
+    ))
+
+    points = localizer._world_points(frame, stride=1)
+
+    np.testing.assert_allclose(points, [[1.3, 0.0, 0.0]])
+
+
+def test_world_points_can_keep_dynamic_returns(tmp_path):
+    frame = _frame("1", "10", 0.0)
+    localizer = CooperSceneGaussianLocalizer(CooperSceneLocalizationConfig(
+        tmp_path, tmp_path / "map.ply", tmp_path / "out",
+        mask_dynamic_objects=False,
+    ))
+
+    np.testing.assert_allclose(
+        localizer._world_points(frame, stride=1),
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+    )
 
 
 def test_skip_coarse_loads_only_the_selected_agent_and_refines_from_identity(tmp_path):
@@ -201,3 +265,41 @@ def test_selected_agent_coarse_registers_without_accessing_other_agents(tmp_path
     assert result["coarse_registration"]["accepted"]
     np.testing.assert_allclose(coarse.source, [[1, 0, 0], [2, 0, 0]])
     np.testing.assert_allclose(refinement.initial_map_T_source, coarse_transform)
+
+
+def test_enu_prior_fusion_is_explicit_and_preserves_scan_metrics(tmp_path):
+    sequence = _Sequence([_frame("1", "10", 1.0)])
+    splats = GaussianMap(
+        means=np.array([[1, 2, 3]], dtype=np.float32),
+        quats=np.zeros((1, 4), dtype=np.float32), scales=np.ones((1, 3), dtype=np.float32),
+        opacities=np.ones(1, dtype=np.float32), sh_coeffs=np.zeros((1, 1, 3), dtype=np.float32),
+        sh_degree=0, antialiased=False,
+    )
+    prior_path = tmp_path / "prior.json"
+    prior_path.write_text(json.dumps({"gaussian_T_cooperscene": np.eye(4).tolist()}))
+    fused_transform = np.eye(4)
+    fused_transform[0, 3] = 0.05
+    refinement = _Registrar(np.eye(4))
+    fuser = _Fuser(fused_transform)
+    config = CooperSceneLocalizationConfig(
+        tmp_path, tmp_path / "map.ply", tmp_path / "out",
+        skip_coarse=True, source_stride=1, enu_prior_transform_path=prior_path,
+    )
+
+    result = CooperSceneGaussianLocalizer(
+        config,
+        dataset_factory=lambda _: _Dataset({"1": sequence}),
+        map_loader=lambda _: splats,
+        identity_prior_refinement_registrar=refinement,
+        enu_prior_fuser=fuser,
+        trajectory_plotter=lambda poses, path: path,
+    ).run()
+
+    np.testing.assert_allclose(result["gaussian_T_cooperscene"], fused_transform)
+    np.testing.assert_allclose(refinement.evaluated_transform, fused_transform)
+    assert result["scan_registration"] is not None
+    assert result["enu_prior_fusion"]["prior_bev_error_m"] == 0.05
+    assert result["initial_localization_error"]["reference_frame"] == "gsplat_via_shared_enu_prior"
+    np.testing.assert_allclose(
+        result["initial_localization_error"]["horizontal_translation_m"], 0.05
+    )
