@@ -21,6 +21,7 @@ from src.common.vehicle_categories import vehicle_proxy_kind
 from src.deployment.vehicle import VehicleAnalysisSpool
 from src.localization.gaussian_map import load_gaussian_map
 from src.localization.ground_plane import GroundPlane
+from src.localization.ground_surface import load_ground_placement
 from src.viz import composited_camera as current
 from src.viz.primitive_vehicle import PrimitiveVehicleAsset
 from src.viz.vehicle_proxy import VehicleProxyRenderer
@@ -40,6 +41,20 @@ class CachedProxyOverlays:
         return self.overlays[key]
 
 
+class PlacementRecorder:
+    """Record render-only adjustments without changing replay input records."""
+
+    def __init__(self, placement):
+        self.placement = placement
+        self.records = []
+
+    def place_box(self, pose, dimensions):
+        placed = self.placement.place_box(pose, dimensions)
+        self.records.append(dict(getattr(self.placement, "last_placement", {"status": "explicit_plane"}),
+                                 input_pose=np.asarray(pose).tolist(), rendered_pose=placed.tolist()))
+        return placed
+
+
 class ReplayGroundOcclusionDiagnostics:
     def __init__(self, args):
         self.args = args
@@ -53,6 +68,73 @@ class ReplayGroundOcclusionDiagnostics:
         sys.modules[spec.name] = self.before
         spec.loader.exec_module(self.before)
         self.meshes = VehicleProxyRenderer(current.PyTorch3DObjectMeshRenderer(device="cuda"))
+        self._map_path = None
+        self._gaussian = None
+
+    def gaussian(self, map_path):
+        if map_path != self._map_path:
+            self._gaussian = current.CudaGaussianBufferRenderer(load_gaussian_map(map_path))
+            self._map_path = map_path
+        return self._gaussian
+
+    def render_video(self, run_id):
+        """Render one cached sequence with one resident map and mesh templates."""
+        attempt = self.args.results / run_id / "attempt-001"
+        spool_root = attempt / "lambda/analysis-spool"
+        paths = sorted(path for path in spool_root.glob("*/*.json") if path.stem.isdigit())
+        if not paths:
+            raise ValueError(f"no cached frames for {run_id}")
+        initial = json.loads(paths[0].read_text())
+        spool = VehicleAnalysisSpool(spool_root)
+        first = spool.get(initial["scene_generation"], int(paths[0].stem))
+        image = cv2.imdecode(np.frombuffer(first.image_jpeg, np.uint8), cv2.IMREAD_COLOR)
+        size = (self.args.width, round(image.shape[0] * self.args.width / image.shape[1]))
+        camera = current.RemoteCameraConfig.from_source_calibration(
+            ego_T_camera=np.linalg.inv(np.asarray(first.world_T_ego).reshape(4, 4)) @ np.asarray(first.world_T_camera).reshape(4, 4),
+            camera_intrinsic=np.asarray(first.camera_intrinsic).reshape(3, 3),
+            source_image_size=(image.shape[1], image.shape[0]), image_size=size)
+        record = json.loads((self.args.planes / f"{run_id}.json").read_text())
+        placement_path = self.args.corrected_planes / f"{run_id}.json"
+        placement = PlacementRecorder(load_ground_placement(json.loads(placement_path.read_text())))
+        backend = current.PoseOnlyCompositedCameraBackend(self.gaussian(record["map_path"]), camera,
+            vehicle_proxies=self.meshes, ground_z=None, ground_plane=placement)
+        temporary = self.args.output / f"{run_id}-grounded-intermediate.mp4"
+        destination = self.args.output / f"{run_id}-grounded.mp4"
+        writer = cv2.VideoWriter(str(temporary), cv2.VideoWriter_fourcc(*"mp4v"), 10., (size[0], size[1] + 42))
+        if not writer.isOpened():
+            raise RuntimeError("could not open diagnostic video encoder")
+        supported = total = 0
+        try:
+            with (self.args.output / f"{run_id}-placement-coverage.jsonl").open("w") as log:
+                for index, path in enumerate(paths):
+                    frame = spool.get(initial["scene_generation"], int(path.stem))
+                    pose = SimpleNamespace(sequence=frame.source_sequence, timestamp_us=frame.timestamp_us,
+                        scene_generation=frame.scene_generation, world_T_ego=frame.world_T_ego, world_T_camera=frame.world_T_camera)
+                    placement.records.clear()
+                    rendered = backend.render_pose(pose, frame.boxes)
+                    local = sum(row["status"] == "local_map_road" for row in placement.records)
+                    supported += local
+                    total += len(placement.records)
+                    writer.write(self.label(rendered.rgb, f"{run_id} frame {frame.frame_id} | map ground {local}/{len(placement.records)} | unsupported: keep input pose"))
+                    log.write(json.dumps(dict(source_sequence=frame.source_sequence, frame_id=frame.frame_id,
+                        input_frame_sha256=frame.sha256, source_metadata=str(path), supported=local,
+                        unsupported=len(placement.records)-local, placements=placement.records)) + "\n")
+                    if index in (0, len(paths)//2, len(paths)-1):
+                        self.save(self.args.output / f"{run_id}-video-frame{frame.frame_id}.png", rendered.rgb)
+                    if index % 25 == 0:
+                        print(f"VIDEO {run_id}: {index+1}/{len(paths)} frames", flush=True)
+        finally:
+            writer.release()
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(temporary), "-c:v", "libx264", "-crf", "20",
+                        "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(destination)], check=True)
+        temporary.unlink()
+        summary = dict(run_id=run_id, frames=len(paths), fps=10, video=str(destination),
+                       supported_placements=supported, unsupported_placements=total-supported,
+                       total_placements=total, source_results=str(self.args.results), ground_placement=str(placement_path),
+                       detector_rerun=False, localization_rerun=False, input_poses_changed=False)
+        (self.args.output / f"{run_id}-video-summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+        print(json.dumps(summary), flush=True)
+        return summary
 
     @staticmethod
     def save(path, rgb):
@@ -74,9 +156,9 @@ class ReplayGroundOcclusionDiagnostics:
         image = cv2.imdecode(np.frombuffer(frame.image_jpeg, np.uint8), cv2.IMREAD_COLOR)[..., ::-1] / 255.
         old_plane_path = self.args.planes / ("cooperscene-1-1.json" if run_id.startswith("cooper") else f"{run_id}.json")
         plane_record = json.loads(old_plane_path.read_text())
-        old_plane = GroundPlane.from_dict(plane_record)
+        old_plane = GroundPlane.from_dict(plane_record) if self.args.before_ground == "plane" else None
         corrected_plane_path = self.args.corrected_planes / old_plane_path.name
-        new_plane = GroundPlane.from_dict(json.loads(corrected_plane_path.read_text()))
+        new_plane = load_ground_placement(json.loads(corrected_plane_path.read_text()))
         map_path = plane_record["map_path"]
         camera_pose = np.asarray(frame.world_T_camera).reshape(4, 4)
         ego_pose = np.asarray(frame.world_T_ego).reshape(4, 4)
@@ -85,7 +167,7 @@ class ReplayGroundOcclusionDiagnostics:
             ego_T_camera=np.linalg.inv(ego_pose) @ camera_pose,
             camera_intrinsic=np.asarray(frame.camera_intrinsic).reshape(3, 3),
             source_image_size=(image.shape[1], image.shape[0]), image_size=size)
-        gaussian = current.CudaGaussianBufferRenderer(load_gaussian_map(map_path))
+        gaussian = self.gaussian(map_path)
         background = gaussian.render(camera_pose, camera.camera_intrinsic, size)
         constant_background = SimpleNamespace(render=lambda *args: background)
         proxies = CachedProxyOverlays(self.meshes)
@@ -106,9 +188,9 @@ class ReplayGroundOcclusionDiagnostics:
         for name, rgb in (("before", old), ("ground-only", ground_only), ("after", fixed), ("background", background.rgb)):
             self.save(self.args.output / f"{stem}-{name}.png", rgb)
         panels = [self.label(cv2.resize(image, size), f"Recorded camera | {run_id} frame {frame.frame_id}"),
-                  self.label(old, "Before: replay ground plane + original composition"),
-                  self.label(ground_only, "Fixed ground only; original composition"),
-                  self.label(fixed, "Fixed ground + shared vehicle depth")]
+                  self.label(old, "Before: previous placement and compositor"),
+                  self.label(ground_only, "Updated ground placement; previous compositor"),
+                  self.label(fixed, "Updated ground placement + shared vehicle depth")]
         cv2.imwrite(str(self.args.output / f"{stem}-comparison.png"), np.vstack((np.hstack(panels[:2]), np.hstack(panels[2:]))))
         original = next((attempt / "composited/frames").glob(f"{sequence:06d}_*.png"), None)
         if original:
@@ -119,13 +201,24 @@ class ReplayGroundOcclusionDiagnostics:
             kind = vehicle_proxy_kind(box.text_label)
             if kind is None:
                 continue
-            before_pose = old_plane.place_box(np.asarray(box.world_T_object).reshape(4, 4), box.dimensions_lwh)
+            incoming = np.asarray(box.world_T_object).reshape(4, 4)
+            before_pose = old_plane.place_box(incoming, box.dimensions_lwh) if old_plane is not None else incoming
             placed = new_plane.place_box(np.asarray(box.world_T_object).reshape(4, 4), box.dimensions_lwh)
+            placement = dict(getattr(new_plane, "last_placement", {"status": "explicit_plane"}))
             vertices = PrimitiveVehicleAsset(kind).vertices_for_dimensions(box.dimensions_lwh)
             world_vertices = vertices @ placed[:3, :3].T + placed[:3, 3]
+            if isinstance(new_plane, GroundPlane):
+                normal, offset = np.asarray(new_plane.normal), new_plane.offset_m
+            elif placement["status"] == "local_map_road":
+                normal = placed[:3, 2]
+                bottom = placed[:3, 3] - box.dimensions_lwh[2] / 2 * normal
+                offset = -float(normal @ bottom)
+            else:
+                normal, offset = None, None
             contacts.append(dict(track_id=box.track_id, old_center_z_m=float(before_pose[2, 3]),
                 new_center_z_m=float(placed[2, 3]), center_z_change_m=float(placed[2, 3] - before_pose[2, 3]),
-                minimum_mesh_plane_distance_m=float(np.min(world_vertices @ np.asarray(new_plane.normal) + new_plane.offset_m))))
+                placement=placement,
+                minimum_mesh_plane_distance_m=None if normal is None else float(np.min(world_vertices @ normal + offset))))
             overlays.append(proxies.render(kind, box.dimensions_lwh, placed, camera_pose, camera.camera_intrinsic, size))
         gaussian_valid = np.isfinite(background.depth) & (background.depth > 0) & (background.alpha > .01)
         depths, colors = [], []
@@ -156,7 +249,7 @@ class ReplayGroundOcclusionDiagnostics:
                            for rgb, text in ((ground_only, "Original composition: overlap crop"), (fixed, "Shared depth: same crop"))]
             cv2.imwrite(str(self.args.output / f"{stem}-occlusion-crop.png"), np.hstack(crop_panels))
         result = dict(run_id=run_id, source_sequence=sequence, frame_id=frame.frame_id, source_metadata=str(metadata_path),
-                      before_revision=self.args.before_revision, map_path=map_path, old_ground_plane=old_plane.to_dict(),
+                      before_revision=self.args.before_revision, map_path=map_path, old_ground_plane=None if old_plane is None else old_plane.to_dict(),
                       new_ground_plane=new_plane.to_dict(), corrected_plane_path=str(corrected_plane_path), image_size=size,
                       rasterizers=["gsplat CUDA RGB+ED", "PyTorch3D CUDA"],
                       original_order_wrong_depth_pixels=int(wrong.sum()), opaque_overlap_pixels=int(opaque_overlap.sum()),
@@ -165,7 +258,7 @@ class ReplayGroundOcclusionDiagnostics:
                       corrected_order_change_pixels=int(np.sum(np.max(np.abs(fixed - reversed_fixed), axis=2) > 1e-6)),
                       corrected_order_max_rgb_difference=float(np.max(np.abs(fixed - reversed_fixed))), contacts=contacts)
         (self.args.output / f"{stem}.json").write_text(json.dumps(result, indent=2) + "\n")
-        print(json.dumps({key: value for key, value in result.items() if key != "contacts"}), flush=True)
+        print(json.dumps({key: value for key, value in result.items() if key not in ("contacts", "new_ground_plane")}), flush=True)
         del gaussian
         return result
 
@@ -178,10 +271,15 @@ def main():
     parser.add_argument("--corrected-planes", type=Path, default=root / "artifacts/bev-replay-ground-planes-riverside-restored")
     parser.add_argument("--output", type=Path, default=root / "artifacts/ground-occlusion-diagnostics")
     parser.add_argument("--before-revision", default="3d0906bd44d4c6717fef2935584a821c826b674d")
+    parser.add_argument("--before-ground", choices=("plane", "none"), default="plane")
     parser.add_argument("--frame", action="append", help="run_id:replay_sequence")
+    parser.add_argument("--video-run", help="Render every cached frame of one sequence; no replay processing")
     parser.add_argument("--width", type=int, default=960)
     args = parser.parse_args()
     renderer = ReplayGroundOcclusionDiagnostics(args)
+    if args.video_run:
+        renderer.render_video(args.video_run)
+        return
     results = [renderer.render(run_id, int(sequence)) for run_id, sequence in
                (value.rsplit(":", 1) for value in (args.frame or ["cooperscene-1-1:64", "cooperscene-1-1:153", "nuscenes-164:93", "nuscenes-529:77"]))]
     (args.output / "summary.json").write_text(json.dumps(results, indent=2) + "\n")
