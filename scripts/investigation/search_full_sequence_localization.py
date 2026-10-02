@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -17,6 +18,8 @@ for name in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
     os.environ[name] = '2'
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+
+import numpy as np
 
 from scripts.investigation.advance_cooperscene_frames import IndexedCooperFrameReader
 from scripts.investigation.advance_nuscenes_frames import NuScenesFrameAdvance
@@ -44,7 +47,7 @@ class SequenceFrames:
             self.reader = IndexedCooperFrameReader(previous / 'first-frame-localization/inputs', run_id, trajectory_root)
             self.count = len(self.reader.rows)
             self.times = [float(row['timestamp_us']) / 1e6 for row in self.reader.rows]
-            self.timestamp_basis = 'original MCAP replay log-time offsets'
+            self.timestamp_basis = 'original replay normalized 10 Hz offsets; not sensor capture timestamps'
         else:
             self.nu = NuScenesFrameAdvance(output / 'staging/nuscenes', [], ['baseline'])
             self.nu.original = previous / 'first-frame-localization'
@@ -156,16 +159,27 @@ class FullSequenceSearch:
                 required = sorted({TARGETS[key][0] for key in unresolved})
                 path = self.args.output / 'attempts' / entry['run_id'] / f'f{offset:06d}.json'
                 try:
-                    record = json.loads(path.read_text()) if path.exists() else {}
-                    if not set(required).issubset(record.get('methods', {})):
-                        metadata = frames.frame(offset)
-                        case = dict(run_id=entry['run_id'], metadata=metadata, **frames.timing(offset))
-                        evaluated = self.evaluator.evaluate_case(case, required_methods=required)
-                        record = dict(case, methods={**record.get('methods', {}), **evaluated['methods']},
-                            evaluation=evaluated, reference_privileged_qualification=True)
-                        self.write(path, record)
+                    # The evaluator owns input/map/config fingerprint validation.
+                    # Even on resume, never trust an orchestrator attempt file as
+                    # independently valid fit evidence or bypass that validation.
+                    metadata = frames.frame(offset)
+                    case = dict(run_id=entry['run_id'], metadata=metadata, **frames.timing(offset))
+                    evaluated = self.evaluator.evaluate_case(case, required_methods=required)
+                    record = dict(case, methods=evaluated['methods'], evaluation=evaluated,
+                        reference_privileged_qualification=True)
                     if not set(required).issubset(record['methods']):
                         raise ValueError(f'evaluator omitted required methods: {required}')
+                    for method in required:
+                        item = record['methods'][method]
+                        if item.get('accepted') is True:
+                            transform = np.asarray(item.get('map_T_dataset'), dtype=float)
+                            if transform.shape != (4, 4) or not np.isfinite(transform).all():
+                                raise ValueError(f'accepted {method} result lacks a finite 4x4 transform')
+                            for metric in {metric for candidate, metric in TARGETS.values() if candidate == method}:
+                                error = item.get('error', {}).get(metric)
+                                if error is None or not math.isfinite(error) or error < 0:
+                                    raise ValueError(f'accepted {method} result has invalid {metric}')
+                    self.write(path, record)
                 except Exception as error:
                     failure = dict(run_id=entry['run_id'], **frames.timing(offset),
                         required_methods=required, exception=f'{type(error).__name__}: {error}',
@@ -177,7 +191,7 @@ class FullSequenceSearch:
                     result = record['methods'][method]
                     checked[target].append(offset)
                     error = result.get('error', {}).get(metric)
-                    if result.get('accepted') and error is not None and error < .1:
+                    if result.get('accepted') is True and error is not None and math.isfinite(error) and 0 <= error < .1:
                         selections[target] = dict(**frames.timing(offset), frame_id=record['metadata']['frame_id'],
                             metric=metric, error=result['error'], accepted=True,
                             map_T_dataset=result.get('map_T_dataset'), source_attempt=str(path))
@@ -185,7 +199,8 @@ class FullSequenceSearch:
                 print(json.dumps(dict(run_id=entry['run_id'], frame_offset=offset, frame_count=frames.count,
                     newly_found=[key for key, row in selections.items() if row['frame_offset'] == offset],
                     unresolved=[key for key in TARGETS if key not in selections])), flush=True)
-                if self.args.max_frames is not None and offset + 1 >= self.args.max_frames:
+                complete = all(selections.get(key) or len(checked[key]) == frames.count for key in TARGETS)
+                if self.args.max_frames is not None and offset + 1 >= self.args.max_frames and not complete:
                     return self.save_sequence(entry, frames, selections, checked, 'incomplete_smoke_bound')
             return self.save_sequence(entry, frames, selections, checked,
                 'complete' if all(selections.get(key) or len(checked[key]) == frames.count for key in TARGETS) else 'incomplete')

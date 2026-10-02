@@ -1,6 +1,7 @@
 """Policy checks for chronology, independent thresholds and resumable evidence."""
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from scripts.investigation import search_full_sequence_localization as search
@@ -27,6 +28,8 @@ class Frames:
 class Evaluator:
     def __init__(self, *, fail=None, all_rejected=False):
         self.calls = []
+        self.cache = {}
+        self.fits = []
         self.fail = fail
         self.all_rejected = all_rejected
 
@@ -38,9 +41,12 @@ class Evaluator:
         errors = dict(bev=(.05 if index >= 1 else .1, .05 if index >= 4 else .2),
                       xyz=(.05, .05 if index >= 2 else .2),
                       bev_lidar_height=(.05, .05 if index >= 3 else .2))
-        return dict(methods={method: dict(accepted=not self.all_rejected,
-            error=dict(xy_m=errors[method][0], xyz_m=errors[method][1]), map_T_dataset=None)
-            for method in required_methods})
+        for method in required_methods:
+            if (index, method) not in self.cache:
+                self.fits.append((index, method))
+                self.cache[(index, method)] = dict(accepted=not self.all_rejected,
+                    error=dict(xy_m=errors[method][0], xyz_m=errors[method][1]), map_T_dataset=np.eye(4).tolist())
+        return dict(methods={method: self.cache[(index, method)] for method in required_methods})
 
 
 @pytest.fixture
@@ -68,8 +74,10 @@ def test_strict_threshold_and_independent_first_hits(runner):
 def test_resume_uses_saved_evidence_without_new_fits(runner):
     first = runner.run_sequence(ENTRY)
     runner.evaluator.calls.clear()
+    fits = list(runner.evaluator.fits)
     assert runner.run_sequence(ENTRY) == first
-    assert runner.evaluator.calls == []
+    assert runner.evaluator.calls  # Every resume still validates evaluator cache inputs.
+    assert runner.evaluator.fits == fits
 
 
 def test_data_failure_cannot_claim_exhaustion(runner):
@@ -96,3 +104,18 @@ def test_smoke_bound_does_not_mark_exhausted(runner):
     result = runner.run_sequence(ENTRY)
     assert result['status'] == 'incomplete_smoke_bound'
     assert not result['methods']['xyz']['exhausted']
+
+
+@pytest.mark.parametrize('error', [-1., float('nan'), float('inf')])
+def test_invalid_accepted_metrics_are_not_search_evidence(runner, error):
+    runner.evaluator.cache[(0, 'xyz')] = dict(accepted=True,
+        error=dict(xy_m=0., xyz_m=error), map_T_dataset=np.eye(4).tolist())
+    result = runner.run_sequence(ENTRY)
+    assert result['status'] == 'incomplete'
+    assert result['methods']['xyz']['tested_frame_offsets'] == []
+
+
+def test_accepted_pose_is_required_for_qualification(runner):
+    runner.evaluator.cache[(0, 'xyz')] = dict(accepted=True,
+        error=dict(xy_m=0., xyz_m=0.), map_T_dataset=None)
+    assert runner.run_sequence(ENTRY)['status'] == 'incomplete'
