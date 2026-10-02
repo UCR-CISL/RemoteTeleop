@@ -95,7 +95,8 @@ class HybridRoadHeightEstimator:
         _, _, axes = np.linalg.svd(support[:, :2] - support[:, :2].mean(axis=0), full_matrices=False)
         spans = np.ptp(support[:, :2] @ axes.T, axis=0)
         metrics['principal_horizontal_spans_m'] = spans.tolist()
-        if np.min(spans) < c.min_span_m:
+        metrics['extent_accepted'] = bool(np.min(spans) >= c.min_span_m)
+        if lidar and not metrics['extent_accepted']:
             raise ValueError('plane support lacks two-dimensional road extent')
         return plane, metrics, mask
 
@@ -183,10 +184,20 @@ class HybridRoadHeightEstimator:
             layer = dict(plane=map_plane.to_dict(), fit=quality, footprint_overlap=overlap,
                          normal_disagreement_deg=disagreement,
                          height_at_lidar_xy_m=-map_plane.offset_m / n_map[2])
-            layer['plausible'] = overlap >= c.min_footprint_overlap and disagreement <= c.max_normal_disagreement_deg
+            layer['plausible'] = quality['extent_accepted'] and overlap >= c.min_footprint_overlap and disagreement <= c.max_normal_disagreement_deg
             layers.append(layer)
             remaining = remaining[~inliers]
         diagnostics['map_layers'] = layers
+        diagnostics['map_layer_search_truncated'] = False
+        if len(layers) == c.max_layers:
+            try:
+                self._plane(remaining, lidar=False)
+            except ValueError:
+                pass
+            else:
+                diagnostics['map_layer_search_truncated'] = True
+                result.reason = 'unresolved_map_ground_layers'
+                return result
         plausible = [layer for layer in layers if layer['plausible']]
         if not plausible:
             result.reason = 'insufficient_or_incompatible_map_ground'

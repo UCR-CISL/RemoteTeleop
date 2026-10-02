@@ -82,3 +82,26 @@ def test_insufficient_lidar_or_narrow_map_support_retains_initial_pose():
         assert not result.accepted
         assert result.reason == reason
         np.testing.assert_array_equal(result.map_T_lidar, np.eye(4))
+
+
+def test_narrow_layer_does_not_hide_a_later_ambiguous_broad_layer():
+    source = road_points(0)
+    x, y = np.meshgrid(np.linspace(-14, 14, 100), np.linspace(-1, 1, 10))
+    narrow = np.column_stack((x.ravel(), y.ravel(), np.zeros(x.size)))
+    x, y = np.meshgrid(np.linspace(-14, 14, 20), np.linspace(-14, 14, 20))
+    upper = np.column_stack((x.ravel(), y.ravel(), np.full(x.size, 2.)))
+    result = HybridRoadHeightEstimator().estimate(source, map_T_lidar=np.eye(4), lidar_T_camera=camera_extrinsic(), map_up=[0, 0, 1], map_points=np.vstack([source, narrow, upper]))
+    assert not result.accepted
+    assert result.reason == 'ambiguous_map_ground_layers'
+    assert any(not row['fit']['extent_accepted'] for row in result.diagnostics['map_layers'])
+    assert sum(row['plausible'] for row in result.diagnostics['map_layers']) == 2
+
+
+def test_layer_search_cap_cannot_silently_accept_first_plane():
+    from src.localization.hybrid_road_height import HybridRoadHeightConfig
+    source = road_points(0)
+    estimator = HybridRoadHeightEstimator(HybridRoadHeightConfig(max_layers=1))
+    result = estimator.estimate(source, map_T_lidar=np.eye(4), lidar_T_camera=camera_extrinsic(), map_up=[0, 0, 1], map_points=np.vstack([source, source + [0, 0, 2]]))
+    assert not result.accepted
+    assert result.reason == 'unresolved_map_ground_layers'
+    assert result.diagnostics['map_layer_search_truncated'] is True
