@@ -94,12 +94,13 @@ class ReplayGroundOcclusionDiagnostics:
             camera_intrinsic=np.asarray(first.camera_intrinsic).reshape(3, 3),
             source_image_size=(image.shape[1], image.shape[0]), image_size=size)
         record = json.loads((self.args.planes / f"{run_id}.json").read_text())
-        placement_path = self.args.corrected_planes / f"{run_id}.json"
-        placement = PlacementRecorder(load_ground_placement(json.loads(placement_path.read_text())))
+        placement_path = None if self.args.no_ground_placement else self.args.corrected_planes / f"{run_id}.json"
+        placement = None if placement_path is None else PlacementRecorder(load_ground_placement(json.loads(placement_path.read_text())))
         backend = current.PoseOnlyCompositedCameraBackend(self.gaussian(record["map_path"]), camera,
             vehicle_proxies=self.meshes, ground_z=None, ground_plane=placement)
-        temporary = self.args.output / f"{run_id}-grounded-intermediate.mp4"
-        destination = self.args.output / f"{run_id}-grounded.mp4"
+        video_kind = "ungrounded" if placement is None else "grounded"
+        temporary = self.args.output / f"{run_id}-{video_kind}-intermediate.mp4"
+        destination = self.args.output / f"{run_id}-{video_kind}.mp4"
         writer = cv2.VideoWriter(str(temporary), cv2.VideoWriter_fourcc(*"mp4v"), 10., (size[0], size[1] + 42))
         if not writer.isOpened():
             raise RuntimeError("could not open diagnostic video encoder")
@@ -110,15 +111,21 @@ class ReplayGroundOcclusionDiagnostics:
                     frame = spool.get(initial["scene_generation"], int(path.stem))
                     pose = SimpleNamespace(sequence=frame.source_sequence, timestamp_us=frame.timestamp_us,
                         scene_generation=frame.scene_generation, world_T_ego=frame.world_T_ego, world_T_camera=frame.world_T_camera)
-                    placement.records.clear()
+                    if placement is not None:
+                        placement.records.clear()
                     rendered = backend.render_pose(pose, frame.boxes)
-                    local = sum(row["status"] == "local_map_road" for row in placement.records)
+                    records = placement.records if placement is not None else [dict(status="ground_placement_disabled",
+                        input_pose=np.asarray(box.world_T_object).reshape(4, 4).tolist(),
+                        rendered_pose=np.asarray(box.world_T_object).reshape(4, 4).tolist()) for box in frame.boxes]
+                    local = sum(row["status"] == "local_map_road" for row in records)
                     supported += local
-                    total += len(placement.records)
-                    writer.write(self.label(rendered.rgb, f"{run_id} frame {frame.frame_id} | map ground {local}/{len(placement.records)} | unsupported: keep input pose"))
+                    total += len(records)
+                    label = "original detection heights | ground placement disabled" if placement is None else f"map ground {local}/{len(records)} | unsupported: keep input pose"
+                    writer.write(self.label(rendered.rgb, f"{run_id} frame {frame.frame_id} | {label}"))
                     log.write(json.dumps(dict(source_sequence=frame.source_sequence, frame_id=frame.frame_id,
                         input_frame_sha256=frame.sha256, source_metadata=str(path), supported=local,
-                        unsupported=len(placement.records)-local, placements=placement.records)) + "\n")
+                        unsupported=0 if placement is None else len(records)-local,
+                        ground_placement_enabled=placement is not None, placements=records)) + "\n")
                     if index in (0, len(paths)//2, len(paths)-1):
                         self.save(self.args.output / f"{run_id}-video-frame{frame.frame_id}.png", rendered.rgb)
                     if index % 25 == 0:
@@ -129,8 +136,10 @@ class ReplayGroundOcclusionDiagnostics:
                         "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(destination)], check=True)
         temporary.unlink()
         summary = dict(run_id=run_id, frames=len(paths), fps=10, video=str(destination),
-                       supported_placements=supported, unsupported_placements=total-supported,
-                       total_placements=total, source_results=str(self.args.results), ground_placement=str(placement_path),
+                       supported_placements=supported, unsupported_placements=0 if placement is None else total-supported,
+                       ground_placement_disabled_count=total if placement is None else 0,
+                       total_placements=total, source_results=str(self.args.results),
+                       ground_placement=None if placement_path is None else str(placement_path),
                        detector_rerun=False, localization_rerun=False, input_poses_changed=False)
         (self.args.output / f"{run_id}-video-summary.json").write_text(json.dumps(summary, indent=2) + "\n")
         print(json.dumps(summary), flush=True)
@@ -274,8 +283,11 @@ def main():
     parser.add_argument("--before-ground", choices=("plane", "none"), default="plane")
     parser.add_argument("--frame", action="append", help="run_id:replay_sequence")
     parser.add_argument("--video-run", help="Render every cached frame of one sequence; no replay processing")
+    parser.add_argument("--no-ground-placement", action="store_true", help="Keep original detection poses in a cached video")
     parser.add_argument("--width", type=int, default=960)
     args = parser.parse_args()
+    if args.no_ground_placement and not args.video_run:
+        parser.error("--no-ground-placement requires --video-run")
     renderer = ReplayGroundOcclusionDiagnostics(args)
     if args.video_run:
         renderer.render_video(args.video_run)
