@@ -1,8 +1,8 @@
 # Lambda / Alien3 proxy replay queue
 
 The batch launcher runs dataset playback on Lambda and the GSplat compositor on
-Alien3, one run at a time. It always enables procedural vehicle assets and uses
-recorded bounding boxes. No SAM3 or SAM3D workers are started.
+Alien3, one run at a time. It always enables procedural vehicle assets. Bounding boxes default to recorded
+annotations; each run can select `bbox_source: bevfusion` for inference on Lambda. No SAM3 or SAM3D workers are started.
 
 The default preparation covers eight available nuScenes scenes (152, 164, 171,
 200, 209, 359, 529, 916) and CooperScene takes 1–5, agents 1–3: **23 runs / 8,263
@@ -96,3 +96,28 @@ The monitored October 1 batch uses `artifacts/proxy-batch/queue-manifest.json` a
 `artifacts/proxy-batch/xyz-results/state.json`. First-three reports and previews
 are under `artifacts/proxy-batch/monitor/`. The remaining queue runs in tmux session
 `proxy-batch-remaining` with log `artifacts/proxy-batch/remaining.log`.
+
+## Localization comparison queues
+
+`prepare_localization_evaluation.py` builds a separate manifest for each evaluation.
+Set 1 uses the best accepted XYZ fit observed in the prior baseline frame search
+within the first 25% of each recording, with BEVFusion detections. Set 2 uses the
+best accepted XY fit from the exhaustive BEV search in that window, recorded boxes,
+and audited map-space ground planes. Selection uses the comparison reference and
+is therefore a retrospective evaluation, not an online localization policy.
+
+A fit must have error below 0.1 m to select its frame. Otherwise playback starts at
+frame zero with the original inherited transform, explicitly marked as a fallback.
+`mcap_start_sequence` selects the original source offset; `expected_samples` counts
+remaining frames. Output sequence/timestamps are rebased while source provenance is
+retained. `localization_position_mode` selects XYZ or XY summaries; all XYZ errors
+remain logged along the remaining trajectory. `ground_plane` names an audited JSON
+plane on the renderer host. CooperScene BEVFusion uses a nuScenes-trained detector,
+so this is a cross-dataset detector evaluation.
+
+The current evaluation artifacts live under `artifacts/localization-evaluation/`.
+`set1-xyz-bevfusion/manifest.json` runs in tmux `localization-eval-set1`. The durable
+`localization-eval-set2` waiter requires set 1 termination, complete BEV search, and
+an audited/staged plane index covering all 23 runs before preparing and launching
+`set2-bev-grounded/manifest.json`. Logs and exit markers are `set1.log`, `set1.exit`,
+`set2.log`, and `set2.exit`; `first-smoke.json` captures the initial replay check.
