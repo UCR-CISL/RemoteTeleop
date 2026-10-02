@@ -18,7 +18,24 @@ from src.localization.gaussian_map import load_gaussian_map
 from src.localization.ground_plane import GroundPlane
 
 
+def established_riverside_plane(inputs: Path, output: Path) -> dict:
+    """Preserve the documented Riverside ground; do not refit a local grade."""
+    metadata = json.loads((inputs / "cooperscene-1-1" / "metadata.json").read_text())
+    plane = GroundPlane((0., 0., 1.), 2.8, align_up=False)
+    record = dict(run_id="cooperscene-1-1", map_path=metadata["map_path"],
+                  coordinate_frame="native_gsplat_map", purpose="rendering_only",
+                  status="configured_ground_plane", **plane.to_dict(),
+                  source="docs/coordinate_frames.md; docs/enu_gsplat_alignment.md",
+                  method="Established Riverside map Z = -2.8 m, shared across takes and agents.",
+                  warning="Configured rendering convention, not a new plane fit or localization correction.")
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "cooperscene-1-1.json").write_text(json.dumps(record, indent=2) + "\n")
+    return record
+
+
 def fit_scene(inputs: Path, run_id: str, output: Path) -> dict:
+    if run_id.startswith("cooperscene-"):
+        return established_riverside_plane(inputs, output)
     metadata = json.loads((inputs / run_id / "metadata.json").read_text())
     frame = np.load(inputs / run_id / "frame.npz")
     transform = frame["reference_map_T_dataset"]
@@ -101,7 +118,7 @@ def fit_scene(inputs: Path, run_id: str, output: Path) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inputs", type=Path, default=Path("artifacts/first-frame-localization/inputs"))
-    parser.add_argument("--output", type=Path, default=Path("artifacts/bev-replay-ground-planes-final"))
+    parser.add_argument("--output", type=Path, default=Path("artifacts/bev-replay-ground-planes-riverside-restored"))
     args = parser.parse_args()
     rows = []
     for run_id in [f"nuscenes-{scene}" for scene in (152, 164, 171, 200, 209, 359, 529, 916)] + ["cooperscene-1-1"]:

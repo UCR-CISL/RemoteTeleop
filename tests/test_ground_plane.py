@@ -50,9 +50,23 @@ def test_reject_unsupported_or_collinear_fit():
 
 def test_plane_round_trip_and_compositor_dispatch():
     plane = GroundPlane.from_dict({"normal": [0, 0, 2], "offset_m": -6})
-    assert plane.to_dict() == {"normal": [0., 0., 1.], "offset_m": -3.}
+    assert plane.to_dict() == {"normal": [0., 0., 1.], "offset_m": -3., "align_up": True}
     box = BoxPrompt(track_id="car", xyxy=(0, 0, 10, 10), dimensions_lwh=(4, 2, 2), world_T_object=tuple(np.eye(4).ravel()))
     placed = _flat_ground_box_pose(box, ground_z=None, ground_plane=plane)
     assert placed[2, 3] == 4
     with pytest.raises(ValueError, match="ground_z"):
         _flat_ground_box_pose(box, ground_plane=plane)
+
+
+def test_riverside_plane_preserves_legacy_lowest_corner_placement():
+    pose = np.eye(4)
+    pose[:3, :3] = Rotation.from_euler("xyz", [9, -6, 31], degrees=True).as_matrix()
+    pose[:3, 3] = [12, -7, 1.2]
+    box = BoxPrompt(track_id="car", xyxy=(0, 0, 10, 10), dimensions_lwh=(4.6, 1.85, 1.5), world_T_object=tuple(pose.ravel()))
+    plane = GroundPlane.from_dict({"normal": [0, 0, 1], "offset_m": 2.8, "align_up": False})
+    grounded = _flat_ground_box_pose(box, ground_z=None, ground_plane=plane)
+    legacy = _flat_ground_box_pose(box, ground_z=-2.8)
+    np.testing.assert_allclose(grounded, legacy, atol=1e-12)
+    np.testing.assert_array_equal(grounded[:3, :3], pose[:3, :3])
+    np.testing.assert_array_equal(grounded[:2, 3], pose[:2, 3])
+    assert GroundPlane.from_dict(plane.to_dict()).align_up is False

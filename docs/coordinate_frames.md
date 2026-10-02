@@ -28,5 +28,10 @@ authoritative object pose and dimensions come from the tracked metric 3D box.
 For remote rendering, each frame preserves the box's authoritative X/Y pose
 and orientation but shifts it along world Z so its lowest oriented corner lies
 on the configured flat GSplat ground plane. Riverside currently uses
-`z = -2.8 m` (the compositor's `--ground-z` default). The mesh uses the
-identical ground-anchored pose.
+`z = -2.8 m` as an explicit Riverside configuration, not a global compositor
+default. With `--ground-z`, the mesh uses the
+identical ground-anchored pose. An explicit `--ground-plane` normally also aligns
+the vehicle up axis with the plane normal. Riverside sets `align_up: false` in
+its plane JSON to preserve the same orientation and lowest-corner behavior; it does not change localization or
+camera poses. NuScenes requires its own map-frame plane because its map axes
+are not necessarily Z-up.

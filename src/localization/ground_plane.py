@@ -17,8 +17,11 @@ class GroundPlane:
 
     normal: tuple[float, float, float]
     offset_m: float
+    align_up: bool = True
 
     def __post_init__(self) -> None:
+        if not isinstance(self.align_up, bool):
+            raise ValueError("align_up must be a boolean")
         normal = np.asarray(self.normal, dtype=np.float64)
         if normal.shape != (3,) or not np.isfinite(normal).all():
             raise ValueError("ground-plane normal must be a finite 3-vector")
@@ -30,22 +33,29 @@ class GroundPlane:
 
     @classmethod
     def from_dict(cls, value: Mapping) -> "GroundPlane":
-        return cls(tuple(value["normal"]), float(value["offset_m"]))
+        return cls(tuple(value["normal"]), float(value["offset_m"]), value.get("align_up", True))
 
     def to_dict(self) -> dict:
-        return {"normal": list(self.normal), "offset_m": self.offset_m}
+        return {"normal": list(self.normal), "offset_m": self.offset_m, "align_up": self.align_up}
 
     def place_box(self, world_T_object: np.ndarray, dimensions_lwh) -> np.ndarray:
         """Preserve projected heading and put the bbox bottom on the plane.
 
         Assets use centered metric bounding boxes with local X forward, Y left,
         and Z up. Translation changes only along the map-frame plane normal.
+        With ``align_up=False``, retain the entire input orientation and anchor
+        its lowest oriented corner, matching the legacy flat-ground renderer.
         """
         pose = np.asarray(world_T_object, dtype=np.float64).reshape(4, 4).copy()
         dimensions = np.asarray(dimensions_lwh, dtype=np.float64)
         if not np.isfinite(pose).all() or dimensions.shape != (3,) or not np.isfinite(dimensions).all() or np.any(dimensions <= 0):
             raise ValueError("box pose and positive dimensions must be finite")
         normal = np.asarray(self.normal)
+        if not self.align_up:
+            lowest_corner = np.dot(normal, pose[:3, 3]) + self.offset_m - np.sum(
+                np.abs(normal @ pose[:3, :3]) * dimensions / 2)
+            pose[:3, 3] -= normal * lowest_corner
+            return pose
         forward = pose[:3, 0] - normal * np.dot(normal, pose[:3, 0])
         length = np.linalg.norm(forward)
         if length < 1e-8:
