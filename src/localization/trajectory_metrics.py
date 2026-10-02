@@ -10,7 +10,11 @@ import numpy as np
 class TrajectoryMetrics:
     """Persist all samples and summarize XYZ errors without fitting the trajectory."""
 
-    def __init__(self, path: Path, *, reference_kind: str, expected_samples: int | None = None):
+    def __init__(self, path: Path, *, reference_kind: str, expected_samples: int | None = None,
+                 position_mode: str = "xyz"):
+        if position_mode not in {"xyz", "xy"}:
+            raise ValueError("position_mode must be xyz or xy")
+        self.position_mode = position_mode
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.path.exists():
@@ -50,7 +54,7 @@ class TrajectoryMetrics:
 
     def finish(self) -> dict:
         summary = dict(reference_kind=self.reference_kind, frame_count=len(self._rows),
-                       trajectory_evaluated=bool(self._rows), position_mode="xyz",
+                       trajectory_evaluated=bool(self._rows), position_mode=self.position_mode,
                        expected_samples=self.expected_samples,
                        complete=(self.expected_samples is not None and len(self._rows) == self.expected_samples),
                        trajectory_alignment_applied=False,

@@ -386,7 +386,11 @@ class McapFrameReplay:
         monotonic: Any = time.monotonic,
         reader_factory: Any = None,
         agent: str = "1",
+        start_sequence: int = 0,
     ) -> None:
+        if isinstance(start_sequence, bool) or not isinstance(start_sequence, int) or start_sequence < 0:
+            raise ValueError("start_sequence must be a non-negative integer")
+        self.start_sequence = start_sequence
         if rate <= 0:
             raise ValueError("MCAP replay rate must be positive")
         if not image_topic.startswith("/") or not metadata_topic.startswith("/"):
@@ -421,6 +425,8 @@ class McapFrameReplay:
             ):
                 self._replay_foxglove(path)
                 return
+            if self.start_sequence:
+                raise ValueError("nonzero start_sequence requires a Foxglove MCAP")
             for schema, channel, message in reader.iter_messages(
                 topics=tuple(topic for topic in (self.image_topic, self.metadata_topic, self.lidar_topic) if topic), log_time_order=False
             ):
@@ -481,15 +487,25 @@ class McapFrameReplay:
         )
         started = self.monotonic()
         first_timestamp = None
+        first_metadata_timestamp_us = None
         count = 0
         for frame in frames:
+            if frame.sequence < self.start_sequence:
+                continue
             if first_timestamp is None:
                 first_timestamp = frame.timestamp_ns
+                first_metadata_timestamp_us = int(frame.metadata["timestamp_us"])
+                started = self.monotonic()
             target = started + (frame.timestamp_ns - first_timestamp) / 1e9 / self.rate
             remaining = target - self.monotonic()
             if remaining > 0:
                 self.sleep(remaining)
-            timestamp_ns = int(frame.metadata["timestamp_us"]) * 1000
+            metadata = dict(frame.metadata)
+            metadata["recorded_source_sequence"] = frame.sequence
+            metadata["recorded_timestamp_us"] = metadata["timestamp_us"]
+            metadata["source_sequence"] = count
+            metadata["timestamp_us"] = int(metadata["timestamp_us"]) - first_metadata_timestamp_us
+            timestamp_ns = metadata["timestamp_us"] * 1000
             header = SimpleNamespace(
                 stamp=SimpleNamespace(sec=timestamp_ns // 10**9, nanosec=timestamp_ns % 10**9),
                 frame_id=str(frame.metadata["frame_id"]),
@@ -501,7 +517,7 @@ class McapFrameReplay:
                 self.adapter.bevfusion.receive_image(image)
                 if frame.lidar_points is not None:
                     self.adapter.bevfusion.receive_lidar(_McapPointCloud(header, frame.lidar_points))
-            self.adapter.receive_metadata(frame.metadata)
+            self.adapter.receive_metadata(metadata)
             count += 1
         if self.expected_samples is not None and count != self.expected_samples:
             raise RuntimeError(f"expected {self.expected_samples} MCAP frames, got {count}")
@@ -861,6 +877,9 @@ class RosFrameAdapter:
                 "frame_id": pose.frame_id,
                 "scene_generation": pose.scene_generation,
                 "source_timestamp_us": pose.timestamp_us,
+                "recorded_source_sequence": payload.get("recorded_source_sequence"),
+                "recorded_timestamp_us": payload.get("recorded_timestamp_us"),
+                "source_timestamp_ns": payload.get("source_timestamp_ns"),
                 "object_detection_count": len(detections.boxes),
                 "transport_contract": "durable_frame_snapshot",
                 "snapshot_durably_spooled": self.snapshot_sink is not None,
@@ -1182,6 +1201,7 @@ def main() -> None:
     parser.add_argument("--mcap", type=Path)
     parser.add_argument("--mcap-rate", type=float, default=1.0)
     parser.add_argument("--mcap-agent", default="1", help="Camera/LiDAR agent in Foxglove MCAPs")
+    parser.add_argument("--mcap-start-sequence", type=int, default=0)
     parser.add_argument("--localization-transform", type=Path)
     parser.add_argument("--stored-localization-transform", type=Path)
     parser.add_argument("--bbox-source", choices=("gt", "bevfusion"), default="gt")
@@ -1196,6 +1216,7 @@ def main() -> None:
     parser.add_argument("--localization-reference-transform", type=Path)
     parser.add_argument("--localization-reference-kind", choices=("shared_enu_prior", "recorded_pose_alignment_baseline"))
     parser.add_argument("--localization-metrics-path", type=Path)
+    parser.add_argument("--localization-position-mode", choices=("xyz", "xy"), default="xyz")
 
     parser.add_argument("--spool-root", type=Path, default=Path("artifacts/vehicle_frame_spool"))
     parser.add_argument("--assets-endpoint")
@@ -1211,6 +1232,8 @@ def main() -> None:
         parser.error("--high-water-mark must be positive")
     if args.mcap_rate <= 0:
         parser.error("--mcap-rate must be positive")
+    if args.mcap_start_sequence < 0 or (args.mcap_start_sequence and args.mcap is None):
+        parser.error("--mcap-start-sequence requires MCAP playback and must be non-negative")
     if args.mcap is not None and not args.mcap.is_file():
         parser.error(f"--mcap does not exist: {args.mcap}")
     if args.localization_transform is not None and not args.localization_transform.is_file():
@@ -1284,7 +1307,8 @@ def main() -> None:
         if localization_reference is None:
             parser.error("reference transform must contain reference_T_dataset or a dataset alignment")
         localization_metrics = TrajectoryMetrics(args.localization_metrics_path,
-            reference_kind=args.localization_reference_kind, expected_samples=args.expected_samples)
+            reference_kind=args.localization_reference_kind, expected_samples=args.expected_samples,
+            position_mode=args.localization_position_mode)
     adapter = RosFrameAdapter(
         _LocalPosePublisher(),
         RosFrameAdapterConfig(
@@ -1346,6 +1370,7 @@ def main() -> None:
                 expected_samples=args.expected_samples,
                 rate=args.mcap_rate,
                 agent=args.mcap_agent,
+                start_sequence=args.mcap_start_sequence,
             ).replay(args.mcap)
         while rclpy is None or rclpy.ok():
             if rclpy is not None:

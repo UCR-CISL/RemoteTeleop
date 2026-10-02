@@ -64,3 +64,18 @@ def test_camera_oriented_map_uses_dataset_vertical_axis(tmp_path):
     assert row['dz_m'] == 2
     assert row['horizontal_translation_m'] == 0
     assert row['error_axes'] == 'dataset'
+
+
+def test_bev_metrics_still_log_xyz_and_height(tmp_path):
+    metrics = TrajectoryMetrics(tmp_path / 'bev.jsonl', reference_kind='shared_enu_prior',
+                                expected_samples=1, position_mode='xy')
+    pose = np.eye(4)
+    pose[:3, 3] = [3, 4, 12]
+    metrics.record(sequence=0, timestamp_us=0, frame_id='selected',
+                   estimated_pose=pose, reference_pose=np.eye(4))
+    summary = metrics.finish()
+    assert summary['position_mode'] == 'xy'
+    assert summary['complete']
+    assert summary['translation_m']['rmse'] == 13
+    assert summary['horizontal_translation_m']['rmse'] == 5
+    assert summary['vertical_translation_m']['rmse'] == 12
