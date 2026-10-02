@@ -106,6 +106,15 @@ best accepted XY fit from the exhaustive BEV search in that window, recorded box
 and audited map-space ground planes. Selection uses the comparison reference and
 is therefore a retrospective evaluation, not an online localization policy.
 
+The current comparison uses **BEVFusion detections for both localization modes**.
+XYZ has no ground placement; its original set 1 manifest already follows this
+policy. The earlier grounded XYZ scene-152 diagnostic is not the selected policy.
+Set 3 (`set3-bev-bevfusion-grounded/manifest.json`) replaces recorded boxes in
+the BEV evaluation with actual BEVFusion inference, retaining the same selected
+frames and localization transforms. It uses bounded local road support for
+nuScenes and the fixed Riverside Z = -2.8 m plane for CooperScene. The shared
+vehicle depth buffer applies independently of ground placement.
+
 A fit must have error below 0.1 m to select its frame. Otherwise playback starts at
 frame zero with the original inherited transform, explicitly marked as a fallback.
 `mcap_start_sequence` selects the original source offset; `expected_samples` counts
@@ -121,3 +130,5 @@ The current evaluation artifacts live under `artifacts/localization-evaluation/`
 an audited/staged plane index covering all 23 runs before preparing and launching
 `set2-bev-grounded/manifest.json`. Logs and exit markers are `set1.log`, `set1.exit`,
 `set2.log`, and `set2.exit`; `first-smoke.json` captures the initial replay check.
+The corrected BEVFusion BEV queue runs in tmux `localization-eval-set3`, with
+`set3.log` and `set3.exit`. Previous evaluation outputs remain separate.
