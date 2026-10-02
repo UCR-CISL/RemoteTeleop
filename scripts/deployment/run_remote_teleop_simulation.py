@@ -68,6 +68,9 @@ class LaunchOptions:
     camera_cx: float = 816.26701974
     camera_cy: float = 491.50706579
     camera_source_size: tuple[int, int] = (1600, 900)
+    mcap_start_sequence: int = 0
+    localization_position_mode: str = "xyz"
+    ground_plane: PurePosixPath | None = None
     bbox_source: str = "gt"
     bevfusion_image: str = "remote-teleop-bevfusion:latest"
     bevfusion_gpu: int = 0
@@ -84,6 +87,10 @@ class LaunchOptions:
             raise ValueError("localization reference transform and kind must be supplied together")
         if self.localization_reference_kind not in (None, "shared_enu_prior", "recorded_pose_alignment_baseline"):
             raise ValueError("unknown localization reference kind")
+        if isinstance(self.mcap_start_sequence, bool) or not isinstance(self.mcap_start_sequence, int) or self.mcap_start_sequence < 0:
+            raise ValueError("mcap_start_sequence must be a non-negative integer")
+        if self.localization_position_mode not in ("xyz", "xy"):
+            raise ValueError("localization_position_mode must be xyz or xy")
         if self.expected_samples <= 0:
             raise ValueError("expected_samples must be positive")
         if self.settle_seconds < 0 or self.timeout_seconds <= 0 or self.poll_seconds <= 0:
@@ -108,8 +115,8 @@ class LaunchOptions:
             raise ValueError("camera_source_size dimensions must be positive")
         if self.bbox_source not in ("gt", "bevfusion"):
             raise ValueError("bbox_source must be 'gt' or 'bevfusion'")
-        if self.bbox_source == "bevfusion" and self.source_mode != "nuscenes_mcap":
-            raise ValueError("BEVFusion bbox source requires source_mode='nuscenes_mcap'")
+        if self.bbox_source == "bevfusion" and self.source_mode not in ("mcap", "nuscenes_mcap"):
+            raise ValueError("BEVFusion bbox source requires MCAP replay")
         if not self.bevfusion_image:
             raise ValueError("bevfusion_image must be non-empty")
         if isinstance(self.bevfusion_gpu, bool) or not isinstance(self.bevfusion_gpu, int) or self.bevfusion_gpu < 0:
@@ -428,7 +435,8 @@ class RemoteTeleopSimulationLauncher:
         return ["--assets-endpoint", self.vehicle.asset_endpoint_uri]
 
     def _remote_compositor_arguments(self) -> list[str]:
-        return []
+        return (["--ground-plane", str(self.remote.repo_path / self.options.ground_plane)]
+                if self.options.ground_plane is not None else [])
 
     def _vehicle_adapter_script(self) -> str:
         root = self._vehicle_output_root()

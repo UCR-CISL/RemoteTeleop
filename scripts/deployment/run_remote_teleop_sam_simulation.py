@@ -152,7 +152,7 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
         return [] if self.sam.asset_proxy else super()._remote_asset_arguments()
 
     def _remote_compositor_arguments(self) -> list[str]:
-        return ["--asset-proxy"] if self.sam.asset_proxy else []
+        return super()._remote_compositor_arguments() + (["--asset-proxy"] if self.sam.asset_proxy else [])
 
     def _play_mcap(self) -> None:
         """Replay the recorded image and detection streams once, in source order.
@@ -214,12 +214,14 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
             "--mcap", str(self.vehicle.repo_path / self.options.mcap_path),
             "--mcap-rate", "1.0",
             "--mcap-agent", self.sam.mcap_agent,
+            "--mcap-start-sequence", str(self.options.mcap_start_sequence),
         ]
         if self.options.localization_reference_transform is not None:
             command.extend((
                 "--localization-reference-transform",
                 str(self.vehicle.repo_path / self.options.localization_reference_transform),
                 "--localization-reference-kind", self.options.localization_reference_kind,
+                "--localization-position-mode", self.options.localization_position_mode,
                 "--localization-metrics-path", str(root / "localization-trajectory.jsonl"),
             ))
         if self._uses_bevfusion:
@@ -456,8 +458,8 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
         summary = json.loads(summary_path.read_text())
         if len(records) != self.options.expected_samples or summary.get("frame_count") != self.options.expected_samples:
             raise LaunchError("localization metric count does not cover the full trajectory")
-        if not summary.get("trajectory_evaluated") or summary.get("position_mode") != "xyz":
-            raise LaunchError("localization summary does not report full XYZ trajectory evaluation")
+        if not summary.get("trajectory_evaluated") or summary.get("position_mode") != self.options.localization_position_mode:
+            raise LaunchError("localization summary does not report the requested full trajectory evaluation")
         for index, record in enumerate(records):
             if record.get("sequence") != index or record.get("timestamp_us") != index * 100_000:
                 raise LaunchError(f"localization trajectory metric gap at sequence {index}")
@@ -510,6 +512,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("cfg/alien4_alien3.yaml"))
     parser.add_argument("--mcap-agent", default="1")
+    parser.add_argument("--mcap-start-sequence", type=int, default=0)
+    parser.add_argument("--localization-position-mode", choices=("xyz", "xy"), default="xyz")
+    parser.add_argument("--ground-plane", type=_path)
     parser.add_argument("--ros-sidecar", default="remote_teleop_ros_mcap")
     parser.add_argument("--remote-python", default=".venv/bin/python")
     parser.add_argument("--vehicle-python", default=".venv/bin/python")
@@ -564,6 +569,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             poll_seconds=args.poll_seconds, scene_generation=args.scene_generation,
             health_port=args.health_port,
             source_mode=args.source_mode,
+            mcap_start_sequence=args.mcap_start_sequence,
+            localization_position_mode=args.localization_position_mode,
+            ground_plane=args.ground_plane,
             localization_reference_transform=args.localization_reference_transform,
             localization_reference_kind=args.localization_reference_kind,
             nuscenes_localization_transform=args.nuscenes_localization_transform,

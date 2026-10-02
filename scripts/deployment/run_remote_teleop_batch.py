@@ -68,7 +68,7 @@ for reference in spec['references']:
             options.nuscenes_localization_transform, options.cooperscene_localization_transform,
             options.cooperscene_stored_localization_transform, options.localization_reference_transform,
         ) if value is not None]
-        spec = dict(mcap=str(vehicle.repo_path / options.mcap_path), expected=options.expected_samples,
+        spec = dict(mcap=str(vehicle.repo_path / options.mcap_path), expected=options.expected_samples + options.mcap_start_sequence,
                     agents=["1", "2", "3"] if options.source_mode == "mcap" else [sam.mcap_agent],
                     references=references)
         python = shlex.split(sam.vehicle_python)
@@ -78,6 +78,8 @@ for reference in spec['references']:
             python[0] = str(vehicle.repo_path / python[0])
         probes = [(vehicle, shlex.join([*python, "-c", self.MCAP_PROBE, json.dumps(spec)])),
                   (remote, "test -s " + shlex.quote(str(remote.repo_path / options.splat_path)))]
+        if options.ground_plane is not None:
+            probes.append((remote, "test -s " + shlex.quote(str(remote.repo_path / options.ground_plane))))
         for host, probe in probes:
             command = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
                        "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2",
@@ -155,13 +157,11 @@ class ReplayBatch:
         values.setdefault("scene_generation", f"nuscenes:{scene}" if dataset == "nuscenes" else f"cooperscene:train:{scene}:{agent}")
         if "expected_samples" not in values:
             raise ValueError(f"{run_id}: expected_samples is required")
-        if values.get("bbox_source", "gt") != "gt":
-            raise ValueError("batch replay uses recorded boxes (bbox_source=gt)")
         allowed = {field.name for field in fields(LaunchOptions)}
         unknown = set(values) - allowed
         if unknown:
             raise ValueError(f"{run_id}: unknown options: {sorted(unknown)}")
-        for name in ("localization_reference_transform", "nuscenes_scene_root", "nuscenes_localization_transform", "cooperscene_localization_transform", "cooperscene_stored_localization_transform", "bevfusion_runtime_dir", "bevfusion_checkpoint", "bevfusion_config"):
+        for name in ("ground_plane", "localization_reference_transform", "nuscenes_scene_root", "nuscenes_localization_transform", "cooperscene_localization_transform", "cooperscene_stored_localization_transform", "bevfusion_runtime_dir", "bevfusion_checkpoint", "bevfusion_config"):
             if values.get(name) is not None:
                 values[name] = PurePosixPath(values[name])
         if "camera_source_size" in values:

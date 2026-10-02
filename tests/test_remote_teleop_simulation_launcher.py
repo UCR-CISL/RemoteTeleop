@@ -353,9 +353,8 @@ def test_bevfusion_nuscenes_mcap_starts_a_narrowly_mounted_service_before_adapte
     assert "docker rm -f remote-teleop-bevfusion-alien4" in commands[10][-1]
 
 
-def test_bevfusion_bbox_source_requires_nuscenes_mcap(tmp_path):
-    with pytest.raises(ValueError, match="requires source_mode"):
-        _options(tmp_path, bbox_source="bevfusion")
+def test_bevfusion_bbox_source_accepts_cooperscene_mcap(tmp_path):
+    assert _options(tmp_path, bbox_source="bevfusion").source_mode == "mcap"
 
 
 def test_non_dry_run_refuses_an_existing_local_artifact_destination(tmp_path):

@@ -34,7 +34,7 @@ class BatchCodeStager:
             interpreter = str(original.repo_path / ".venv/bin/python")
             ssh = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", host]
             yield ssh + ["mkdir -p " + shlex.quote(root)]
-            sources = [str(self.source / name) for name in ("src", "scripts", "cfg", "config", "pyproject.toml", "uv.lock")]
+            sources = [str(self.source / name) for name in ("src", "scripts", "cfg", "config", "docker", "pyproject.toml", "uv.lock")]
             yield ["rsync", "-az", "--partial", "--protect-args", "--exclude=__pycache__", "-e", "ssh -o BatchMode=yes -o ConnectTimeout=15", *sources, f"{host}:{root}/"]
             # Keep the existing CUDA environment; only the Foxglove decoder's
             # lightweight dependency lives in an isolated supplemental directory.
