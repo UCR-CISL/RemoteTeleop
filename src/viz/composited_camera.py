@@ -225,6 +225,7 @@ class PoseOnlyCompositedCameraBackend:
         if background.rgb.shape[:2] != self.camera.image_size[::-1]:
             raise ValueError("Gaussian renderer returned an unexpected image size")
         rgb = np.clip(background.rgb.copy(), 0.0, 1.0)
+        object_depth = np.full(background.depth.shape, np.inf, dtype=np.float32)
         track_states: dict[str, str] = {}
         for box in boxes:
             kind = vehicle_proxy_kind(box.text_label)
@@ -235,7 +236,7 @@ class PoseOnlyCompositedCameraBackend:
                     world_T_camera, self.camera.camera_intrinsic, self.camera.image_size,
                 )
                 rgb = _composite_mesh(
-                    rgb, background.depth, background.alpha, overlay,
+                    rgb, background.depth, background.alpha, overlay, object_depth=object_depth,
                     alpha_threshold=self._alpha_threshold,
                     depth_tolerance_m=self._depth_tolerance_m,
                 )
@@ -262,7 +263,7 @@ class PoseOnlyCompositedCameraBackend:
                         self.camera.image_size,
                     )
                     rgb = _composite_mesh(
-                        rgb, background.depth, background.alpha, overlay,
+                        rgb, background.depth, background.alpha, overlay, object_depth=object_depth,
                         alpha_threshold=self._alpha_threshold,
                         depth_tolerance_m=self._depth_tolerance_m,
                     )
@@ -681,6 +682,7 @@ class CompositedCameraBackend:
             world_T_camera, intrinsic, image_size
         )
         rgb = np.clip(background.rgb.copy(), 0.0, 1.0)
+        object_depth = np.full(background.depth.shape, np.inf, dtype=np.float32)
         actual_size = (rgb.shape[1], rgb.shape[0])
         if actual_size != image_size:
             scale_x = actual_size[0] / image_size[0]
@@ -704,7 +706,7 @@ class CompositedCameraBackend:
                         image_size,
                     )
                     rgb = _composite_mesh(
-                        rgb, background.depth, background.alpha, overlay,
+                        rgb, background.depth, background.alpha, overlay, object_depth=object_depth,
                         alpha_threshold=self._alpha_threshold,
                         depth_tolerance_m=self._depth_tolerance_m,
                     )
@@ -837,6 +839,7 @@ def _draw_depth_tested_edge(
 def _composite_mesh(
     background_rgb, scene_depth, scene_alpha, mesh: MeshRenderBuffers, *,
     alpha_threshold: float, depth_tolerance_m: float,
+    object_depth: np.ndarray | None = None,
 ) -> np.ndarray:
     if mesh.rgb.shape != background_rgb.shape:
         raise ValueError("mesh and Gaussian RGB sizes differ")
@@ -847,6 +850,11 @@ def _composite_mesh(
         (mesh.alpha > 0.0) & np.isfinite(mesh.depth) & (mesh.depth > 0.0)
         & (~gaussian_valid | (mesh.depth <= scene_depth + depth_tolerance_m))
     )
+    if object_depth is not None:
+        # Gaussian tolerance compensates for noisy splat depths; applying it to
+        # vehicles would allow a farther surface to overwrite a nearer one.
+        mesh_valid &= mesh.depth < object_depth
+        object_depth[mesh_valid] = mesh.depth[mesh_valid]
     alpha = np.where(mesh_valid, np.clip(mesh.alpha, 0.0, 1.0), 0.0)[..., None]
     return mesh.rgb * alpha + background_rgb * (1.0 - alpha)
 

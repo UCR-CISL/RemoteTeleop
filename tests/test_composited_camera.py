@@ -475,3 +475,48 @@ def test_vehicle_proxy_errors_are_explicit():
     renderer.fail_render = True
     with pytest.raises(RuntimeError, match="render failed"):
         backend.render_pose(_pose(), (replace(_box(), text_label="car"),))
+
+
+@pytest.mark.parametrize('backend_kind', ['frame', 'pose', 'vehicle_proxy'])
+@pytest.mark.parametrize('reverse', [False, True])
+def test_overlapping_meshes_share_per_pixel_depth_in_either_track_order(tmp_path, backend_kind, reverse):
+    """Intersecting depth fields defeat whole-object sorting; 1cm defeats tolerance reuse."""
+    from dataclasses import replace
+
+    class OverlapRenderer(FakeMeshRenderer):
+        def render(self, handle, pose, camera, intrinsic, image_size):
+            width, height = image_size
+            red = pose[0, 3] < 0
+            rgb = np.empty((height, width, 3), dtype=np.float32)
+            rgb[:] = [1, 0, 0] if red else [0, 0, 1]
+            depth = np.full((height, width), 4.01 if red else 4.0, dtype=np.float32)
+            depth[:, :width // 2] = 4.0 if red else 4.01
+            return MeshRenderBuffers(rgb, depth, np.ones_like(depth))
+
+    renderer = OverlapRenderer()
+    gaussian = FakeGaussianRenderer(depth=10)
+    if backend_kind == 'frame':
+        backend = CompositedCameraBackend(gaussian, renderer)
+    else:
+        backend = PoseOnlyCompositedCameraBackend(
+            gaussian, RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)), renderer,
+            ground_z=None, vehicle_proxies=FakeVehicleProxies(renderer) if backend_kind == 'vehicle_proxy' else None,
+        )
+    boxes = []
+    for track, x in [('red', -1), ('blue', 1)]:
+        pose = np.eye(4)
+        pose[:3, 3] = [x, 0, 4]
+        boxes.append(replace(_box(track), world_T_object=tuple(pose.reshape(-1)), text_label='car'))
+        if backend_kind != 'vehicle_proxy':
+            path = tmp_path / f'{track}.glb'
+            path.write_bytes(b'glTF')
+            backend.handle_asset_event(AssetEvent(request_id=track, scene_generation='scene-1', track_id=track,
+                                                state=AssetState.READY, aligned_mesh_path=path, source_sequence=0))
+    if reverse:
+        boxes.reverse()
+    result = backend.render_frame(_frame(boxes=boxes)) if backend_kind == 'frame' else backend.render_pose(_pose(sequence=1), tuple(boxes))
+    np.testing.assert_array_equal(result.rgb[:, :16], np.broadcast_to([1, 0, 0], (24, 16, 3)))
+    np.testing.assert_array_equal(result.rgb[:, 16:], np.broadcast_to([0, 0, 1], (24, 16, 3)))
+    # A later frame starts with a fresh object depth buffer.
+    empty = backend.render_frame(_frame(boxes=())) if backend_kind == 'frame' else backend.render_pose(_pose(sequence=2), ())
+    assert not np.any(empty.rgb)
