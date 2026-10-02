@@ -33,5 +33,12 @@ default. With `--ground-z`, the mesh uses the
 identical ground-anchored pose. An explicit `--ground-plane` normally also aligns
 the vehicle up axis with the plane normal. Riverside sets `align_up: false` in
 its plane JSON to preserve the same orientation and lowest-corner behavior; it does not change localization or
-camera poses. NuScenes requires its own map-frame plane because its map axes
-are not necessarily Z-up.
+camera poses. NuScenes requires its own map-frame ground support because its
+map axes are not necessarily Z-up.
+
+The compositor also accepts `type: road_surface` through `--ground-plane`.
+Map-derived road samples are queried near each vehicle, with bounded local
+plane fits. Unsupported locations preserve the incoming object pose instead
+of extrapolating the initial scene plane. Per-track `ground_placements` metrics
+record which rule was used. These adjustments affect rendering only; camera
+poses and localization error measurements retain their original values.
