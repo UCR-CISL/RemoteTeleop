@@ -69,7 +69,7 @@ class GroundPlane:
         describe fit quality, not semantic correctness or independent accuracy.
         """
         points = np.asarray(points, dtype=np.float64)
-        up = np.asarray(up_hint, dtype=np.float64)
+        up = np.array(up_hint, dtype=np.float64, copy=True)
         if points.ndim != 2 or points.shape[1] != 3 or not np.isfinite(points).all():
             raise ValueError("ground candidates must be finite Nx3 points")
         if up.shape != (3,) or not np.isfinite(up).all() or np.linalg.norm(up) < 1e-12:
