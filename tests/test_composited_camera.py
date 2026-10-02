@@ -520,3 +520,20 @@ def test_overlapping_meshes_share_per_pixel_depth_in_either_track_order(tmp_path
     # A later frame starts with a fresh object depth buffer.
     empty = backend.render_frame(_frame(boxes=())) if backend_kind == 'frame' else backend.render_pose(_pose(sequence=2), ())
     assert not np.any(empty.rgb)
+
+
+def test_far_wireframe_edge_cannot_overwrite_nearer_mesh():
+    from src.viz.composited_camera import _draw_depth_tested_edge
+
+    rgb = np.zeros((8, 8, 3), dtype=np.float32)
+    rgb[:] = [1, 0, 0]
+    object_depth = np.full((8, 8), 4.0)
+    _draw_depth_tested_edge(rgb, np.full((8, 8), 10), np.ones((8, 8)),
+                           np.array([1, 4]), np.array([6, 4]), 4.01, 4.01,
+                           np.array([0, 1, 0]), 1, .01, .03, shared_depth=object_depth)
+    np.testing.assert_array_equal(rgb, np.broadcast_to([1, 0, 0], rgb.shape))
+    _draw_depth_tested_edge(rgb, np.full((8, 8), 10), np.ones((8, 8)),
+                           np.array([1, 4]), np.array([6, 4]), 3.0, 3.0,
+                           np.array([0, 1, 0]), 1, .01, .03, shared_depth=object_depth)
+    np.testing.assert_array_equal(rgb[4, 1:7], np.broadcast_to([0, 1, 0], (6, 3)))
+    np.testing.assert_allclose(object_depth[4, 1:7], np.full(6, 3.0))

@@ -287,7 +287,7 @@ class PoseOnlyCompositedCameraBackend:
                 self._alpha_threshold,
                 self._depth_tolerance_m,
                 ground_z=self._ground_z,
-                ground_plane=self._ground_plane,
+                ground_plane=self._ground_plane, object_depth=object_depth,
             )
             track_states[box.track_id] = "proxy"
         return PoseOnlyCompositedFrame(
@@ -726,7 +726,7 @@ class CompositedCameraBackend:
                 self._proxy_thickness,
                 self._alpha_threshold,
                 self._depth_tolerance_m,
-                ground_z=self._ground_z,
+                ground_z=self._ground_z, object_depth=object_depth,
             )
         return CompositedCameraFrame(frame.frame_id, frame.timestamp_us, rgb, states)
 
@@ -754,6 +754,7 @@ def _draw_box_proxy(
     *,
     ground_z: float | None = 0.0,
     ground_plane: GroundPlane | None = None,
+    object_depth: np.ndarray | None = None,
 ) -> None:
     local = _box_local_corners(box.dimensions_lwh)
     world_T_object = _flat_ground_box_pose(box, ground_z=ground_z, ground_plane=ground_plane)
@@ -768,7 +769,7 @@ def _draw_box_proxy(
         _draw_depth_tested_edge(
             rgb, scene_depth, scene_alpha, pixels[start], pixels[end],
             camera[start, 2], camera[end, 2], color, thickness,
-            alpha_threshold, depth_tolerance_m,
+            alpha_threshold, depth_tolerance_m, shared_depth=object_depth,
         )
 
 
@@ -808,7 +809,7 @@ _BOX_EDGES = (
 
 def _draw_depth_tested_edge(
     rgb, scene_depth, scene_alpha, start, end, start_depth, end_depth,
-    color, thickness, alpha_threshold, depth_tolerance_m,
+    color, thickness, alpha_threshold, depth_tolerance_m, *, shared_depth=None,
 ) -> None:
     length = int(np.ceil(np.max(np.abs(end - start)))) + 1
     if length <= 1:
@@ -833,6 +834,9 @@ def _draw_depth_tested_edge(
                 & (scene_alpha[y, x] > alpha_threshold)
             )
             visible = ~gaussian_valid | (object_depth <= scene_depth[y, x] + depth_tolerance_m)
+            if shared_depth is not None:
+                visible &= object_depth < shared_depth[y, x]
+                np.minimum.at(shared_depth, (y[visible], x[visible]), object_depth[visible])
             rgb[y[visible], x[visible]] = color
 
 
