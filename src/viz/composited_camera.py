@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from src.common.vehicle_categories import vehicle_proxy_kind
 from src.localization.gaussian_map import GaussianMap
+from src.localization.ground_plane import GroundPlane
 from src.realtime.protocol import AssetEvent, AssetState, BoxPrompt, EgoPoseSample, FrameDetections
 from src.viz.localization_visualizer import (
     GaussianRenderBuffers,
@@ -131,6 +132,7 @@ class PoseOnlyCompositedCameraBackend:
         depth_tolerance_m: float = 0.03,
         ground_z: float | None = 0.0,
         vehicle_proxies: "VehicleProxyRenderer | None" = None,
+        ground_plane: GroundPlane | None = None,
     ) -> None:
         if proxy_thickness <= 0:
             raise ValueError("proxy_thickness must be positive")
@@ -141,6 +143,9 @@ class PoseOnlyCompositedCameraBackend:
         self._proxy_thickness = proxy_thickness
         self._alpha_threshold = float(alpha_threshold)
         self._depth_tolerance_m = float(depth_tolerance_m)
+        if ground_plane is not None and ground_z is not None:
+            raise ValueError("ground_plane requires ground_z=None")
+        self._ground_plane = ground_plane
         self._ground_z = None if ground_z is None else float(ground_z)
         self._scene_generation: str | None = None
         self._retired_generations: set[str] = set()
@@ -226,7 +231,7 @@ class PoseOnlyCompositedCameraBackend:
             if self._vehicle_proxies is not None and kind is not None:
                 overlay = self._vehicle_proxies.render(
                     kind, box.dimensions_lwh,
-                    _flat_ground_box_pose(box, ground_z=self._ground_z),
+                    _flat_ground_box_pose(box, ground_z=self._ground_z, ground_plane=self._ground_plane),
                     world_T_camera, self.camera.camera_intrinsic, self.camera.image_size,
                 )
                 rgb = _composite_mesh(
@@ -251,7 +256,7 @@ class PoseOnlyCompositedCameraBackend:
                 try:
                     overlay = self._mesh_renderer.render(
                         asset.handle,
-                        _flat_ground_box_pose(box, ground_z=self._ground_z),
+                        _flat_ground_box_pose(box, ground_z=self._ground_z, ground_plane=self._ground_plane),
                         world_T_camera,
                         self.camera.camera_intrinsic,
                         self.camera.image_size,
@@ -281,6 +286,7 @@ class PoseOnlyCompositedCameraBackend:
                 self._alpha_threshold,
                 self._depth_tolerance_m,
                 ground_z=self._ground_z,
+                ground_plane=self._ground_plane,
             )
             track_states[box.track_id] = "proxy"
         return PoseOnlyCompositedFrame(
@@ -745,9 +751,10 @@ def _draw_box_proxy(
     depth_tolerance_m: float,
     *,
     ground_z: float | None = 0.0,
+    ground_plane: GroundPlane | None = None,
 ) -> None:
     local = _box_local_corners(box.dimensions_lwh)
-    world_T_object = _flat_ground_box_pose(box, ground_z=ground_z)
+    world_T_object = _flat_ground_box_pose(box, ground_z=ground_z, ground_plane=ground_plane)
     world = local @ world_T_object[:3, :3].T + world_T_object[:3, 3]
     camera_T_world = np.linalg.inv(world_T_camera)
     camera = world @ camera_T_world[:3, :3].T + camera_T_world[:3, 3]
@@ -764,11 +771,16 @@ def _draw_box_proxy(
 
 
 def _flat_ground_box_pose(
-    box: BoxPrompt, *, ground_z: float | None = 0.0
+    box: BoxPrompt, *, ground_z: float | None = 0.0,
+    ground_plane: GroundPlane | None = None,
 ) -> np.ndarray:
     """Anchor an oriented GT box to the flat GSplat ground without changing x/y."""
 
     world_T_object = _matrix4(box.world_T_object).copy()
+    if ground_plane is not None:
+        if ground_z is not None:
+            raise ValueError("ground_plane requires ground_z=None")
+        return ground_plane.place_box(world_T_object, box.dimensions_lwh)
     if ground_z is None:
         return world_T_object
     local = _box_local_corners(box.dimensions_lwh)
