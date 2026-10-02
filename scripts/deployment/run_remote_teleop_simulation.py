@@ -60,6 +60,8 @@ class LaunchOptions:
     nuscenes_localization_transform: PurePosixPath | None = None
     cooperscene_localization_transform: PurePosixPath | None = None
     cooperscene_stored_localization_transform: PurePosixPath | None = None
+    localization_reference_transform: PurePosixPath | None = None
+    localization_reference_kind: str | None = None
     vehicle_python: str = ".venv/bin/python"
     camera_fx: float = 1266.41720305
     camera_fy: float = 1266.41720305
@@ -78,6 +80,10 @@ class LaunchOptions:
     bevfusion_score_threshold: float = 0.2
 
     def __post_init__(self) -> None:
+        if (self.localization_reference_transform is None) != (self.localization_reference_kind is None):
+            raise ValueError("localization reference transform and kind must be supplied together")
+        if self.localization_reference_kind not in (None, "shared_enu_prior", "recorded_pose_alignment_baseline"):
+            raise ValueError("unknown localization reference kind")
         if self.expected_samples <= 0:
             raise ValueError("expected_samples must be positive")
         if self.settle_seconds < 0 or self.timeout_seconds <= 0 or self.poll_seconds <= 0:
@@ -395,7 +401,7 @@ class RemoteTeleopSimulationLauncher:
         if self.options.source_mode == "mcap":
             command.extend([
                 *self._remote_asset_arguments(),
-                "--agent", "1", "--render-width", "480", "--render-height", "300",
+                "--agent", self._mcap_agent(), "--render-width", "480", "--render-height", "300",
             ])
         else:
             source_width, source_height = self.options.camera_source_size
@@ -414,6 +420,9 @@ class RemoteTeleopSimulationLauncher:
             ])
         command.extend(self._remote_compositor_arguments())
         return self._background_script(self.remote.repo_path, command, root / "logs" / "compositor.log", root / "compositor.pid")
+
+    def _mcap_agent(self) -> str:
+        return "1"
 
     def _remote_asset_arguments(self) -> list[str]:
         return ["--assets-endpoint", self.vehicle.asset_endpoint_uri]

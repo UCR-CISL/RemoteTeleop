@@ -1,4 +1,4 @@
-"""Convert all Bilateral Driving processed nuScenes scenes to ROS 2 MCAP."""
+"""Convert processed nuScenes scenes to CooperScene-compatible Foxglove MCAP."""
 
 from __future__ import annotations
 
@@ -77,8 +77,14 @@ class ProcessedNuScenesMcapConfig:
     lidar_topic: str = "/lidar/points"
     camera_frame_id: str = "CAM_FRONT"
     localization_transform: Path | None = None
+    format: str = "foxglove"
+    agent: str = "1"
 
     def __post_init__(self) -> None:
+        if self.format not in {"foxglove", "ros2"}:
+            raise ValueError("format must be foxglove or ros2")
+        if not self.agent or not self.agent.isdigit():
+            raise ValueError("agent must be a numeric agent ID")
         object.__setattr__(self, "processed_root", Path(self.processed_root))
         object.__setattr__(self, "output_root", Path(self.output_root))
         if self.localization_transform is not None:
@@ -165,6 +171,14 @@ class ProcessedNuScenesMcapProcessor(DataProcessor):
         sequence: ProcessedNuScenesSequence,
         output_path: Path,
     ) -> None:
+        if self.config.format == "foxglove":
+            from src.data.foxglove_mcap_writer import NuScenesFoxgloveWriter
+
+            NuScenesFoxgloveWriter(agent=self.config.agent).write(
+                output_path, sequence,
+                scene_generation=f"{self.config.scene_generation_prefix}:{scene}",
+            )
+            return
         with output_path.open("wb") as output:
             writer = self._writer_factory(output)
             writer.start(profile="ros2")
@@ -349,6 +363,9 @@ def _append_string(buffer: bytearray, value: str) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--format", choices=("foxglove", "ros2"), default="foxglove",
+                        help="Foxglove matches mounted CooperScene files; ros2 is legacy")
+    parser.add_argument("--agent", default="1")
     parser.add_argument("--processed-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--scene", action="append", dest="scenes")
@@ -366,6 +383,8 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _parser().parse_args()
     config = ProcessedNuScenesMcapConfig(
+        format=args.format,
+        agent=args.agent,
         processed_root=args.processed_root,
         output_root=args.output_root,
         scenes=None if args.scenes is None else tuple(args.scenes),

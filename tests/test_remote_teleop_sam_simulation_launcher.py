@@ -276,3 +276,31 @@ def test_asset_proxy_cli_forwarding(tmp_path, monkeypatch):
     monkeypatch.setattr(module.SamRemoteTeleopSimulationLauncher, "run", lambda self: seen.append(self.sam.asset_proxy))
     assert module.main(["--asset-proxy", "--dry-run"]) == 0
     assert seen == [True]
+
+
+def test_foxglove_agent_selection_matches_reader_and_renderer(tmp_path):
+    launcher = _launcher(tmp_path)
+    launcher.sam = SamLaunchOptions(mcap_agent="3")
+    assert "--mcap-agent 3" in launcher._vehicle_adapter_script()
+    assert "--agent 3" in launcher._remote_start_script()
+
+
+def test_localization_metrics_forwarded_and_full_trajectory_required(tmp_path):
+    from dataclasses import replace
+    launcher = _launcher(tmp_path)
+    launcher.options = replace(launcher.options, expected_samples=2,
+        localization_reference_transform=PurePosixPath('config/reference.json'),
+        localization_reference_kind='shared_enu_prior')
+    command = launcher._vehicle_adapter_script()
+    assert '--localization-reference-kind shared_enu_prior' in command
+    assert '--localization-metrics-path' in command
+    root = launcher.options.local_artifacts / launcher.vehicle.name
+    root.mkdir(parents=True)
+    rows = root / 'localization-trajectory.jsonl'
+    rows.write_text('\n'.join(json.dumps(dict(sequence=i, timestamp_us=i*100000)) for i in range(2)))
+    summary = root / 'localization-trajectory.summary.json'
+    summary.write_text(json.dumps(dict(frame_count=2, trajectory_evaluated=True, position_mode='xyz')))
+    launcher._validate_localization_metrics()
+    rows.write_text(json.dumps(dict(sequence=0, timestamp_us=0)))
+    with pytest.raises(LaunchError, match='full trajectory'):
+        launcher._validate_localization_metrics()

@@ -97,6 +97,7 @@ def test_all_scene_converter_discovers_variable_lengths_and_preserves_geometry(t
 
     processor = ProcessedNuScenesMcapProcessor(
         ProcessedNuScenesMcapConfig(
+            format="ros2",
             processed_root=processed,
             output_root=tmp_path / "mcap",
             expected_samples=None,
@@ -164,6 +165,7 @@ def test_converter_can_select_one_scene_and_validate_expected_count(tmp_path):
 
     processor = ProcessedNuScenesMcapProcessor(
         ProcessedNuScenesMcapConfig(
+            format="ros2",
             processed_root=processed,
             output_root=tmp_path / "mcap",
             scenes=("171",),
@@ -187,6 +189,7 @@ def test_converter_uses_localized_gaussian_global_alignment(tmp_path):
 
     processor = ProcessedNuScenesMcapProcessor(
         ProcessedNuScenesMcapConfig(
+            format="ros2",
             processed_root=processed, output_root=tmp_path / "mcap", scenes=("152",),
             expected_samples=2, localization_transform=localization,
         ), writer_factory=lambda _output: writers.append(_Writer()) or writers[-1]
@@ -204,6 +207,7 @@ def test_generated_mcap_is_readable_with_expected_realtime_topics(tmp_path):
     processed = tmp_path / "processed"
     _write_scene(processed / "152", frame_count=2)
     processor = ProcessedNuScenesMcapProcessor(ProcessedNuScenesMcapConfig(
+            format="ros2",
         processed_root=processed,
         output_root=tmp_path / "mcap",
         scenes=("152",),

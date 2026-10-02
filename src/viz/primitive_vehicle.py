@@ -415,9 +415,7 @@ class PrimitiveVehicleAsset:
         paint = (157, 143, 104, 255)
         self._loft([(-.50, .38, .26, .52), (-.45, .43, .21, .57),
                     (.22, .43, .21, .49)], paint)
-        self._loft([(-.20, .29, .49, .91), (-.16, .30, .49, .97),
-                    (.11, .30, .49, .97), (.16, .29, .49, .91)], self.GLASS)
-        self._box((-.18, -.32, .96), (.13, .32, 1.), paint)
+        self._loader_cabin(paint)
         for side in (-1, 1):
             self._rod((-.02, side * .33, .39), (.36, side * .33, .22), .08, paint)
         # Open loader bucket: floor, inclined back and side plates.
@@ -427,6 +425,36 @@ class PrimitiveVehicleAsset:
             y = side * .5
             self._quad([(.25, y, .30), (.30, y, .06), (.50, y, .06), (.45, y, .20)], paint)
         self._axles((-.31, .18))
+
+    def _loader_cabin(self, paint):
+        """Tapered glazing, corner pillars and roof share one closed shell."""
+        sections = [
+            (.49, -.20, .16, .30), (.55, -.195, .155, .297),
+            (.92, -.165, .115, .275), (.97, -.16, .11, .272),
+            (1., -.148, .098, .260),
+        ]
+        points = []
+        for z, rear, front, width in sections:
+            bevel = .025
+            points.extend([
+                (rear, -width + bevel, z), (rear + bevel, -width, z),
+                (front - bevel, -width, z), (front, -width + bevel, z),
+                (front, width - bevel, z), (front - bevel, width, z),
+                (rear + bevel, width, z), (rear, width - bevel, z),
+            ])
+        faces, colors = [], []
+        for section in range(len(sections) - 1):
+            for corner in range(8):
+                a, b = section * 8 + corner, section * 8 + (corner + 1) % 8
+                faces.extend([[a, b, b + 8], [a, b + 8, a + 8]])
+                glass = section == 1 and corner in (1, 3, 5, 7)
+                colors.extend([self.GLASS if glass else paint] * 2)
+        last = (len(sections) - 1) * 8
+        for corner in range(1, 7):
+            faces.extend([[0, corner + 1, corner], [last, last + corner, last + corner + 1]])
+            colors.extend([paint] * 2)
+        mesh = self._trimesh.Trimesh(vertices=self._coords(points), faces=faces, process=False)
+        self._append(mesh, paint, face_colors=colors)
 
     def _rod_metric(self, start, end, radius, color):
         start, end = np.asarray(start), np.asarray(end)

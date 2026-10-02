@@ -1,0 +1,14 @@
+alien3:
+  role: "remote-ops"
+  host_address: 100.109.210.56
+  port: 8767
+  user: coop3r-slam
+  repo_path: /home/coop3r-slam/Documents/RemoteTeleop-proxy-batch
+lambda:
+  role: "vehicle"
+  host_address: 100.97.168.98
+  port: 8768
+  asset_port: 8769
+  analysis_port: 8771
+  user: justin
+  repo_path: /home/justin/Documents/CISL-Projects/RemoteTeleop-proxy-batch

@@ -34,6 +34,7 @@ class SamLaunchOptions:
     sam3_precision: str = "fp16"
     sam3d_precision: str = "nf4"
     asset_proxy: bool = False
+    mcap_agent: str = "1"
 
     def __post_init__(self) -> None:
         if self.stable_seconds < 0 or self.sam_timeout_seconds <= 0:
@@ -144,6 +145,9 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
         ))
         return tuple(commands)
 
+    def _mcap_agent(self) -> str:
+        return self.sam.mcap_agent
+
     def _remote_asset_arguments(self) -> list[str]:
         return [] if self.sam.asset_proxy else super()._remote_asset_arguments()
 
@@ -209,7 +213,15 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
             ]),
             "--mcap", str(self.vehicle.repo_path / self.options.mcap_path),
             "--mcap-rate", "1.0",
+            "--mcap-agent", self.sam.mcap_agent,
         ]
+        if self.options.localization_reference_transform is not None:
+            command.extend((
+                "--localization-reference-transform",
+                str(self.vehicle.repo_path / self.options.localization_reference_transform),
+                "--localization-reference-kind", self.options.localization_reference_kind,
+                "--localization-metrics-path", str(root / "localization-trajectory.jsonl"),
+            ))
         if self._uses_bevfusion:
             command.extend((
                 "--bbox-source", "bevfusion",
@@ -414,6 +426,8 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
 
     def _validate_retrieved_metrics(self) -> None:
         super()._validate_retrieved_metrics()
+        if self.options.localization_reference_transform is not None:
+            self._validate_localization_metrics()
         if self.sam.asset_proxy:
             return
         sam3d_metrics = (
@@ -431,6 +445,26 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
                 complete.append(record)
         if not complete or complete[-1].get("final_sequence") != self.options.expected_samples - 1:
             raise LaunchError("SAM3D did not durably complete the full scene")
+
+    def _validate_localization_metrics(self) -> None:
+        root = self.options.local_artifacts / self.vehicle.name
+        records_path = root / "localization-trajectory.jsonl"
+        summary_path = root / "localization-trajectory.summary.json"
+        if not records_path.is_file() or not summary_path.is_file():
+            raise LaunchError("full-trajectory localization metrics were not retrieved")
+        records = [json.loads(line) for line in records_path.read_text().splitlines() if line]
+        summary = json.loads(summary_path.read_text())
+        if len(records) != self.options.expected_samples or summary.get("frame_count") != self.options.expected_samples:
+            raise LaunchError("localization metric count does not cover the full trajectory")
+        if not summary.get("trajectory_evaluated") or summary.get("position_mode") != "xyz":
+            raise LaunchError("localization summary does not report full XYZ trajectory evaluation")
+        for index, record in enumerate(records):
+            if record.get("sequence") != index or record.get("timestamp_us") != index * 100_000:
+                raise LaunchError(f"localization trajectory metric gap at sequence {index}")
+
+    def _stop_vehicle_script(self) -> str:
+        # Both dataset modes use the direct MCAP adapter, outside ROS sidecars.
+        return self._stop_script(self._vehicle_output_root() / "adapter.pid", process_group=True)
 
     def _stop_processes(self) -> None:
         for name in (() if self.sam.asset_proxy else ("sam3", "sam3d")):
@@ -475,11 +509,14 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("cfg/alien4_alien3.yaml"))
+    parser.add_argument("--mcap-agent", default="1")
     parser.add_argument("--ros-sidecar", default="remote_teleop_ros_mcap")
     parser.add_argument("--remote-python", default=".venv/bin/python")
     parser.add_argument("--vehicle-python", default=".venv/bin/python")
     parser.add_argument("--source-mode", choices=("mcap", "nuscenes_mcap"), default="mcap")
     parser.add_argument("--mcap", type=_path, default=PurePosixPath("artifacts/cooperscene_take_1_agent_1.mcap"))
+    parser.add_argument("--localization-reference-transform", type=_path)
+    parser.add_argument("--localization-reference-kind", choices=("shared_enu_prior", "recorded_pose_alignment_baseline"))
     parser.add_argument("--nuscenes-localization-transform", type=_path)
     parser.add_argument("--cooperscene-localization-transform", type=_path)
     parser.add_argument("--cooperscene-stored-localization-transform", type=_path)
@@ -527,6 +564,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             poll_seconds=args.poll_seconds, scene_generation=args.scene_generation,
             health_port=args.health_port,
             source_mode=args.source_mode,
+            localization_reference_transform=args.localization_reference_transform,
+            localization_reference_kind=args.localization_reference_kind,
             nuscenes_localization_transform=args.nuscenes_localization_transform,
             cooperscene_localization_transform=args.cooperscene_localization_transform,
             cooperscene_stored_localization_transform=(
@@ -550,6 +589,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sam3_precision=args.sam3_precision,
                 sam3d_precision=args.sam3d_precision,
                 asset_proxy=args.asset_proxy,
+                mcap_agent=args.mcap_agent,
             ),
             dry_run=args.dry_run,
         )
