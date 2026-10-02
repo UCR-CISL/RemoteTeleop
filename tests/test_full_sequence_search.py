@@ -119,3 +119,10 @@ def test_accepted_pose_is_required_for_qualification(runner):
     runner.evaluator.cache[(0, 'xyz')] = dict(accepted=True,
         error=dict(xy_m=0., xyz_m=0.), map_T_dataset=None)
     assert runner.run_sequence(ENTRY)['status'] == 'incomplete'
+
+
+def test_unknown_acceptance_cannot_count_as_examined_rejection(runner):
+    runner.evaluator.cache[(0, 'xyz')] = dict(error={})
+    result = runner.run_sequence(ENTRY)
+    assert result['status'] == 'incomplete'
+    assert result['methods']['xyz']['tested_frame_offsets'] == []

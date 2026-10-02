@@ -171,6 +171,8 @@ class FullSequenceSearch:
                         raise ValueError(f'evaluator omitted required methods: {required}')
                     for method in required:
                         item = record['methods'][method]
+                        if type(item.get('accepted')) is not bool:
+                            raise ValueError(f'{method} result lacks explicit boolean acceptance')
                         if item.get('accepted') is True:
                             transform = np.asarray(item.get('map_T_dataset'), dtype=float)
                             if transform.shape != (4, 4) or not np.isfinite(transform).all():
