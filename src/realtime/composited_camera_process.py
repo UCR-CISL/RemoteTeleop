@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from src.localization.ground_plane import GroundPlane
+from src.localization.ground_surface import GroundSurface, load_ground_placement
 from dataclasses import dataclass
 import hashlib
 import json
@@ -378,7 +379,7 @@ class CompositedCameraProcess:
         device: str = "cuda",
         mesh_max_faces: int = 100_000,
         ground_z: float | None = None,
-        ground_plane: GroundPlane | None = None,
+        ground_plane: GroundPlane | GroundSurface | None = None,
         cursor_path: Path | None = None,
         mesh_cache_dir: Path | None = None,
         asset_proxy: bool = False,
@@ -500,6 +501,7 @@ class CompositedCameraProcess:
                     "proxy_count": sum(state == "proxy" for state in rendered.track_states.values()),
                     "mesh_count": sum(state == "mesh" for state in rendered.track_states.values()),
                     "track_states": dict(rendered.track_states),
+                    "ground_placements": dict(rendered.ground_placements),
                     "proxy_track_ids": sorted(track_id for track_id, state in rendered.track_states.items() if state == "proxy"),
                     "mesh_track_ids": sorted(track_id for track_id, state in rendered.track_states.items() if state == "mesh"),
                     "output_path": str(path),
@@ -573,7 +575,7 @@ def main() -> None:
         "--ground-z", type=float,
         help="Anchor object bottoms to this Z; omitted preserves localized object poses.",
     )
-    parser.add_argument("--ground-plane", type=Path, help="Audited map-space plane JSON for proxy placement.")
+    parser.add_argument("--ground-plane", type=Path, help="Audited map-space plane or road-surface JSON for proxy placement.")
     args = parser.parse_args()
     if args.ground_plane is not None and args.ground_z is not None:
         parser.error("--ground-plane and --ground-z are mutually exclusive")
@@ -613,7 +615,7 @@ def main() -> None:
         frames_per_second=args.frames_per_second, device=args.device,
         mesh_max_faces=args.mesh_max_faces,
         ground_z=args.ground_z,
-        ground_plane=None if args.ground_plane is None else GroundPlane.from_dict(json.loads(args.ground_plane.read_text())),
+        ground_plane=None if args.ground_plane is None else load_ground_placement(json.loads(args.ground_plane.read_text())),
         cursor_path=args.cursor_path, mesh_cache_dir=args.mesh_cache_dir,
         asset_proxy=args.asset_proxy,
     )

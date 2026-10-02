@@ -537,3 +537,51 @@ def test_far_wireframe_edge_cannot_overwrite_nearer_mesh():
                            np.array([0, 1, 0]), 1, .01, .03, shared_depth=object_depth)
     np.testing.assert_array_equal(rgb[4, 1:7], np.broadcast_to([0, 1, 0], (6, 3)))
     np.testing.assert_allclose(object_depth[4, 1:7], np.full(6, 3.0))
+
+
+def test_bounded_surface_reports_each_track_and_preserves_unsupported_pose():
+    from dataclasses import replace
+    from src.localization.ground_surface import load_ground_placement
+
+    surface = load_ground_placement(dict(type='road_surface', origin=[0, 0, 0],
+        basis=np.eye(3).tolist(), samples=[[x, y, 0] for x in (-2, 0, 2) for y in (-2, 0, 2)]))
+    renderer = FakeMeshRenderer()
+    backend = PoseOnlyCompositedCameraBackend(
+        FakeGaussianRenderer(), RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)), renderer,
+        ground_z=None, ground_plane=surface, vehicle_proxies=FakeVehicleProxies(renderer),
+    )
+    supported = replace(_box('supported', z=4), text_label='car')
+    unsupported_pose = np.eye(4)
+    unsupported_pose[:3, 3] = [50, 0, 8]
+    unsupported = replace(_box('unsupported'), world_T_object=tuple(unsupported_pose.reshape(-1)), text_label='car')
+    frame = backend.render_pose(_pose(sequence=0), (supported, unsupported))
+    assert frame.ground_placements['supported']['status'] == 'local_map_road'
+    assert frame.ground_placements['unsupported']['status'] == 'unsupported_preserve_input_pose'
+    assert frame.ground_placements['supported']['support_count'] == 9
+    np.testing.assert_allclose(renderer.poses[0][1][:3, 3], [0, 0, 1])
+    np.testing.assert_allclose(renderer.poses[1][1], unsupported_pose)
+    # Per-frame maps cannot retain absent tracks or mutate earlier diagnostics.
+    assert backend.render_pose(_pose(sequence=1), ()).ground_placements == {}
+    assert frame.ground_placements['supported']['status'] == 'local_map_road'
+    with pytest.raises(ValueError, match='mismatched scene generation'):
+        backend.render_pose(_pose(sequence=2, generation='new-scene'), (supported,))
+    replacement = PoseOnlyCompositedCameraBackend(
+        FakeGaussianRenderer(), RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)),
+        ground_z=None, ground_plane=surface,
+    )
+    assert replacement.render_pose(_pose(generation='new-scene'), ()).ground_placements == {}
+
+
+def test_explicit_plane_retains_height_and_reports_placement_status():
+    from dataclasses import replace
+    from src.localization.ground_surface import load_ground_placement
+
+    plane = load_ground_placement({'normal': [0, 0, 1], 'offset_m': 2.8})
+    renderer = FakeMeshRenderer()
+    backend = PoseOnlyCompositedCameraBackend(
+        FakeGaussianRenderer(), RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)), renderer,
+        ground_z=None, ground_plane=plane, vehicle_proxies=FakeVehicleProxies(renderer),
+    )
+    frame = backend.render_pose(_pose(), (replace(_box(), text_label='car'),))
+    assert frame.ground_placements['car'] == {'status': 'explicit_plane'}
+    assert renderer.poses[0][1][2, 3] == pytest.approx(-1.8)
