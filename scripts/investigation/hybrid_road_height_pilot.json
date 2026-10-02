@@ -1,0 +1,68 @@
+{
+  "sequences": [
+    {
+      "run_id": "nuscenes-152",
+      "frame_count": 191,
+      "frame_offsets": [
+        36,
+        95,
+        190
+      ],
+      "policy": "first common replay frame, sequence midpoint, final frame; no new frame search"
+    },
+    {
+      "run_id": "cooperscene-1-1",
+      "frame_count": 501,
+      "frame_offsets": [
+        1,
+        250,
+        500
+      ],
+      "policy": "first common replay frame, sequence midpoint, final frame; no new frame search"
+    },
+    {
+      "run_id": "cooperscene-2-2",
+      "frame_count": 881,
+      "frame_offsets": [
+        150,
+        440,
+        880
+      ],
+      "policy": "first common replay frame, sequence midpoint, final frame; no new frame search"
+    },
+    {
+      "run_id": "cooperscene-1-3",
+      "frame_count": 501,
+      "frame_offsets": [
+        0,
+        250,
+        500
+      ],
+      "policy": "first common replay frame, sequence midpoint, final frame; no new frame search"
+    },
+    {
+      "run_id": "cooperscene-3-2",
+      "frame_count": 501,
+      "frame_offsets": [
+        0,
+        250,
+        500
+      ],
+      "policy": "first common replay frame, sequence midpoint, final frame; no new frame search"
+    },
+    {
+      "run_id": "cooperscene-4-3",
+      "frame_count": 171,
+      "frame_offsets": [
+        0,
+        85,
+        170
+      ],
+      "policy": "first common replay frame, sequence midpoint, final frame; no new frame search"
+    }
+  ],
+  "comparison": "frozen existing replay XYZ and BEV transforms on identical raw frames; hybrid changes BEV vertical translation only",
+  "reference_usage": "evaluation only for height stage; original BEV initialization/fusion remain reference-conditioned",
+  "original_gate_policy": "unchanged full-cloud/correction gates; road candidates reported separately from gated accepted hybrid",
+  "render_grounding": "excluded from sensor localization estimates"
+}
