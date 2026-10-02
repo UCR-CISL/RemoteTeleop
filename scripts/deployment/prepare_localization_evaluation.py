@@ -43,7 +43,7 @@ class LocalizationEvaluationPreparer:
         selected = {}
         for item in json.loads(selections.read_text())['sequences']:
             choice = item.get('selected')
-            if not item.get('search_complete') or not choice or choice.get('accepted') is not True:
+            if not item.get('search_complete') or not choice or choice.get('accepted') is not True or choice.get('fallback_existing_alignment'):
                 continue
             if float(choice['sequence_percent']) > 25:
                 continue

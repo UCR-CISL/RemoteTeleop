@@ -53,3 +53,9 @@ def test_no_subthreshold_fit_preserves_original_frame_zero_transform(tmp_path):
     assert result['runs'][0]['mcap_start_sequence'] == 0
     assert result['runs'][0]['expected_samples'] == 100
     assert result['evaluation']['coverage'][0]['status'] == 'fallback_frame_zero_inherited_transform'
+
+
+def test_bev_inherited_fallback_is_never_relabelled_qualified(tmp_path):
+    selections = tmp_path / 'selections.json'
+    selections.write_text(json.dumps({'sequences': [dict(run_id='scene', search_complete=True, selected=dict(accepted=True, fallback_existing_alignment=True, error={'xy_m': 0.0}))]}))
+    assert LocalizationEvaluationPreparer.best_bev(selections) == {}
