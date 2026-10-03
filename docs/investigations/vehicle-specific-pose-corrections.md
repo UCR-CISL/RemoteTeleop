@@ -123,7 +123,10 @@ Everything is in `artifacts/reference-refinement/vehicle-sensor-corrections/`.
   fitted matrix. `frames.npz` caches the frames read from the archives.
 - Figures in `figures/`:
   - `error-vs-icp-frame-time.png` shows error against time from the ICP fitting frame.
-  - `model-comparison.png` compares models on validation frames.
+  - `model-comparison.png` compares models per vehicle on validation frames.
+    It scores each model only on points that stay within 1 m of the
+    infrastructure under that model, so it favours corrections that push
+    points away. Use the tables above, which share one point set per frame.
   - `ground-height-vs-heading.png` plots ground height against vehicle heading.
   - `structure-crops.png` shows fixed façade and road patches.
 
