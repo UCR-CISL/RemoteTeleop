@@ -1,0 +1,102 @@
+{
+  "status": "offline_map_calibration_candidate_not_independent_ground_truth",
+  "composition": "map_T_lidar = D @ original_W @ released_ENU_T_lidar",
+  "map_path": "/home/jyue86/Downloads/riverside_for_justin/riverside_iowa.ply",
+  "map_sha256": "f8731969529063e37a42f92ff3a9dc75b713bc1dc792bef41b0cd88f0701262d",
+  "D": [
+    [
+      0.9988966143311058,
+      -0.007620977765263083,
+      0.04634085212591343,
+      0.2950091051331824
+    ],
+    [
+      0.006953763805506239,
+      0.9998700768054376,
+      0.014542168958756176,
+      0.5994252977726828
+    ],
+    [
+      -0.04644565692065997,
+      -0.014203879997702952,
+      0.9988198289712812,
+      -1.614461349462589
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "original_W": [
+    [
+      1.0,
+      0.0,
+      0.0,
+      1.2891715943262518
+    ],
+    [
+      0.0,
+      1.0,
+      0.0,
+      -3.381634466657298
+    ],
+    [
+      0.0,
+      0.0,
+      1.0,
+      -0.43000102971778076
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "map_T_released_enu": [
+    [
+      0.9988966143311058,
+      -0.007620977765263083,
+      0.04634085212591343,
+      1.5886029929460095
+    ],
+    [
+      0.006953763805506239,
+      0.9998700768054376,
+      0.014542168958756176,
+      -2.779058368986747
+    ],
+    [
+      -0.04644565692065997,
+      -0.014203879997702952,
+      0.9988198289712812,
+      -2.0557989958442184
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "D_translation_m": [
+    0.2950091051331824,
+    0.5994252977726828,
+    -1.614461349462589
+  ],
+  "D_rpy_deg": [
+    -0.81472904382726,
+    2.6620978163878637,
+    0.39885497277415033
+  ],
+  "units": "meters",
+  "coordinate_convention": "column vectors; target_T_source; released ICP-refined ENU input",
+  "scope": "One shared transform, vehicles1\u20133 and infrastructure0, takes1\u20135",
+  "calibration_frames": 60,
+  "heldout_frames": 40,
+  "independent_ground_truth": false,
+  "production_default": false,
+  "evidence": "artifacts/reference-refinement/shared-enu-calibration/report.md"
+}
