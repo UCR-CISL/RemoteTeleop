@@ -177,13 +177,13 @@ class CorrectionFitter:
         r = np.sum(n * (x - self.ref.item.points[j]), 1)
         return x, n, r, ok
 
-    def fit(self, frames, init=None):
+    def fit(self, frames, init=None, min_frames=3):
         if not frames:
             return None, dict(status='no frames')
         samples = self.sample(frames, np.random.default_rng(3))
         delta = np.eye(4) if init is None else init.copy()
         samples = [s for s in samples if self.correspond(*s, delta, 1.0)[3].sum() >= SETTINGS['min_frame_correspondences']]
-        if len(samples) < 3:
+        if len(samples) < min_frames:
             return None, dict(status='insufficient supported frames', used_frames=len(samples), frames=len(frames))
         P = SETTINGS['prior_weight'] * np.diag([1 / np.deg2rad(SETTINGS['prior_sigma_deg']) ** 2] * 3 + [1 / SETTINGS['prior_sigma_m'] ** 2] * 3)
         for gate in SETTINGS['gates_m']:
