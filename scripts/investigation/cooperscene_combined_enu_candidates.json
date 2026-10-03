@@ -1,0 +1,295 @@
+{
+ "status": "offline geometry diagnostics; NOT adopted; production defaults unchanged; not independent ground truth",
+ "composition": "map_T_lidar = D @ original_W @ released_ENU_T_lidar",
+ "original_W": [
+  [
+   1.0,
+   0.0,
+   0.0,
+   1.2891715943262518
+  ],
+  [
+   0.0,
+   1.0,
+   0.0,
+   -3.381634466657298
+  ],
+  [
+   0.0,
+   0.0,
+   1.0,
+   -0.43000102971778076
+  ],
+  [
+   0.0,
+   0.0,
+   0.0,
+   1.0
+  ]
+ ],
+ "map_path": "/home/jyue86/Downloads/riverside_for_justin/riverside_iowa.ply",
+ "map_sha256": "f8731969529063e37a42f92ff3a9dc75b713bc1dc792bef41b0cd88f0701262d",
+ "source": "artifacts/reference-refinement/combined-cloud-calibration/transforms.json (full set of 50+ variants)",
+ "config": {
+  "declared_before_fitting": true,
+  "tile_m": 20.0,
+  "calibration_tile_parity": 0,
+  "tile_rule": "W-frame tiles floor(x/20), floor(y/20); parity (ix+iy) mod 2; parity 0 calibrates, parity 1 is untouched validation",
+  "source_voxel_m": 0.25,
+  "source_normal_radius_m": 0.6,
+  "ground_rule": "source normal |nz| > 0.9 and height above the item 2 m cell minimum < 0.3 m",
+  "vertical_rule": "source normal |nz| < 0.3",
+  "other_rule": "remaining points (vegetation, slopes, clutter); evaluated, never fitted",
+  "fit_classes": [
+   "ground",
+   "vertical"
+  ],
+  "weighting": "equal class totals; within class equal unit totals; within unit equal (tile, vertical azimuth quadrant) cells; uniform within a cell",
+  "cap_points_per_item_cell": 300,
+  "huber_m": 0.15,
+  "gates_m": [
+   3.0,
+   1.5,
+   0.75,
+   0.4
+  ],
+  "max_iterations_per_gate": 25,
+  "final_gate_iterations": 60,
+  "weight_renormalisation": "balanced weights recomputed every iteration on the surviving correspondences (run1 balanced only at design time; preserved separately)",
+  "normal_compatibility_deg": 30.0,
+  "map_voxel_m": 0.15,
+  "map_neighbourhood_radius_m": 0.6,
+  "map_neighbourhood_k": 20,
+  "map_min_neighbours": 8,
+  "primary_target": {
+   "min_opacity": 0.05,
+   "plane_point": "local_centroid",
+   "max_local_sigma_m": 0.1
+  },
+  "primary_calibration_set": "all_pool",
+  "attribution_thresholds": {
+   "min_cell_support": 100,
+   "min_cell_support_note": "lowered from 200 after run1 showed most 20 m unit/class cells below 200 capped samples; diagnostic labels only",
+   "ambiguous_map_fraction": 0.5,
+   "ambiguous_sigma_m": 0.1,
+   "inconsistent_source_m": 0.1,
+   "min_source_pairs": 100,
+   "high_residual_m": 0.15
+  },
+  "validation": "40 reserved single scans (two per take/unit) never used by any fit; plus untouched parity-1 tiles; predeclared structure ROIs as fixed patches"
+ },
+ "transforms": {
+  "previous_shared": {
+   "description": "earlier shared ENU tie (comparator)",
+   "D": [
+    [
+     0.9988966143311058,
+     -0.007620977765263083,
+     0.04634085212591343,
+     0.2950091051331824
+    ],
+    [
+     0.006953763805506239,
+     0.9998700768054376,
+     0.014542168958756176,
+     0.5994252977726828
+    ],
+    [
+     -0.04644565692065997,
+     -0.014203879997702952,
+     0.9988198289712812,
+     -1.614461349462589
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "rpy_deg_xyz": null,
+   "translation_m": null,
+   "support": null
+  },
+  "overlap_selected": {
+   "description": "overlap-selected 4-cloud fit, commit 26fe14b (reproduced to 8.9e-16)",
+   "D": [
+    [
+     0.9988344874009883,
+     -0.007024142980162698,
+     0.047752782052992195,
+     0.17636277381152218
+    ],
+    [
+     0.00649725362283215,
+     0.9999163934755685,
+     0.011179971116924458,
+     0.5079658427771534
+    ],
+    [
+     -0.04782731932449206,
+     -0.01085667878353697,
+     0.9987966159594381,
+     -1.6131120141578807
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "rpy_deg_xyz": null,
+   "translation_m": null,
+   "support": null
+  },
+  "prior_set_balanced": {
+   "description": "same 4 clouds, balanced weighting + local-centroid thin GSplat surface, calibration tiles only",
+   "D": [
+    [
+     0.9989582153276788,
+     -0.006266515626632208,
+     0.04520193371128833,
+     0.159534323885763
+    ],
+    [
+     0.005756497014510162,
+     0.9999183970283292,
+     0.011404473965062382,
+     0.5388119202000875
+    ],
+    [
+     -0.04526971141348775,
+     -0.011132388162430572,
+     0.9989127705472279,
+     -1.4899449615497413
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "rpy_deg_xyz": [
+    -0.6385066562928478,
+    2.594650141876536,
+    0.330163292095186
+   ],
+   "translation_m": [
+    0.159534323885763,
+    0.5388119202000875,
+    -1.4899449615497413
+   ],
+   "support": {
+    "correspondences": 4756,
+    "by_class": {
+     "ground": 2424,
+     "vertical": 2332
+    },
+    "by_unit": {
+     "infrastructure": 283,
+     "vehicle 1": 1650,
+     "vehicle 2": 1456,
+     "vehicle 3": 1367
+    },
+    "weight_share_by_unit": {
+     "infrastructure": 0.24999999999999994,
+     "vehicle 1": 0.25,
+     "vehicle 2": 0.25,
+     "vehicle 3": 0.25
+    },
+    "weight_share_by_class": {
+     "ground": 0.5,
+     "vertical": 0.5
+    },
+    "converged": false,
+    "last10_max_step_norm": 0.0035815520420835844,
+    "scaled_eigenvalues": [
+     0.16119848323800087,
+     0.23273038764539936,
+     0.2500555952656152,
+     0.28058865828804874,
+     0.4424849689608631,
+     0.604645593886442
+    ],
+    "condition": 3.750938481187291,
+    "lever_m": 30.0
+   }
+  },
+  "all_pool_balanced": {
+   "description": "predeclared candidate: 36 pooled items, balanced weighting, calibration tiles only",
+   "D": [
+    [
+     0.9991668533426136,
+     -0.008534936749528968,
+     0.03990932267147943,
+     0.4136209327639479
+    ],
+    [
+     0.007916026830171922,
+     0.9998463469893775,
+     0.01564029830978341,
+     0.5635850205473014
+    ],
+    [
+     -0.0400366794407169,
+     -0.015311344378484712,
+     0.9990808911357887,
+     -1.3535180841379877
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "rpy_deg_xyz": [
+    -0.8780137298941642,
+    2.294546037931673,
+    0.45392362360558275
+   ],
+   "translation_m": [
+    0.4136209327639479,
+    0.5635850205473014,
+    -1.3535180841379877
+   ],
+   "support": {
+    "correspondences": 33130,
+    "by_class": {
+     "ground": 17640,
+     "vertical": 15490
+    },
+    "by_unit": {
+     "infrastructure": 2513,
+     "vehicle 1": 13266,
+     "vehicle 2": 9535,
+     "vehicle 3": 7816
+    },
+    "weight_share_by_unit": {
+     "infrastructure": 0.25000000000000006,
+     "vehicle 1": 0.25000000000000006,
+     "vehicle 2": 0.25000000000000006,
+     "vehicle 3": 0.25000000000000006
+    },
+    "weight_share_by_class": {
+     "ground": 0.5000000000000002,
+     "vertical": 0.5000000000000001
+    },
+    "converged": false,
+    "last10_max_step_norm": 0.0016693030806731466,
+    "scaled_eigenvalues": [
+     0.2498231954464618,
+     0.2545688602566219,
+     0.3562424231438043,
+     0.4299136436609257,
+     0.5393154169270852,
+     0.630864300919738
+    ],
+    "condition": 2.525243101595564,
+    "lever_m": 30.0
+   }
+  }
+ }
+}
