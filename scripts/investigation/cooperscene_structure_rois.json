@@ -1,0 +1,253 @@
+{
+  "coordinate_frame": "original_W @ released_enu; meters",
+  "released_poses_fixed": true,
+  "source": "overlap-selected-calibration/selection/selected-clouds.npz",
+  "selection_status": "All nine patches visually inspected in per-sensor top/side and oriented views before measurement; west ground strip rejected for mixed/curved surface; facade normal bands widened uniformly to avoid clipping sensor offsets.",
+  "basis_convention": "normalize normal, orthogonalize tangent_u; tangent_v=cross(normal,tangent_u), facade v usually negative z; select absolute local coordinates <= half_widths_uvn",
+  "rois": [
+    {
+      "id": "NW_upper_facade",
+      "kind": "facade",
+      "role": "fit",
+      "anchor": [
+        -35,
+        27.05,
+        3.6
+      ],
+      "normal": [
+        -0.215,
+        0.9766,
+        0
+      ],
+      "tangent_u": [
+        0.9766,
+        0.215,
+        0
+      ],
+      "half_widths_uvn": [
+        3.8,
+        0.85,
+        0.7
+      ],
+      "identity_evidence": "Same upper rectangular facade between distinctive stepped corner near (-40,26) and terminal corner near (-27,28); visual multi-view evidence candidate-northwest.png. The closer parallel low wall at y23 is excluded.",
+      "visual_review": "matching geometry in per-sensor top/side and oriented patch views; semantic material not camera-confirmed"
+    },
+    {
+      "id": "NE_lower_facade",
+      "kind": "facade",
+      "role": "fit",
+      "anchor": [
+        24,
+        35,
+        4.5
+      ],
+      "normal": [
+        0.7071,
+        0.7071,
+        0
+      ],
+      "tangent_u": [
+        0.7071,
+        -0.7071,
+        0
+      ],
+      "half_widths_uvn": [
+        1.55,
+        1.65,
+        0.48
+      ],
+      "identity_evidence": "Same lower facade panel x+y approximately 59, z2.5..6.8; shared stepped silhouette in candidate-northeast.png. Parallel upper facade x+y approximately67 is explicitly excluded.",
+      "visual_review": "matching geometry in per-sensor top/side and oriented patch views; semantic material not camera-confirmed"
+    },
+    {
+      "id": "SW_boundary_wall",
+      "kind": "facade",
+      "role": "heldout",
+      "anchor": [
+        -38,
+        -49.5,
+        -0.8
+      ],
+      "normal": [
+        0.4,
+        0.9165,
+        0
+      ],
+      "tangent_u": [
+        0.9165,
+        -0.4,
+        0
+      ],
+      "half_widths_uvn": [
+        4.6,
+        1.05,
+        0.7
+      ],
+      "identity_evidence": "Same long southwest wall from (-48,-45) to (-30,-52), matching endpoint and vertical sampling in candidate-southwest.png; elevated parallel edge about1m northeast excluded.",
+      "visual_review": "matching geometry in per-sensor top/side and oriented patch views; semantic material not camera-confirmed"
+    },
+    {
+      "id": "NW_lower_west_panel",
+      "kind": "facade",
+      "role": "heldout",
+      "anchor": [
+        -47,
+        23.9,
+        -0.5
+      ],
+      "normal": [
+        -0.215,
+        0.9766,
+        0
+      ],
+      "tangent_u": [
+        0.9766,
+        0.215,
+        0
+      ],
+      "half_widths_uvn": [
+        2.3,
+        0.85,
+        0.7
+      ],
+      "identity_evidence": "West lower bay of same NW structure, separate from fit upper panel; common rectangular face x-49..-45,z-1.3..0.3 and step near(-44,24.5). Region held out but not independent building.",
+      "visual_review": "matching geometry in per-sensor top/side and oriented patch views; semantic material not camera-confirmed"
+    },
+    {
+      "id": "road_west_strip",
+      "kind": "road",
+      "role": "excluded",
+      "anchor": [
+        -28,
+        -0.7,
+        -2.6
+      ],
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "tangent_u": [
+        1,
+        0,
+        0
+      ],
+      "half_widths_uvn": [
+        3,
+        1,
+        0.7
+      ],
+      "identity_evidence": "Same fixed ground footprint inside open intersection. Per-sensor top/side crop must show roadway returns; absent/collinear sampling must remain unsupported. Closeup side view reveals raised/curved cross-section and possible curb/road mixture. Excluded from primary plane measurements despite spatial overlap.",
+      "visual_review": "matching geometry in per-sensor top/side and oriented patch views; semantic material not camera-confirmed",
+      "exclude_from_measurement": true
+    },
+    {
+      "id": "road_central",
+      "kind": "road",
+      "role": "fit",
+      "anchor": [
+        -19,
+        2,
+        -2.15
+      ],
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "tangent_u": [
+        1,
+        0,
+        0
+      ],
+      "half_widths_uvn": [
+        2.0,
+        1.5,
+        0.7
+      ],
+      "identity_evidence": "Same fixed ground footprint inside open intersection. Per-sensor top/side crop must show roadway returns; absent/collinear sampling must remain unsupported.",
+      "visual_review": "matching geometry in per-sensor top/side and oriented patch views; semantic material not camera-confirmed"
+    },
+    {
+      "id": "road_south",
+      "kind": "road",
+      "role": "heldout",
+      "anchor": [
+        -21,
+        -24,
+        -2.25
+      ],
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "tangent_u": [
+        1,
+        0,
+        0
+      ],
+      "half_widths_uvn": [
+        3,
+        2,
+        0.7
+      ],
+      "identity_evidence": "Same fixed ground footprint inside open intersection. Per-sensor top/side crop must show roadway returns; absent/collinear sampling must remain unsupported.",
+      "visual_review": "matching geometry in per-sensor top/side and oriented patch views; semantic material not camera-confirmed"
+    },
+    {
+      "id": "road_east_south",
+      "kind": "road",
+      "role": "heldout",
+      "anchor": [
+        0,
+        -20,
+        -1.2
+      ],
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "tangent_u": [
+        1,
+        0,
+        0
+      ],
+      "half_widths_uvn": [
+        3,
+        3,
+        0.7
+      ],
+      "identity_evidence": "Same fixed ground footprint inside open intersection. Per-sensor top/side crop must show roadway returns; absent/collinear sampling must remain unsupported.",
+      "visual_review": "matching geometry in per-sensor top/side and oriented patch views; semantic material not camera-confirmed"
+    },
+    {
+      "id": "road_east_north",
+      "kind": "road",
+      "role": "heldout",
+      "anchor": [
+        0,
+        10,
+        -1.2
+      ],
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "tangent_u": [
+        1,
+        0,
+        0
+      ],
+      "half_widths_uvn": [
+        3,
+        3,
+        0.7
+      ],
+      "identity_evidence": "Same fixed ground footprint inside open intersection. Per-sensor top/side crop must show roadway returns; absent/collinear sampling must remain unsupported.",
+      "visual_review": "matching geometry in per-sensor top/side and oriented patch views; semantic material not camera-confirmed"
+    }
+  ]
+}
