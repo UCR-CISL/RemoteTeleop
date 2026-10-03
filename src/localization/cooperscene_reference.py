@@ -1,4 +1,4 @@
-"""Independent CooperScene pose reconstruction from raw INS/GNSS metadata.
+"""Conditional CooperScene pose candidates from INS/GNSS and calibration.
 
 This is an explicit offline reference utility. Calibration and map origins must
 be supplied; it does not alter the native dataset loader or runtime poses.
@@ -16,8 +16,10 @@ from scipy.spatial.transform import Rotation
 class CooperSceneReference:
     """Compose ``map_T_xsens @ xsens_T_lidar`` at the raw GNSS timestamp.
 
-    The caller must establish the altitude datum and whether the recorded GNSS
-    position denotes the Xsens origin. No capture-time interpolation is implied.
+    The caller must establish sensor/marker axes, altitude datum and whether the
+    GNSS position denotes the Xsens origin. Archive metadata quaternions are
+    preprocessed: use map_T_lidar_from_release_metadata for those records.
+    No capture-time interpolation or ground-truth certification is implied.
     """
 
     origin_lla: tuple[float, float, float]
@@ -71,3 +73,21 @@ class CooperSceneReference:
     def map_T_lidar(self, metadata: Mapping[str, float]) -> np.ndarray:
         """Apply sensor calibration on the right, including the rotated lever arm."""
         return self.map_T_xsens(metadata) @ np.linalg.inv(self.lidar_T_xsens)
+
+    def map_T_lidar_from_release_metadata(self, metadata: Mapping[str, float]) -> np.ndarray:
+        """Undo the archive's left attitude transform before body composition.
+
+        The release stores R_metadata = E.rotation @ R_original_INS @ F_agent.
+        Removing E preserves the release's explicit device-axis normalization
+        (agent 1 has F=Rx(180deg)). Whether these normalized axes coincide with
+        the MoCap Xsens marker frame remains a physical calibration assumption.
+        """
+        stored_rotation = Rotation.from_quat(
+            [metadata[key] for key in ('Quat_qx', 'Quat_qy', 'Quat_qz', 'Quat_qw')]
+        ).as_matrix()
+        normalized = self.lidar_T_xsens[:3, :3].T @ stored_rotation
+        values = dict(metadata)
+        for key, value in zip(('Quat_qx', 'Quat_qy', 'Quat_qz', 'Quat_qw'),
+                              Rotation.from_matrix(normalized).as_quat()):
+            values[key] = float(value)
+        return self.map_T_lidar(values)

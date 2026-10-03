@@ -1,3 +1,5 @@
+> **Superseded by the release-refinement audit.** The metadata quaternion was already preprocessed. The earlier claim that only position was transformed, and the interpretation of the old physical reference as a correction, are withdrawn. See [the updated investigation](reference-refinement.md).
+
 # CooperScene evaluation-reference orientation correction
 
 ## Conclusion
