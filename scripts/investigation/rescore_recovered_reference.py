@@ -37,7 +37,9 @@ class ReferenceRescorer:
         self.attempts, self.output = attempts, output
         output.mkdir(parents=True, exist_ok=True)
         self.reference_document = json.loads(references.read_text())
-        self.references = self.reference_document['references']
+        self.physical = 'records' in self.reference_document
+        self.references = ({(r['run_id'], r['frame_offset']): r for r in self.reference_document['records']}
+                           if self.physical else self.reference_document['references'])
         self.reference_path = references.resolve()
         self.reference_hash = hashlib.sha256(references.read_bytes()).hexdigest()
         self.target = None
@@ -47,17 +49,20 @@ class ReferenceRescorer:
         path = self.attempts/run_id/f'f{offset:06d}.json'
         record = json.loads(path.read_text())
         result = record['methods'].get(method, {})
+        reference_key = (run_id, offset) if self.physical else run_id
+        if run_id.startswith('cooperscene') and reference_key not in self.references:
+            raise ValueError(f'Missing corrected CooperScene reference: {reference_key}')
         row = dict(run_id=run_id, frame_offset=offset, method=method,
                    original_accepted=result.get('accepted', False),
                    status='scored' if 'map_T_dataset' in result else 'no_saved_pose',
-                   reference_changed=run_id in self.references,
+                   reference_changed=reference_key in self.references,
                    independent_ground_truth=False)
         if 'map_T_dataset' not in result:
             return row
         frame = dict(np.load(record['metadata']['npz_path'], allow_pickle=False))
         estimate = np.asarray(result['map_T_dataset'])
         original = frame['reference_map_T_dataset']
-        recovered = np.asarray(self.references[run_id]['map_T_dataset']) if run_id in self.references else original
+        recovered = np.asarray(self.references[reference_key]['map_T_dataset']) if reference_key in self.references else original
         # CooperScene map metadata explicitly declares ENU. Keep measurement axes
         # fixed; do not rotate reported vertical with the newly recovered dataset frame.
         axes = np.eye(3) if run_id.startswith('cooperscene') else original[:3, :3]
@@ -83,7 +88,7 @@ class ReferenceRescorer:
         source = source[ids]
         fig, axes = plt.subplots(3,3, figsize=(18,12), layout='constrained')
         variants = [('Original translation-only reference', original, '#1698b5'),
-                    ('GNSS-recovered per-sequence reference', recovered, '#2c9d58'),
+                    ('Raw INS/GNSS + correct sensor composition' if self.physical else 'GNSS-recovered per-sequence reference', recovered, '#2c9d58'),
                     ('Unchanged estimated localization', estimate, '#db5325')]
         for i,(label,transform,color) in enumerate(variants):
             cloud = source @ transform[:3,:3].T + transform[:3,3] - center
@@ -98,7 +103,7 @@ class ReferenceRescorer:
         fig.suptitle(name+'\nSame saved localization: original / recovered reference XYZ disagreement '
                      +f"{row['original_xyz_m']:.3f} / {row['recovered_xyz_m']:.3f} m; signed Z "
                      +f"{row['original_dz_m']:+.3f} / {row['recovered_dz_m']:+.3f} m",fontsize=15)
-        fig.supxlabel('Map gray; each row applies a different transform to the same static LiDAR. Axes centered on recovered GNSS pose.\nGNSS frame recovery is independent of map fitting; altitude datum, timing, antenna lever arm and LiDAR attitude remain unverified.',fontsize=10)
+        fig.supxlabel('Map gray; each row applies a different transform to the same static LiDAR. Axes centered on recovered GNSS pose.\nReference reconstruction uses no map fitting; altitude datum, capture timing and GNSS reference-point assumptions remain unverified.',fontsize=10)
         fig.savefig(self.output/(name+'.png'),dpi=140);plt.close(fig)
 
     def write(self, name, rows):

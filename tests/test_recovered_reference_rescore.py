@@ -40,3 +40,19 @@ def test_camera_anchored_map_uses_global_error_axes():
     estimate[:3, 3] = axes @ np.array([1., 2., 3.])
     result = disagreement(estimate, reference, np.eye(4), axes)
     np.testing.assert_allclose([result['dx_m'], result['dy_m'], result['dz_m']], [1.,2.,3.])
+
+
+def test_missing_cooperscene_reference_fails_closed(tmp_path):
+    import json
+    import pytest
+    from scripts.investigation.rescore_recovered_reference import ReferenceRescorer
+
+    attempts = tmp_path / 'attempts'
+    case = attempts / 'cooperscene-1-1'
+    case.mkdir(parents=True)
+    (case / 'f000000.json').write_text(json.dumps({'methods': {}}))
+    references = tmp_path / 'references.json'
+    references.write_text(json.dumps({'records': []}))
+    scorer = ReferenceRescorer(attempts, references, tmp_path / 'output')
+    with pytest.raises(ValueError, match='Missing corrected CooperScene reference'):
+        scorer.score('cooperscene-1-1', 0, 'xyz')
