@@ -1,0 +1,230 @@
+{
+  "status": "offline geometry diagnostic; not independent ground truth",
+  "composition": "map_T_lidar = D @ original_W @ released_enu_T_lidar",
+  "D": [
+    [
+      0.9988344874009883,
+      -0.007024142980162698,
+      0.047752782052992195,
+      0.17636277381152218
+    ],
+    [
+      0.00649725362283215,
+      0.9999163934755685,
+      0.011179971116924458,
+      0.5079658427771534
+    ],
+    [
+      -0.04782731932449206,
+      -0.01085667878353697,
+      0.9987966159594381,
+      -1.6131120141578807
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "original_W": [
+    [
+      1.0,
+      0.0,
+      0.0,
+      1.2891715943262518
+    ],
+    [
+      0.0,
+      1.0,
+      0.0,
+      -3.381634466657298
+    ],
+    [
+      0.0,
+      0.0,
+      1.0,
+      -0.43000102971778076
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "map_T_released_enu": [
+    [
+      0.9988344874009883,
+      -0.007024142980162698,
+      0.047752782052992195,
+      1.4672511609480705
+    ],
+    [
+      0.00649725362283215,
+      0.9999163934755685,
+      0.011179971116924458,
+      -2.8698172214562936
+    ],
+    [
+      -0.04782731932449206,
+      -0.01085667878353697,
+      0.9987966159594381,
+      -2.0675398898371444
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "D_rpy_deg": [
+    -0.62276680476825,
+    2.7413493385892926,
+    0.3726943405594861
+  ],
+  "D_translation_m": [
+    0.17636277381152218,
+    0.5079658427771534,
+    -1.6131120141578807
+  ],
+  "map_path": "/home/jyue86/Downloads/riverside_for_justin/riverside_iowa.ply",
+  "map_sha256": "f8731969529063e37a42f92ff3a9dc75b713bc1dc792bef41b0cd88f0701262d",
+  "minimum_opacity_exclusive": 0.05,
+  "calibration_frames": [
+    {
+      "take": 1,
+      "agent": 0,
+      "frame_id": "481510",
+      "frame_offset": 250,
+      "frame_count": 501,
+      "fraction": 0.5,
+      "partition": "calibration",
+      "archive": "/mnt/bcc-data/websites/data.ucr.edu-datasets-cooperscene/train/1.zip",
+      "cache_key": "infra_representative",
+      "selection": "Predeclared take1 middle calibration scan; no overlap or map optimization"
+    },
+    {
+      "take": 1,
+      "agent": 1,
+      "frame_id": "481677",
+      "frame_offset": 417,
+      "frame_count": 501,
+      "fraction": 0.834,
+      "archive": "/mnt/bcc-data/websites/data.ucr.edu-datasets-cooperscene/train/1.zip",
+      "exclusion_reason": "",
+      "raw_point_count": 111039,
+      "static_point_count": 103381,
+      "source_voxels": 13800,
+      "infrastructure_voxels": 5821,
+      "shared_voxels": 2361,
+      "infrastructure_coverage": 0.40560041230029203,
+      "source_overlap_fraction": 0.17108695652173914,
+      "voxel_dice": 0.24066051679323175,
+      "overlap_area_proxy_m2": 590.25,
+      "cache_key": "global_1",
+      "exported_point_count": 36886,
+      "fine_nn": {
+        "source_to_infra_median_m": 1.2147269518859347,
+        "source_to_infra_p95_m": 9.793139349306442,
+        "source_fraction_under_025m": 0.19991324621807732,
+        "source_fraction_under_050m": 0.33134522583093856,
+        "source_fraction_under_100m": 0.4636447432630266,
+        "infra_to_source_median_m": 0.25058199550295035,
+        "infra_fraction_under_025m": 0.49898139345375525,
+        "infra_fraction_under_050m": 0.7271492598125764,
+        "infra_fraction_under_100m": 0.8708406899361674
+      }
+    },
+    {
+      "take": 2,
+      "agent": 2,
+      "frame_id": "488685",
+      "frame_offset": 835,
+      "frame_count": 881,
+      "fraction": 0.9488636363636364,
+      "archive": "/mnt/bcc-data/websites/data.ucr.edu-datasets-cooperscene/test/2.zip",
+      "exclusion_reason": "",
+      "raw_point_count": 97260,
+      "static_point_count": 91520,
+      "source_voxels": 11965,
+      "infrastructure_voxels": 5821,
+      "shared_voxels": 1965,
+      "infrastructure_coverage": 0.33757086411269543,
+      "source_overlap_fraction": 0.1642290012536565,
+      "voxel_dice": 0.22096030585854043,
+      "overlap_area_proxy_m2": 491.25,
+      "cache_key": "global_2",
+      "exported_point_count": 33677,
+      "fine_nn": {
+        "source_to_infra_median_m": 1.2512142286889645,
+        "source_to_infra_p95_m": 8.72680087961615,
+        "source_fraction_under_025m": 0.18555690827567775,
+        "source_fraction_under_050m": 0.3112510021676515,
+        "source_fraction_under_100m": 0.4500400867060605,
+        "infra_to_source_median_m": 0.3317032765939457,
+        "infra_fraction_under_025m": 0.3998370229526008,
+        "infra_fraction_under_050m": 0.6248132554665218,
+        "infra_fraction_under_100m": 0.7540404726334374
+      }
+    },
+    {
+      "take": 2,
+      "agent": 3,
+      "frame_id": "488684",
+      "frame_offset": 834,
+      "frame_count": 881,
+      "fraction": 0.9477272727272728,
+      "archive": "/mnt/bcc-data/websites/data.ucr.edu-datasets-cooperscene/test/2.zip",
+      "exclusion_reason": "",
+      "raw_point_count": 100646,
+      "static_point_count": 95916,
+      "source_voxels": 12722,
+      "infrastructure_voxels": 5821,
+      "shared_voxels": 1209,
+      "infrastructure_coverage": 0.20769627211819275,
+      "source_overlap_fraction": 0.09503222763716397,
+      "voxel_dice": 0.130399611713315,
+      "overlap_area_proxy_m2": 302.25,
+      "cache_key": "global_3",
+      "exported_point_count": 33818,
+      "fine_nn": {
+        "source_to_infra_median_m": 2.1426113355973695,
+        "source_to_infra_p95_m": 10.914618914117918,
+        "source_fraction_under_025m": 0.06975575137500739,
+        "source_fraction_under_050m": 0.18114613519427525,
+        "source_fraction_under_100m": 0.3089183275178899,
+        "infra_to_source_median_m": 0.5478459736823299,
+        "infra_fraction_under_025m": 0.1608719272035855,
+        "infra_fraction_under_050m": 0.4591878310471275,
+        "infra_fraction_under_100m": 0.7107157408664946
+      }
+    }
+  ],
+  "independent_ground_truth": false,
+  "production_default": false,
+  "units": "meters",
+  "report": "docs/investigations/overlap-selected-enu-calibration.md",
+  "final_solver_support": {
+    "gate_m": 0.4,
+    "iteration": 19,
+    "correspondences": 39680,
+    "roadlike_count": 20640,
+    "nonroad_count": 19040,
+    "point_plane_median_m": 0.06702097238241278,
+    "delta_rotation_deg": 4.2252270105710545e-05,
+    "delta_translation_m": 2.3189600889595525e-05,
+    "normal_matrix_eigenvalues": [
+      0.36272465859515424,
+      0.4433750789312749,
+      0.8824133632415114,
+      317.4811710754686,
+      383.27759134811583,
+      586.9742415835922
+    ],
+    "normal_matrix_rank_rcond_1e10": 6,
+    "step_converged": false
+  },
+  "solver_diagnostic_status": "inspect_final_rank_and_iteration_limit"
+}
