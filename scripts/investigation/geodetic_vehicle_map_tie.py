@@ -56,6 +56,9 @@ SETTINGS = dict(
     map_target='opacity > 0.05, local-centroid plane, local thickness < 0.10 m',
     scoring='per frame, class-matched point-to-surface residual within 1 m of the map surface; ground signed median and wall absolute median; vehicle pairs at identical frame IDs scored LiDAR-to-LiDAR (no map)',
     correction_fit='one rigid world-frame correction per vehicle, fitted on four takes and scored on the fifth (point-to-plane to the map, ground and walls equal weight, Huber 0.10 m)',
+    antenna_above_xsens_m=0.03,
+    lever_arm_source='user: antenna mounted directly on top of the Xsens, about 3 cm vertical; lidar_T_xsens from tower{N}-tfs.pkl. No lever arm is fitted.',
+    shared_correction='one world-frame rigid correction shared by the vehicles named, fitted on four takes and scored on the fifth',
     decision_rules=dict(
         geodetic_supported_for_vehicle='with no fitted correction: median |frame road height| <= 0.15 m AND median within-take std of frame road height <= 0.10 m AND median vehicle-pair separation not worse than released @ D',
         common_offset='if leave-one-take-out per-vehicle corrections agree across vehicles within 0.1 m and 0.2 deg, the remainder is attributed to the map georeference and shared',
@@ -85,11 +88,13 @@ class GeodeticPoses:
         E = np.asarray(pickle.load(open(CALIBRATION / f'tower{agent}-tfs.pkl', 'rb'))[f'tower{agent}-xsens,tower{agent}-lidar'])
         self.E_inv = np.linalg.inv(E)
 
-    def lidar_pose(self, t_ns):
+    def lidar_pose(self, t_ns, antenna_up_m=0.0):
+        """antenna_up_m: logged position taken as the antenna, mounted this far above the Xsens along its z axis."""
         t = float(np.clip(t_ns, self.t[0], self.t[-1]))
         T = np.eye(4)
         T[:3, :3] = self.slerp([t]).as_matrix()[0]
         T[:3, 3] = [np.interp(t, self.t, self.p[:, k]) for k in range(3)]
+        T[:3, 3] -= T[:3, :3] @ np.array([0., 0., antenna_up_m])
         return T @ self.E_inv
 
     def rtk_status(self, t_ns):
@@ -126,6 +131,7 @@ class GeodeticTieExperiment:
             f.poses['released_D'] = self.D @ f.poses['released']
             f.poses['geodetic_gnss_time'] = g.lidar_pose(tl.gnss[k])
             f.poses['geodetic_lidar_time'] = g.lidar_pose(tl.lidar[k])
+            f.poses['geodetic_antenna3cm'] = g.lidar_pose(tl.lidar[k], SETTINGS['antenna_above_xsens_m'])
             f.rtk = g.rtk_status(tl.lidar[k])
             rtk.setdefault(f'take{f.take}_vehicle{f.agent}', []).append(f.rtk)
         self.results['rtk_status_fraction'] = {k: {name: float(np.mean(np.array(v) == code)) for code, name in enumerate(['none', 'float', 'fixed', 'reserved'])} for k, v in rtk.items()}
@@ -290,6 +296,21 @@ class GeodeticTieExperiment:
         print('BODY', json.dumps(spread), flush=True)
         return name
 
+    def shared_correction(self, base, vehicles):
+        name = f"{base}+loto_shared_{''.join(map(str, vehicles))}"
+        folds = {}
+        for t in range(1, 6):
+            folds[t] = self.fit_correction([f for f in self.frames if f.agent in vehicles and f.take != t], base)
+        for f in self.frames:
+            D = folds[f.take] if f.agent in vehicles else None
+            f.poses[name] = (D if D is not None else np.eye(4)) @ f.poses[base]
+        full = self.fit_correction([f for f in self.frames if f.agent in vehicles], base)
+        Ds = [D for D in folds.values() if D is not None]
+        t_ = np.array([D[:3, 3] for D in Ds]); a_ = np.array([Rotation.from_matrix(D[:3, :3]).as_euler('xyz', degrees=True) for D in Ds])
+        self.results.setdefault('shared_corrections', {})[name] = dict(vehicles=list(vehicles), full=describe(full), translation_std_m=t_.std(0).tolist(), rpy_std_deg=a_.std(0).tolist())
+        print('SHARED', name, json.dumps(self.results['shared_corrections'][name]['full']['translation_m']), json.dumps(self.results['shared_corrections'][name]['full']['rpy_deg']), flush=True)
+        return name
+
     def corrections(self, base):
         out, folds = {}, {}
         for v in (1, 2, 3):
@@ -313,10 +334,11 @@ class GeodeticTieExperiment:
     # ------------------------------------------------------------ run
     def run(self):
         self.load()
-        names = ['released_D', 'geodetic_gnss_time', 'geodetic_lidar_time']
-        corrected = self.corrections('geodetic_lidar_time')
-        names.append(corrected)
-        names.append(self.body_corrections('geodetic_lidar_time'))
+        names = ['released_D', 'geodetic_lidar_time', 'geodetic_antenna3cm']
+        names.append(self.shared_correction('geodetic_antenna3cm', (2, 3)))
+        names.append(self.shared_correction('geodetic_antenna3cm', (1, 2, 3)))
+        names.append(self.corrections('geodetic_antenna3cm'))
+        names.append(self.body_corrections('geodetic_antenna3cm'))
         rows = self.score_map(names)
         pairs = self.score_pairs(self.frames, names)
         self.rows = rows
@@ -326,8 +348,8 @@ class GeodeticTieExperiment:
         rel = self.results['pair_scores']['released_D']['by_pair']
         verdict = {}
         for v in (2, 3):
-            s = self.results['map_scores']['geodetic_lidar_time'][f'vehicle {v}']
-            geo_pairs = self.results['pair_scores']['geodetic_lidar_time']['by_pair']
+            s = self.results['map_scores']['geodetic_antenna3cm'][f'vehicle {v}']
+            geo_pairs = self.results['pair_scores']['geodetic_antenna3cm']['by_pair']
             pair_ok = all(geo_pairs.get(p, 9) <= rel.get(p, 9) for p in rel if str(v) in p)
             verdict[f'vehicle {v}'] = dict(road_ok=s['median_abs_road_height_m'] is not None and s['median_abs_road_height_m'] <= .15, stability_ok=s['median_within_take_std_m'] is not None and s['median_within_take_std_m'] <= .10, pairs_not_worse=pair_ok)
             verdict[f'vehicle {v}']['supported'] = all(verdict[f'vehicle {v}'].values())
@@ -337,13 +359,13 @@ class GeodeticTieExperiment:
             print('MAP', n, json.dumps(self.results['map_scores'][n]), flush=True)
             print('PAIRS', n, json.dumps(self.results['pair_scores'][n]), flush=True)
         print('RTK', json.dumps(self.results['rtk_status_fraction']), flush=True)
-        print('CORRECTIONS', json.dumps(self.results['corrections_geodetic_lidar_time']['full']), flush=True)
+        print('CORRECTIONS', json.dumps(self.results['corrections_geodetic_antenna3cm']['full']), flush=True)
         print('DECISION', verdict, flush=True)
         self.figures_time(names)
         print('DONE', flush=True)
 
     def figures_time(self, names):
-        colors = {'released_D': '#2a78d6', 'geodetic_gnss_time': '#eda100', 'geodetic_lidar_time': '#1baf7a', 'geodetic_lidar_time+loto_vehicle_correction': '#e87ba4', 'geodetic_lidar_time+loto_body_correction': '#4a3aa7'}
+        colors = {'released_D': '#2a78d6', 'geodetic_lidar_time': '#eda100', 'geodetic_antenna3cm': '#1baf7a', 'geodetic_antenna3cm+loto_shared_23': '#e34948', 'geodetic_antenna3cm+loto_shared_123': '#8a8d91', 'geodetic_antenna3cm+loto_vehicle_correction': '#e87ba4', 'geodetic_antenna3cm+loto_body_correction': '#4a3aa7'}
         fig, axes = plt.subplots(5, 3, figsize=(20, 19), layout='constrained', squeeze=False)
         for t in range(1, 6):
             for v in (1, 2, 3):

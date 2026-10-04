@@ -1,0 +1,83 @@
+{
+ "status": "candidate; conditional on the recorded lidar_T_xsens and a 3 cm antenna-above-Xsens offset; fitted to GSplat (not independent ground truth); production defaults unchanged",
+ "vehicles": [
+  2,
+  3
+ ],
+ "composition": "map_T_lidar(t) = G @ Pose(R_INS(t_lidar) @ F_a, p_geo(t_lidar) - R_INS(t_lidar) @ [0, 0, 0.03]) @ inverse(lidar_T_xsens_a)",
+ "p_geo": "raw_gnss.csv Latitude/Longitude/Altitude converted to the GSplat georeference ENU (origin 33.9757064853, -117.3398869498; z = elevation - 273.43 m), interpolated to the scan LiDAR timestamp",
+ "F": "identity for vehicles 2 and 3 (agent 1 uses diag(1,-1,-1))",
+ "lidar_T_xsens_source": "/mnt/bcc-data/data/Cooperscene/backup/calib_data/250928/tower{N}-tfs.pkl key tower{N}-xsens,tower{N}-lidar",
+ "G": [
+  [
+   0.9999808796096317,
+   0.00041155533163640185,
+   0.006170173203086273,
+   -0.06128823098009741
+  ],
+  [
+   -0.000408382222107578,
+   0.9999997837330874,
+   -0.0005155169629498539,
+   0.34372792607766633
+  ],
+  [
+   -0.006170384032436616,
+   0.0005129873170208171,
+   0.9999808314187348,
+   -0.47532484748270204
+  ],
+  [
+   0.0,
+   0.0,
+   0.0,
+   1.0
+  ]
+ ],
+ "G_rpy_deg_xyz": [
+  0.029392569044554603,
+  0.35353920647843184,
+  -0.023399023852585035
+ ],
+ "G_translation_m": [
+  -0.06128823098009741,
+  0.34372792607766633,
+  -0.47532484748270204
+ ],
+ "G_rotation_center": "map origin (rotation applied about map (0, 0, 0))",
+ "fold_spread": {
+  "translation_std_m": [
+   0.028221216014489903,
+   0.0161988863685504,
+   0.009137763260652567
+  ],
+  "rpy_std_deg": [
+   0.021498425979396715,
+   0.02483242489088515,
+   0.030058715098058804
+  ]
+ },
+ "heldout_take_scores": {
+  "vehicle 2": {
+   "frames": 466,
+   "ground_frames": 441,
+   "median_abs_road_height_m": 0.05856336026600057,
+   "median_signed_road_height_m": 0.007099073404283195,
+   "p90_abs_road_height_m": 0.09739319581105776,
+   "median_within_take_std_m": 0.04841121441395568,
+   "wall_frames": 465,
+   "median_wall_m": 0.26815099087422134
+  },
+  "vehicle 3": {
+   "frames": 467,
+   "ground_frames": 444,
+   "median_abs_road_height_m": 0.07114461861819989,
+   "median_signed_road_height_m": 0.060690580553978156,
+   "p90_abs_road_height_m": 0.1541526504088412,
+   "median_within_take_std_m": 0.09843838500929021,
+   "wall_frames": 467,
+   "median_wall_m": 0.15985022606903318
+  }
+ },
+ "source": "artifacts/reference-refinement/geodetic-vehicle-map-tie/results.json"
+}
