@@ -1,0 +1,63 @@
+{
+ "purpose": "The eight original vehicle comparison frames (\"eight cases\"). Reconstructed after the git-ignored final-comparison/diagnostics.json was lost with the /tmp worktree.",
+ "provenance": "Identities from the per-case camera folder names cooperscene-<take>-<agent>-f<offset> of the lost overlap-selected-calibration artifacts, corroborated by committed docs (take 5 / agent 1 / offset 180; reserved take 3 / vehicle 3 / offset 500). Frame IDs resolved from archive YAML order.",
+ "verification": "Rebuilt shared D must equal cooperscene_shared_enu_map.json D, and the rebuilt overlap selection must reproduce the 15 documented per-take winners.",
+ "cases": [
+  {
+   "run_id": "cooperscene-1-1",
+   "take": 1,
+   "agent": 1,
+   "frame_offset": 0,
+   "frame_id": "481260"
+  },
+  {
+   "run_id": "cooperscene-1-3",
+   "take": 1,
+   "agent": 3,
+   "frame_offset": 464,
+   "frame_id": "481724"
+  },
+  {
+   "run_id": "cooperscene-2-3",
+   "take": 2,
+   "agent": 3,
+   "frame_offset": 871,
+   "frame_id": "488721"
+  },
+  {
+   "run_id": "cooperscene-3-1",
+   "take": 3,
+   "agent": 1,
+   "frame_offset": 0,
+   "frame_id": "496760"
+  },
+  {
+   "run_id": "cooperscene-3-3",
+   "take": 3,
+   "agent": 3,
+   "frame_offset": 500,
+   "frame_id": "497260"
+  },
+  {
+   "run_id": "cooperscene-4-2",
+   "take": 4,
+   "agent": 2,
+   "frame_offset": 134,
+   "frame_id": "515554"
+  },
+  {
+   "run_id": "cooperscene-5-1",
+   "take": 5,
+   "agent": 1,
+   "frame_offset": 180,
+   "frame_id": "524180"
+  },
+  {
+   "run_id": "cooperscene-5-3",
+   "take": 5,
+   "agent": 3,
+   "frame_offset": 71,
+   "frame_id": "524071"
+  }
+ ]
+}

@@ -137,14 +137,18 @@ class TimingDiagnostic:
         (self.output / name).write_text(json.dumps(value, indent=1, allow_nan=False, default=lambda o: o.tolist() if hasattr(o, 'tolist') else str(o)) + '\n')
 
     # ------------------------------------------------------------ inputs
-    def load(self):
+    def timelines_cache(self):
+        """Released poses and GNSS/LiDAR timestamps for every vehicle frame, read once from the archives."""
         W = np.asarray(json.loads((BASE / 'shared-enu-calibration/calibration.json').read_text())['original_W'])
         cache = self.output / 'timelines.json'
         if not cache.exists():
             with ProcessPoolExecutor(5) as pool:
                 data = dict(pool.map(read_timeline, [(t, W) for t in range(1, 6)]))
             cache.write_text(json.dumps({str(t): {str(a): r for a, r in d.items()} for t, d in data.items()}))
-        raw = json.loads(cache.read_text())
+        return cache
+
+    def load(self):
+        raw = json.loads(self.timelines_cache().read_text())
         self.timelines = {(int(t), int(a)): PoseTimeline(r) for t, d in raw.items() for a, r in d.items()}
         loader = VehicleCorrectionExperiment.__new__(VehicleCorrectionExperiment)
         loader.output, loader.results = FRAMES, {}
@@ -502,4 +506,7 @@ class TimingDiagnostic:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=BASE / 'vehicle-pose-timing')
-    TimingDiagnostic(parser.parse_args().output).run()
+    parser.add_argument('--stage', choices=['all', 'timelines'], default='all')
+    args = parser.parse_args()
+    job = TimingDiagnostic(args.output)
+    job.timelines_cache() if args.stage == 'timelines' else job.run()

@@ -20,6 +20,8 @@ ROOT=Path(__file__).resolve().parents[2]
 OUT=ROOT/'artifacts/reference-refinement/shared-enu-calibration'
 ARCHIVE=Path('/mnt/bcc-data/websites/data.ucr.edu-datasets-cooperscene')
 OLD=ROOT/'artifacts/reference-refinement/final-comparison/diagnostics.json'
+LEGACY=ROOT/'scripts/investigation/cooperscene_legacy_cases.json'
+RECORD=ROOT/'scripts/investigation/cooperscene_shared_enu_map.json'
 
 
 def transform(p,T): return p@T[:3,:3].T+T[:3,3]
@@ -36,11 +38,17 @@ def metrics(p,tree):
 class SharedMapCalibration:
     def __init__(self):
         OUT.mkdir(parents=True,exist_ok=True)
-        legacy=json.loads(OLD.read_text())
+        if OLD.exists():
+            legacy=json.loads(OLD.read_text())
+            attempt=json.loads(Path(legacy[0]['attempt_path']).read_text())
+            self.map_path=attempt['metadata']['map_path']
+            with np.load(attempt['metadata']['npz_path']) as f:self.W=f['reference_map_T_dataset'].copy()
+        else:
+            # Lost git-ignored inputs: committed case list plus the committed calibration record.
+            legacy=json.loads(LEGACY.read_text())['cases']
+            record=json.loads(RECORD.read_text())
+            self.map_path=record['map_path'];self.W=np.asarray(record['original_W'])
         self.excluded={(int(r['run_id'].split('-')[1]),int(r['run_id'].split('-')[2]),str(r['frame_id'])) for r in legacy}
-        attempt=json.loads(Path(legacy[0]['attempt_path']).read_text())
-        self.map_path=attempt['metadata']['map_path']
-        with np.load(attempt['metadata']['npz_path']) as f:self.W=f['reference_map_T_dataset'].copy()
         expected_W=np.eye(4);expected_W[:3,3]=[1.2891715943262518,-3.381634466657298,-.43000102971778076]
         if not np.allclose(self.W,expected_W,atol=1e-10):raise ValueError('Unexpected inherited map tie')
         self.target=voxel(map_proxy(self.map_path,min_opacity=0),.15)

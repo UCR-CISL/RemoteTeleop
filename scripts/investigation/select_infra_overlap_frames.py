@@ -55,7 +55,8 @@ class InfrastructureOverlapSelector:
     def __init__(self, workers=3):
         self.workers = workers
         self.old_manifest = json.loads((BASE / 'input-manifest.json').read_text())
-        legacy = json.loads((ROOT / 'artifacts/reference-refinement/final-comparison/diagnostics.json').read_text())
+        old = ROOT / 'artifacts/reference-refinement/final-comparison/diagnostics.json'
+        legacy = json.loads(old.read_text()) if old.exists() else json.loads((ROOT / 'scripts/investigation/cooperscene_legacy_cases.json').read_text())['cases']
         self.exclusions = {(r['take'], r['agent'], r['frame_id']): 'previous_heldout'
                            for r in self.old_manifest if r['partition'] == 'heldout'}
         self.exclusions.update({(int(r['run_id'].split('-')[1]), int(r['run_id'].split('-')[2]),
