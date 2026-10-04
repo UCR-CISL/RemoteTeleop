@@ -17,8 +17,11 @@ map_T_lidar(t) = G @ Pose(R_INS(t) @ F_a, p_geo(t) - R_INS(t) @ [0, 0, 0.03]) @ 
   (33.9757064853, −117.3398869498), with z equal to elevation minus 273.43 m.
 - **`R_INS(t)`.** Raw Xsens orientation. `F_a` is the identity for vehicles 2
   and 3.
-- **`[0, 0, 0.03]`.** The antenna, mounted directly on top of the Xsens about
-  3 cm up, as you described. Nothing is fitted here.
+- **`[0, 0, 0.03]`.** The antenna, mounted directly on top of the Xsens. The
+  3 cm is an unverified estimate. Nothing is fitted here. An error in it is almost
+  purely vertical and is absorbed one-for-one by `G`'s vertical term. Going from
+  0 to 3 cm moved the uncorrected road height by about 2.6 cm. `G`'s horizontal
+  terms, its rotation and the held-out accuracy do not depend on it.
 - **`lidar_T_xsens_a`.** The recorded calibration in `tower{N}-tfs.pkl`,
   applied on the vehicle side.
 - **`G`.** One rigid correction shared by both vehicles, applied about the map

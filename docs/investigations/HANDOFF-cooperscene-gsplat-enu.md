@@ -37,7 +37,7 @@ continues it. The detailed reports it cites are in `docs/investigations/`.
 - **Code style.** Keep diffs minimal and prefer classes for stateful code; see
   `AGENTS.md`.
 - **Mounting facts from the user.** The GNSS antenna sits directly on top of the
-  Xsens, about 3 cm up. The recorded `lidar_T_xsens` is the LiDAR-to-Xsens
+  Xsens. The 3 cm vertical offset is the user's estimate and cannot be verified. The recorded `lidar_T_xsens` is the LiDAR-to-Xsens
   transform. The original lever arm can no longer be measured. The
   MultiModalCalibration repository is a separate project; don't rely on it.
 
@@ -71,6 +71,12 @@ map_T_lidar(t) = G @ Pose(R_INS(t) @ F_a, p_geo(t) - R_INS(t) @ [0, 0, 0.03]) @ 
 - **Likely cause of `G`.** A difference between the map's Street View-derived
   georeference and RTK GNSS. The −0.48 m vertical is probably a height-datum
   difference.
+- **Sensitivity to the 3 cm antenna estimate.** The estimate is unverified.
+  Because the antenna is directly above the Xsens, an error in it is almost
+  purely vertical. It shifts `G`'s vertical term roughly one-for-one and cannot
+  be separated from the datum offset. Going from 0 to 3 cm moved the uncorrected
+  road height by about 2.6 cm. `G`'s horizontal terms, its rotation and the
+  held-out accuracy do not depend on it.
 
 Details: `geodetic-vehicle-map-tie.md`.
 
