@@ -1,8 +1,9 @@
 # CooperScene tracking pilot, 2026-10-11
 
-Only take 1 / vehicle 1 was evaluated: native frames **481260–481319**, 60
-consecutive frames (5.90 s between first and last captures). Other sequences
-remain on hold. Initial input preparation also cached take 3/V1 and take 4/V2;
+Only take 1 / vehicle 1 was evaluated: native frames **481260–481760**, 501
+consecutive frames (50.00 s between first and last captures). The first 60
+frames were development inputs; frames 60–500 were held out from parameter
+selection. Other sequences remain on hold. Initial input preparation also cached take 3/V1 and take 4/V2;
 those caches were not inferred after the user requested one sequence first.
 
 ## Acceptance and protocol
@@ -10,7 +11,9 @@ those caches were not inferred after the user requested one sequence first.
 The minimum requested condition is that every front-camera GT annotation ID is
 detected at least once. The stronger pilot target is at least 90% detection and
 track recall for each ID visible in at least five frames, no never-detected ID,
-and at most one identity switch per 100 visible GT observations. An optional
+and at most one identity switch per 100 visible GT observations. Here
+“visible” in automated metrics means geometric front FOV; actual optical
+visibility requires the camera/occlusion audit below. An optional
 90% precision target prevents passing coverage by emitting excessive boxes.
 Passing the minimum does not establish that the stronger target passes.
 
@@ -24,7 +27,7 @@ IoU MOTChallenge. Coverage is 283 projected GT observations, 11 annotation IDs,
 nine IDs meeting the five-frame minimum. See the evaluation tool
 [protocol](../scripts/investigation/cooperscene_tracking/README.md).
 
-## Fixed localization and GT
+## Initial 60-frame development localization and GT
 
 The start is archived XYZ's earliest strictly qualified frame, index 0, with
 0.03555 m conditional reference disagreement. Its XYZ registration correction
@@ -243,6 +246,124 @@ trajectory is not continuous per-frame XYZ registration, and the short-pilot
 strict XYZ qualification must not be extrapolated to the whole sequence.
 Candidate policies and the held-out frame range 60–500 are frozen in
 `artifacts/tracking-take1-full-validation-20261011/frozen-policy.json` before
-held-out inference. Full-sequence model evaluation is pending; other takes
-remain on hold. Payload hashes are in the new input directory's
+held-out inference. Full-sequence model evaluation is complete below; other takes remain on hold. Payload hashes are in the new input directory's
 `payload-verification.json`.
+
+### Corrected XYZ baseline before full-sequence inference
+
+Archive inspection found the actual independently initialized per-frame XYZ
+fusion outputs. The full comparison therefore uses
+`artifacts/tracking-take1-full-xyz-inputs-20261011/`, superseding the frozen
+initial-correction trajectory for this validation. The earlier 60-frame metrics
+remain labelled development diagnostics under their original pose policy.
+
+`pilot.py rebase-xyz` validates recipe/map hashes, exact frame identity/capture
+time and retained raw-reference poses. Accepted archived fused estimates are
+used directly. Rejected optimizer proposals never become estimator poses:
+the last accepted left correction is propagated on the current raw GNSS/INS
+recipe reference. All source arrays, GT, reference poses and capture times are
+unchanged. The new metadata uses relative paths to the existing NPZ files.
+
+There are 476 accepted XYZ frames and 25 explicitly propagated frames. Rejected
+indices are 116, 393, 421 and 479–500. Maximum conditional reference disagreement
+is 0.1201 m on accepted frames and 0.1619 m on propagated frames; the final
+propagation age is 2.20 s. This is an archived independent-frame policy with
+explicit fallback, not a continuous XYZ estimator. The detector/tracker trial
+settings are unchanged and the localization correction was recorded before
+any full-sequence model outputs were collected.
+
+```sh
+.venv/bin/python scripts/investigation/cooperscene_tracking/pilot.py rebase-xyz \
+  --inputs artifacts/tracking-take1-full-inputs-20261011 \
+  --output artifacts/tracking-take1-full-xyz-inputs-NEW \
+  --map /path/to/riverside_iowa.ply
+```
+
+The depth-buffered optical audit is in
+`artifacts/tracking-take1-depth-calibration-audit-20261011/`. Direct local
+LiDAR point projections also show the distant pickup correspondence offset;
+no ENU/world pose enters that projection. Six audited camera/PCD files exactly
+match their raw backup sources, so release-to-native conversion did not rotate
+points, resize images or rectify images. Both metadata sensor timestamps have
+the same +37 s offset from raw filenames (clock conversion reason unverified),
+preserving the 18–19 ms camera/LiDAR skew. The published extrinsic matches the
+raw calibration. Those facts do not certify physical camera alignment or
+surface identity; no speculative extrinsic or height correction was applied.
+
+
+## Full-sequence validation with archived per-frame XYZ
+
+Both frozen model trials ran on all 501 frames with identical source payloads,
+GT, timestamps, intrinsics and actual XYZ poses. The model-input trial changes
+camera crop from .48 to .36 and clips intensity at 255. Both sides group the
+native car/truck/bus/trailer/construction-vehicle classes for generic vehicle
+GT, retain native class metadata, and use a .2 primary score threshold. These
+paired changes establish an input-recipe improvement, not isolated attribution
+to either change. No checkpoint weights were trained or changed.
+
+Full geometric front-FOV coverage is 1,664 GT observations and 29 annotation
+IDs, 28 present for at least five frames. All numbers below use the declared
+2 m XYZ center matching gate; predictions receive the same FOV filter as GT.
+
+| Input/tracker | Detection precision / recall | Track precision / recall | ID switches | Fragmentations | Geometric IDF1 |
+|---|---:|---:|---:|---:|---:|
+| Original / control | 31.7% / 8.8% | 36.5% / 20.0% | 26 | 29 | .134 |
+| Corrected inputs / control | 74.4% / 79.0% | 67.1% / 85.3% | 8 | 10 | .734 |
+| Corrected / two-hit confirmation | same | 73.2% / 83.4% | 2 | 6 | .770 |
+| Corrected / low-score continuation | same | 61.5% / 87.0% | 9 | 9 | .705 |
+| Corrected / both | same | 72.1% / 84.6% | 3 | 5 | .767 |
+
+Held-out frames 60–500 use tracker state warmed from frame zero, with evaluation
+identity history starting at frame 60. Original detection precision/recall is
+30.8%/9.3%; corrected is 72.4%/76.8%. Corrected control track precision/recall is
+65.4%/82.8%, geometric IDF1 .709, eight switches and nine fragmentations.
+Two-hit confirmation gives 71.8%/81.0%, IDF1 .750, two switches and five
+fragmentations. Low-score continuation adds false positives; no optional policy
+is promoted and defaults remain unchanged. Held-out results are reported once;
+no parameters were selected from these results.
+
+The corrected control's matched front-FOV detection center error is mean
+0.794 m, RMSE 0.839 m; dimension absolute errors (length, width, height) average
+(0.373, 0.227, 0.122) m; length-axis yaw error averages 11.75 degrees modulo 180.
+Track center RMSE is 0.868 m. These are conditional reference errors of matched
+objects, not localization-independent accuracy or errors of missed objects.
+
+The minimum geometric coverage condition fails: GT 69 (24 FOV frames), 68
+(27) and 182 (12) never match a primary detection. None has an above-.2 motor
+proposal within 2 m during its FOV window. Center rays intersect nearer GT
+cuboids in 24/24, 18/27 and 9/12 frames, respectively. GT 69 also has very sparse
+LiDAR support. Such intersections indicate possible occlusion, not a certified
+visible-surface mask. Camera/LiDAR projections still have unresolved physical
+correspondence offsets. Therefore neither zero geometric misses nor coverage
+of every physically visible vehicle is established. Increasing tracker coast
+cannot recover missing detector evidence. Keep all other takes on hold.
+
+Exact reports and labelled artifacts:
+
+- `artifacts/tracking-take1-full-clipped-policy-comparison-20261011/`: all four
+  frozen policies, per-ID coverage, exact equal-input checks, independent XYZ audit.
+- `artifacts/tracking-take1-full-original-baseline-comparison-20261011/`: paired
+  original comparison, separate development and held-out metrics.
+- `artifacts/tracking-take1-full-front-overlays-20261011/`: full camera+LiDAR
+  BEV detection and track videos; wireframes intentionally have no occlusion.
+- `artifacts/tracking-take1-full-visuals-20261011/coverage.png`: per-ID timeline.
+- `artifacts/tracking-take1-full-failure-audit-20261011/`: camera/BEV examples,
+  raw proposal scores, local LiDAR support and cuboid ray intersections.
+- `artifacts/tracking-take1-full-gamma-primitives-labelled-20261011/`: sixteen real-map
+  depth-buffered panels at eight indices using native primitive kinds and
+  preserved XYZ height. Generic vehicle GT uses explicitly labelled car-shaped
+  primitives scaled to its annotated dimensions, a rendering-only assumption.
+  Rendering ground placement is disabled.
+- `artifacts/tracking-take1-full-validation-20261011/actual-execution-provenance.json`:
+  executed commit and corrected input hashes; earlier provenance is retained.
+
+The independent XYZ audit confirms 476 registration/fusion-accepted estimates,
+including 465 below the strict .1 m conditional recipe-error threshold. Eleven
+accepted estimates exceed that qualification threshold. The 25 rejected frames
+use explicit propagation; acceptance is not synonymous with strict reference
+qualification. Retained localization uses GT vehicle masks with .2 m padding,
+and V1 mounting calibration includes take 1. GT never enters detector or tracker,
+but is not evaluation-only throughout upstream localization preparation. The
+holdout validates tracking within this sequence, not independent localization
+calibration. Published/raw-pickle extrinsic agreement establishes provenance,
+not physical calibration accuracy; the 3 cm antenna lever arm remains assumed.
