@@ -10,10 +10,12 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import signal
 from pathlib import Path
 from queue import Empty, Queue
 import time
 from threading import Event, Lock, Thread
+from types import SimpleNamespace
 from typing import Any, Mapping, Protocol
 
 import cv2
@@ -364,7 +366,7 @@ class _McapPointCloud:
 
 
 class McapFrameReplay:
-    """Replay the two known CooperScene MCAP records without ROS/DDS delivery.
+    """Replay ROS2 or Foxglove MCAP recordings without ROS/DDS delivery.
 
     This is deliberately playback-only: the live vehicle continues to use the
     ROS subscriptions below.  The reader keeps MCAP record order (rather than
@@ -383,7 +385,12 @@ class McapFrameReplay:
         sleep: Any = time.sleep,
         monotonic: Any = time.monotonic,
         reader_factory: Any = None,
+        agent: str = "1",
+        start_sequence: int = 0,
     ) -> None:
+        if isinstance(start_sequence, bool) or not isinstance(start_sequence, int) or start_sequence < 0:
+            raise ValueError("start_sequence must be a non-negative integer")
+        self.start_sequence = start_sequence
         if rate <= 0:
             raise ValueError("MCAP replay rate must be positive")
         if not image_topic.startswith("/") or not metadata_topic.startswith("/"):
@@ -401,6 +408,7 @@ class McapFrameReplay:
         self.sleep = sleep
         self.monotonic = monotonic
         self.reader_factory = reader_factory or _mcap_reader
+        self.agent = agent
 
     def replay(self, path: Path) -> None:
         metadata_count = 0
@@ -411,6 +419,14 @@ class McapFrameReplay:
         replay_started = self.monotonic()
         with path.open("rb") as stream:
             reader = self.reader_factory(stream)
+            summary = reader.get_summary() if hasattr(reader, "get_summary") else None
+            if summary is not None and any(
+                schema.name == "foxglove.CompressedImage" for schema in summary.schemas.values()
+            ):
+                self._replay_foxglove(path)
+                return
+            if self.start_sequence:
+                raise ValueError("nonzero start_sequence requires a Foxglove MCAP")
             for schema, channel, message in reader.iter_messages(
                 topics=tuple(topic for topic in (self.image_topic, self.metadata_topic, self.lidar_topic) if topic), log_time_order=False
             ):
@@ -460,6 +476,52 @@ class McapFrameReplay:
                 )
         if self.adapter.analysis_assembler is not None:
             self.adapter.analysis_assembler.raise_if_failed()
+
+
+    def _replay_foxglove(self, path: Path) -> None:
+        from src.data.foxglove_mcap import FoxgloveMcapReader
+
+        frames = FoxgloveMcapReader(
+            path, agent=self.agent, scene_generation=self.adapter.scene_generation,
+            include_lidar=self.lidar_topic is not None,
+        )
+        started = self.monotonic()
+        first_timestamp = None
+        first_metadata_timestamp_us = None
+        count = 0
+        for frame in frames:
+            if frame.sequence < self.start_sequence:
+                continue
+            if first_timestamp is None:
+                first_timestamp = frame.timestamp_ns
+                first_metadata_timestamp_us = int(frame.metadata["timestamp_us"])
+                started = self.monotonic()
+            target = started + (frame.timestamp_ns - first_timestamp) / 1e9 / self.rate
+            remaining = target - self.monotonic()
+            if remaining > 0:
+                self.sleep(remaining)
+            metadata = dict(frame.metadata)
+            metadata["recorded_source_sequence"] = frame.sequence
+            metadata["recorded_timestamp_us"] = metadata["timestamp_us"]
+            metadata["source_sequence"] = count
+            metadata["timestamp_us"] = int(metadata["timestamp_us"]) - first_metadata_timestamp_us
+            timestamp_ns = metadata["timestamp_us"] * 1000
+            header = SimpleNamespace(
+                stamp=SimpleNamespace(sec=timestamp_ns // 10**9, nanosec=timestamp_ns % 10**9),
+                frame_id=str(frame.metadata["frame_id"]),
+            )
+            height, width = frame.image_bgr.shape[:2]
+            image = _McapImage(header, height, width, width * 3, "bgr8", frame.image_bgr.tobytes())
+            self.adapter.analysis_assembler.receive_image(image)
+            if self.adapter.bevfusion is not None:
+                self.adapter.bevfusion.receive_image(image)
+                if frame.lidar_points is not None:
+                    self.adapter.bevfusion.receive_lidar(_McapPointCloud(header, frame.lidar_points))
+            self.adapter.receive_metadata(metadata)
+            count += 1
+        if self.expected_samples is not None and count != self.expected_samples:
+            raise RuntimeError(f"expected {self.expected_samples} MCAP frames, got {count}")
+        self.adapter.analysis_assembler.raise_if_failed()
 
 
 def _mcap_reader(stream: Any) -> Any:
@@ -705,7 +767,16 @@ class RosFrameAdapter:
         snapshot_sink: SnapshotSink | None = None,
         analysis_assembler: RosAnalysisAssembler | None = None,
         bevfusion: LatestBevFusionBoxes | None = None,
+        localization_metrics: Any = None,
+        localization_reference_transform: np.ndarray | None = None,
     ) -> None:
+        if (localization_metrics is None) != (localization_reference_transform is None):
+            raise ValueError("localization metrics require a reference transform")
+        self.localization_metrics = localization_metrics
+        self.localization_reference_transform = (
+            None if localization_reference_transform is None
+            else _rigid_matrix(localization_reference_transform, "localization reference transform")
+        )
         self.publisher = publisher
         self.config = config or RosFrameAdapterConfig()
         self.metrics = metrics or JsonlMetrics(None)
@@ -731,6 +802,7 @@ class RosFrameAdapter:
         """
         arrival_ns = time.monotonic_ns() if arrival_ns is None else arrival_ns
         payload = _metadata_payload(message)
+        original_payload = payload
         if self.config.gaussian_T_nuscenes_global is not None:
             payload = _relocalize_nuscenes_metadata(
                 payload, self.config.gaussian_T_nuscenes_global
@@ -757,6 +829,22 @@ class RosFrameAdapter:
             "scene_generation": generation,
             "frame_id": _non_empty_string(payload.get("frame_id"), "frame_id"),
         }
+        if self.localization_metrics is not None:
+            stored = original_payload.get("gaussian_T_nuscenes_global", original_payload.get("map_T_nuscenes_global"))
+            if generation.startswith("cooperscene:"):
+                stored = self.config.stored_gaussian_T_cooperscene
+                if stored is None:
+                    stored = original_payload.get("gaussian_T_cooperscene", np.eye(4))
+            if stored is None:
+                raise ValueError("localization metrics require the stored dataset-to-map alignment")
+            original_pose = _rigid_matrix(original_payload.get("map_T_lidar", original_payload.get("world_T_ego")), "original map_T_lidar")
+            reference_pose = self.localization_reference_transform @ np.linalg.inv(_rigid_matrix(stored, "stored alignment")) @ original_pose
+            self.localization_metrics.record(
+                sequence=common["sequence"], timestamp_us=common["timestamp_us"], frame_id=common["frame_id"],
+                estimated_pose=_rigid_matrix(payload.get("map_T_lidar", payload.get("world_T_ego")), "estimated map_T_lidar"),
+                reference_pose=reference_pose,
+                map_R_dataset=self.localization_reference_transform[:3, :3],
+            )
         boxes = (
             self.bevfusion.boxes_for(dict(payload, **common))
             if self.bevfusion is not None else _box_prompts(payload.get("boxes", ()))
@@ -789,6 +877,9 @@ class RosFrameAdapter:
                 "frame_id": pose.frame_id,
                 "scene_generation": pose.scene_generation,
                 "source_timestamp_us": pose.timestamp_us,
+                "recorded_source_sequence": payload.get("recorded_source_sequence"),
+                "recorded_timestamp_us": payload.get("recorded_timestamp_us"),
+                "source_timestamp_ns": payload.get("source_timestamp_ns"),
                 "object_detection_count": len(detections.boxes),
                 "transport_contract": "durable_frame_snapshot",
                 "snapshot_durably_spooled": self.snapshot_sink is not None,
@@ -1109,6 +1200,8 @@ def main() -> None:
     parser.add_argument("--lidar-topic", default="/lidar/points")
     parser.add_argument("--mcap", type=Path)
     parser.add_argument("--mcap-rate", type=float, default=1.0)
+    parser.add_argument("--mcap-agent", default="1", help="Camera/LiDAR agent in Foxglove MCAPs")
+    parser.add_argument("--mcap-start-sequence", type=int, default=0)
     parser.add_argument("--localization-transform", type=Path)
     parser.add_argument("--stored-localization-transform", type=Path)
     parser.add_argument("--bbox-source", choices=("gt", "bevfusion"), default="gt")
@@ -1120,6 +1213,11 @@ def main() -> None:
     parser.add_argument("--scene-generation")
     parser.add_argument("--expected-samples", type=int)
     parser.add_argument("--metrics-path", type=Path)
+    parser.add_argument("--localization-reference-transform", type=Path)
+    parser.add_argument("--localization-reference-kind", choices=("shared_enu_prior", "recorded_pose_alignment_baseline"))
+    parser.add_argument("--localization-metrics-path", type=Path)
+    parser.add_argument("--localization-position-mode", choices=("xyz", "xy"), default="xyz")
+
     parser.add_argument("--spool-root", type=Path, default=Path("artifacts/vehicle_frame_spool"))
     parser.add_argument("--assets-endpoint")
     parser.add_argument("--asset-store-root", type=Path, default=Path("artifacts/vehicle_assets"))
@@ -1134,6 +1232,8 @@ def main() -> None:
         parser.error("--high-water-mark must be positive")
     if args.mcap_rate <= 0:
         parser.error("--mcap-rate must be positive")
+    if args.mcap_start_sequence < 0 or (args.mcap_start_sequence and args.mcap is None):
+        parser.error("--mcap-start-sequence requires MCAP playback and must be non-negative")
     if args.mcap is not None and not args.mcap.is_file():
         parser.error(f"--mcap does not exist: {args.mcap}")
     if args.localization_transform is not None and not args.localization_transform.is_file():
@@ -1152,6 +1252,11 @@ def main() -> None:
         parser.error("--bevfusion-score-threshold must be between zero and one")
     if args.bbox_source == "bevfusion" and not args.bevfusion_endpoint:
         parser.error("--bbox-source bevfusion requires --bevfusion-endpoint")
+
+    if args.mcap is not None:
+        # A detached background shell may pass SIGINT as ignored. Restore it
+        # so the launcher's normal shutdown reaches the cleanup below.
+        signal.signal(signal.SIGINT, signal.default_int_handler)
 
     context = zmq.Context()
     router = RouterTransport.open(
@@ -1188,6 +1293,22 @@ def main() -> None:
             _open_bevfusion_client(args.bevfusion_endpoint),
             score_threshold=args.bevfusion_score_threshold,
         )
+    localization_metrics = None
+    localization_reference = None
+    if any((args.localization_reference_transform, args.localization_reference_kind, args.localization_metrics_path)):
+        if not all((args.localization_reference_transform, args.localization_reference_kind, args.localization_metrics_path)):
+            parser.error("localization metrics require reference transform, reference kind, and output path")
+        from src.localization.trajectory_metrics import TrajectoryMetrics
+        reference_payload = json.loads(args.localization_reference_transform.read_text())
+        for key in ("reference_T_dataset", "gaussian_T_cooperscene", "gaussian_T_nuscenes_global", "map_T_nuscenes_global"):
+            if key in reference_payload:
+                localization_reference = _rigid_matrix(reference_payload[key], key)
+                break
+        if localization_reference is None:
+            parser.error("reference transform must contain reference_T_dataset or a dataset alignment")
+        localization_metrics = TrajectoryMetrics(args.localization_metrics_path,
+            reference_kind=args.localization_reference_kind, expected_samples=args.expected_samples,
+            position_mode=args.localization_position_mode)
     adapter = RosFrameAdapter(
         _LocalPosePublisher(),
         RosFrameAdapterConfig(
@@ -1214,6 +1335,8 @@ def main() -> None:
         snapshot_sink=spool,
         analysis_assembler=analysis_assembler,
         bevfusion=bevfusion,
+        localization_metrics=localization_metrics,
+        localization_reference_transform=localization_reference,
     )
     rclpy = None
     node = None
@@ -1246,6 +1369,8 @@ def main() -> None:
                 lidar_topic=args.lidar_topic if args.bbox_source == "bevfusion" else None,
                 expected_samples=args.expected_samples,
                 rate=args.mcap_rate,
+                agent=args.mcap_agent,
+                start_sequence=args.mcap_start_sequence,
             ).replay(args.mcap)
         while rclpy is None or rclpy.ok():
             if rclpy is not None:
@@ -1261,6 +1386,8 @@ def main() -> None:
             if analysis_assembler is not None:
                 analysis_assembler.raise_if_failed()
     finally:
+        if localization_metrics is not None:
+            localization_metrics.finish()
         if analysis_assembler is not None:
             analysis_assembler.close()
         if bevfusion is not None:

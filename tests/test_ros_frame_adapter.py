@@ -473,3 +473,39 @@ def test_bevfusion_boxes_are_identical_in_snapshot_and_analysis_spools(tmp_path)
     assert snapshot is not None and detected is not None
     assert snapshot.boxes == detected.boxes
     assert snapshot.boxes[0].track_id == "bevfusion:car:0"
+
+
+def test_foxglove_selected_start_rebases_and_preserves_provenance(tmp_path, monkeypatch):
+    from src.data.foxglove_mcap import FoxgloveFrame
+    import src.data.foxglove_mcap as foxglove
+
+    scene = 'cooperscene:train:1:1'
+    frames = []
+    for i in range(4):
+        metadata = _metadata(timestamp_us=i * 100000, frame_id=str(100 + i), generation=scene)
+        metadata['source_sequence'] = i
+        metadata['source_timestamp_ns'] = 1000000000 + i * 100000000
+        frames.append(FoxgloveFrame(i, metadata['source_timestamp_ns'], np.zeros((1, 1, 3), dtype=np.uint8), metadata, np.zeros((2, 4), dtype=np.float32), ()))
+    monkeypatch.setattr(foxglove, 'FoxgloveMcapReader', lambda *args, **kwargs: frames)
+    images, metadata_rows, clouds = [], [], []
+    adapter = SimpleNamespace(scene_generation=scene,
+        analysis_assembler=SimpleNamespace(receive_image=images.append, raise_if_failed=lambda: None),
+        bevfusion=SimpleNamespace(receive_image=lambda x: None, receive_lidar=clouds.append),
+        receive_metadata=metadata_rows.append)
+    waits, now = [], [0.0]
+    def sleep(seconds):
+        waits.append(seconds)
+        now[0] += seconds
+    replay = McapFrameReplay(adapter, image_topic='/image', metadata_topic='/metadata',
+        lidar_topic='/lidar', expected_samples=2, start_sequence=2,
+        sleep=sleep, monotonic=lambda: now[0])
+    replay._replay_foxglove(tmp_path / 'unused.mcap')
+    assert waits == pytest.approx([.1])
+    assert [row['frame_id'] for row in metadata_rows] == ['102', '103']
+    assert [row['timestamp_us'] for row in metadata_rows] == [0, 100000]
+    assert [row['recorded_source_sequence'] for row in metadata_rows] == [2, 3]
+    assert [row['recorded_timestamp_us'] for row in metadata_rows] == [200000, 300000]
+    assert [row['source_sequence'] for row in metadata_rows] == [0, 1]
+    assert [image.header.stamp.nanosec for image in images] == [0, 100000000]
+    assert len(clouds) == 2
+    assert frames[2].metadata['timestamp_us'] == 200000

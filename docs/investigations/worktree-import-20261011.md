@@ -48,3 +48,13 @@ The remaining work consists of:
 Those groups remain in the investigation worktrees. The import uses the narrow
 proxy integration rather than the later compositor/grounding/batch versions.
 No teleoperation process was launched during import.
+
+
+## Follow-up integration
+
+Rendering ground placement and shared asset depth buffering were subsequently
+imported, along with the offline MCAP queue and its input/launcher dependencies.
+The experimental height estimators, trajectory fits and surface-refinement
+research remain archival. The retained recipe resolves the chosen pose
+composition; residual uncertainty and independent GT validation remain open.
+See `docs/offline_mcap_replay.md` for playback and reference semantics.
