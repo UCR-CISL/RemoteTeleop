@@ -11,6 +11,10 @@ import pytest
 
 def runtime_transform(monkeypatch):
     registered = {}
+    def lidar_points(points, *, points_dim, attribute_dims):
+        assert points.shape[1] == points_dim
+        assert points.flags.writeable
+        return points
     def register_module(**kwargs):
         def register(cls):
             registered['transform'] = cls
@@ -19,7 +23,7 @@ def runtime_transform(monkeypatch):
     modules = {
         'mmcv.transforms': dict(BaseTransform=object),
         'mmdet3d.registry': dict(TRANSFORMS=SimpleNamespace(register_module=register_module)),
-        'mmdet3d.structures.points': dict(LiDARPoints=lambda points, **kwargs: points),
+        'mmdet3d.structures.points': dict(LiDARPoints=lidar_points),
     }
     for name, values in modules.items():
         module = ModuleType(name)
@@ -44,6 +48,31 @@ def test_runtime_preserves_explicit_lag_and_appends_zero_only_for_single_scan(mo
         np.testing.assert_array_equal(result['points'][:, :4], current)
         np.testing.assert_array_equal(result['points'][:, 4], [0] if points.shape[1] == 4 else original[:, 4])
         np.testing.assert_array_equal(points, original)
+
+
+def test_native_four_feature_model_retains_xyzi_and_rejects_sweep_input(monkeypatch):
+    transform = type(runtime_transform(monkeypatch))(point_feature_count=4)
+    points = np.array([[1, 2, 3, .5]], dtype=np.float32)
+    points.flags.writeable = False
+    result = transform.transform(dict(bevfusion_image_bgr=np.zeros((1,1,3),np.uint8), bevfusion_points=points))
+    np.testing.assert_array_equal(result['points'], points)
+    with pytest.raises(ValueError, match='four-feature'):
+        transform.transform(dict(bevfusion_image_bgr=np.zeros((1,1,3),np.uint8), bevfusion_points=np.column_stack((points,[.1]))))
+
+
+def test_native_server_normalization_matches_host_trial_without_mutating_source(monkeypatch):
+    cls = type(runtime_transform(monkeypatch))
+    transform = cls(point_feature_count=4, intensity_scale=1/65535)
+    points = np.array([[1,2,3,1000],[4,5,6,65535]],dtype=np.float32)
+    before = points.copy()
+    expected = before.copy()
+    expected[:,3] *= 1/65535
+    result = transform.transform(dict(bevfusion_image_bgr=np.zeros((1,1,3),np.uint8),bevfusion_points=points))
+    np.testing.assert_array_equal(result['points'],expected)
+    np.testing.assert_array_equal(points,before)
+    for scale in (0,-1,np.nan,np.inf):
+        with pytest.raises(ValueError,match='scale'):
+            cls(point_feature_count=4,intensity_scale=scale)
 
 
 @pytest.mark.parametrize('points', [np.zeros((1, 6)), np.array([[1, 2, 3, 4, -.1]]), np.array([[1, 2, 3, 4, np.nan]])])

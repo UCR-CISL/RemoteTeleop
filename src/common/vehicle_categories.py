@@ -1,6 +1,9 @@
 """Shared nuScenes and detector labels for supported vehicle proxy families."""
 
 _VEHICLE_PROXY_KINDS = {
+    # Generic vehicle predictions use a car-shaped primitive scaled to their
+    # measured dimensions. This rendering fallback does not infer a subtype.
+    "vehicle": "car",
     "car": "car",
     "truck": "truck",
     "bus": "bus",

@@ -25,7 +25,7 @@ class RawPredictionWriter:
         payload = dict(provenance, schema_version=1,
             lidar_feature_count=getattr(request, "lidar_feature_count", 4),
             lidar_payload_sha256=hashlib.sha256(request.lidar_f32).hexdigest(),
-            stage="model pred_instances_3d before sidecar car/confidence filtering; model head filters already applied",
+            stage="model pred_instances_3d before sidecar class-0/confidence filtering; model head filters already applied",
             class_names=classes, coordinate_frame="request LiDAR",
             tensor_origin="LiDAR bottom center", tensor_layout="x,y,z,x_size,y_size,height,yaw,optional_vx,optional_vy",
             predictions=[dict(box_tensor=box.tolist(), gravity_center=center.tolist(), score=float(score),

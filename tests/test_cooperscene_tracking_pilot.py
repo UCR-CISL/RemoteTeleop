@@ -8,7 +8,8 @@ from scripts.investigation.cooperscene_tracking.pilot import TrackingPilot
 from src.realtime.bevfusion import BevFusionBox, BevFusionResult
 
 
-def test_pilot_records_exact_frame_and_keeps_gt_out_of_inference(tmp_path, monkeypatch):
+@pytest.mark.parametrize('intensity_scale,expected_intensity', [(1.0,[255,22]),(.5,[255,11])])
+def test_pilot_records_exact_frame_and_keeps_gt_out_of_inference(tmp_path, monkeypatch, intensity_scale, expected_intensity):
     root = tmp_path / "inputs"
     root.mkdir()
     pose = np.eye(4)
@@ -40,14 +41,14 @@ def test_pilot_records_exact_frame_and_keeps_gt_out_of_inference(tmp_path, monke
 
     monkeypatch.setattr("scripts.investigation.cooperscene_tracking.pilot.BevFusionClient.open", lambda *a, **k: Client())
     output = tmp_path / "output"
-    TrackingPilot(root).infer("unused", output, 1, intensity_clip=255)
+    TrackingPilot(root).infer("unused", output, 1, intensity_clip=255, intensity_scale=intensity_scale)
     result = json.loads((output / "frames.jsonl").read_text())
     assert requests[0].timestamp_us == row["timestamp_us"]
     assert requests[0].frame_id == "123"
     assert "GT:must-not-enter-request" not in str(requests[0].metadata())
     sent = np.frombuffer(requests[0].lidar_f32,dtype="<f4").reshape(-1,4)
     np.testing.assert_array_equal(sent[:,:3],points[:,:3])
-    np.testing.assert_array_equal(sent[:,3],[255,22])
+    np.testing.assert_array_equal(sent[:,3],expected_intensity)
     with np.load(root / "frame.npz") as original:
         np.testing.assert_array_equal(original["lidar"],points)
     assert result["gt"] == row["gt"]

@@ -120,7 +120,7 @@ class BevFusionRequest:
 
 @dataclass(frozen=True)
 class BevFusionBox:
-    """A car detection expressed in the request LiDAR coordinate frame."""
+    """A detector box expressed in the request LiDAR coordinate frame."""
 
     center_xyz: tuple[float, float, float]
     dimensions_lwh: tuple[float, float, float]

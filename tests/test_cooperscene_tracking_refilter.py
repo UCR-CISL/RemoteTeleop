@@ -98,3 +98,17 @@ def test_low_score_continuation_preserves_primary_detections_and_never_consumes_
     trial.run(source, raw, tmp_path / 'without_gt_low')
     other = list(map(json.loads, (tmp_path / 'without_gt_low/frames.jsonl').read_text().splitlines()))
     assert [row['tracks'] for row in after] == [row['tracks'] for row in other]
+
+
+def test_native_generic_vehicle_class_keeps_ontology_and_rejects_pedestrians(tmp_path):
+    source, raw, _ = fixture_inputs(tmp_path)
+    for path in raw.glob('*.json'):
+        record = json.loads(path.read_text())
+        record['predictions'][0].update(class_name='vehicle', class_id=0)
+        path.write_text(json.dumps(record))
+    output = tmp_path / 'native'
+    CachedVehicleClassTrial(classes=['vehicle']).run(source, raw, output)
+    result = [json.loads(x) for x in (output/'frames.jsonl').read_text().splitlines()]
+    assert all(len(x['detections']) == 1 for x in result)
+    assert all(x['detections'][0]['detector_class_name'] == 'vehicle' for x in result)
+    assert result[0]['tracks'][0]['track_id'] == result[1]['tracks'][0]['track_id']

@@ -227,11 +227,13 @@ class TrackingPilot:
         (output / "manifest.json").write_text(json.dumps(manifest, indent=2)+"\n")
 
     def infer(self, endpoint, output, timeout_seconds, selected_sequence=None, intensity_clip=None,
-              past_sweeps=0, sweep_max_age_seconds=1.0, limit_frames=None):
+              past_sweeps=0, sweep_max_age_seconds=1.0, limit_frames=None, intensity_scale=1.0):
         if intensity_clip is not None and (not np.isfinite(intensity_clip) or intensity_clip <= 0):
             raise ValueError("intensity clip must be finite and positive")
-        if isinstance(past_sweeps, bool) or not isinstance(past_sweeps, int) or past_sweeps < 0:
-            raise ValueError("past_sweeps must be a nonnegative integer")
+        if not np.isfinite(intensity_scale) or intensity_scale <= 0:
+            raise ValueError("intensity scale must be finite and positive")
+        if isinstance(past_sweeps, bool) or not isinstance(past_sweeps, int) or not 0 <= past_sweeps <= 9:
+            raise ValueError("past_sweeps must be an integer from zero to nine")
         if not np.isfinite(sweep_max_age_seconds) or sweep_max_age_seconds <= 0:
             raise ValueError("sweep maximum age must be finite and positive")
         if limit_frames is not None and (isinstance(limit_frames, bool) or not isinstance(limit_frames, int) or limit_frames < 1):
@@ -267,6 +269,9 @@ class TrackingPilot:
                             image = payload["image"]
                             row["image_width"], row["image_height"] = image.shape[1], image.shape[0]
                             points = np.ascontiguousarray(payload["lidar"],dtype="<f4")
+                            if intensity_scale != 1.0:
+                                points[:,3] *= intensity_scale
+                                row["lidar_intensity_scale"] = intensity_scale
                             if intensity_clip is not None:
                                 points[:,3] = np.clip(points[:,3],0,intensity_clip)
                             row["lidar_intensity_clip"] = intensity_clip
@@ -321,6 +326,7 @@ def main():
     parser.add_argument("--timeout-seconds",type=float,default=120)
     parser.add_argument("--sequence", help="Infer only this prepared sequence; start with take01-vehicle1")
     parser.add_argument("--intensity-clip",type=float,help="Offline input experiment; clamp only intensity, preserving XYZ and cached inputs")
+    parser.add_argument("--intensity-scale",type=float,default=1.0,help="Explicit model input intensity scaling before optional clipping")
     parser.add_argument("--past-sweeps",type=int,default=0,help="Offline past-only XYZ ego-compensated sweep trial; default single scan")
     parser.add_argument("--sweep-max-age-seconds",type=float,default=1.0)
     parser.add_argument("--limit-frames",type=int,help="Limit inference to the first N prepared frames per sequence")
@@ -341,7 +347,7 @@ def main():
     else:
         if args.output is None: parser.error("infer requires --output")
         pilot.infer(args.endpoint,args.output,args.timeout_seconds,args.sequence,args.intensity_clip,
-                    args.past_sweeps,args.sweep_max_age_seconds,args.limit_frames)
+                    args.past_sweeps,args.sweep_max_age_seconds,args.limit_frames,args.intensity_scale)
 
 
 if __name__ == "__main__":

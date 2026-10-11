@@ -15,7 +15,7 @@ from src.realtime.bevfusion_tracker import BevFusionKalmanTracker, WorldDetectio
 class CachedVehicleClassTrial:
     """Group declared motor-vehicle classes without consuming GT in tracking."""
 
-    motor_vehicle_classes = {"car", "truck", "bus", "trailer", "construction_vehicle"}
+    motor_vehicle_classes = {"car", "truck", "bus", "trailer", "construction_vehicle", "vehicle"}
 
     def __init__(self, *, classes, score_threshold=.2, continuation_score_threshold=None, minimum_confirmation_hits=1):
         self.classes = set(classes)

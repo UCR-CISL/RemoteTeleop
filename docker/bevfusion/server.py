@@ -32,6 +32,14 @@ def _register_runtime_transform() -> None:
 
     @TRANSFORMS.register_module(force=True)
     class RuntimeFrontCameraInputs(BaseTransform):
+        def __init__(self, point_feature_count=5, intensity_scale=1.0):
+            if point_feature_count not in (4, 5):
+                raise ValueError("model point feature count must be 4 or 5")
+            self.point_feature_count = point_feature_count
+            if not np.isfinite(intensity_scale) or intensity_scale <= 0:
+                raise ValueError("model intensity scale must be finite and positive")
+            self.intensity_scale = intensity_scale
+
         def transform(self, results):
             bgr = results.pop("bevfusion_image_bgr")
             points = results.pop("bevfusion_points")
@@ -41,15 +49,22 @@ def _register_runtime_transform() -> None:
                 raise ValueError("BEVFusion points must be Nx4 or explicit Nx5 XYZI/time-lag")
             if not np.isfinite(points).all() or (points.shape[1] == 5 and np.any(points[:, 4] < 0)):
                 raise ValueError("BEVFusion points must be finite with nonnegative time lag")
+            if points.shape[1] > self.point_feature_count:
+                raise ValueError("explicit sweep features cannot be sent to a four-feature model")
+            if self.intensity_scale != 1.0:
+                points = points.copy()
+                points[:, 3] *= self.intensity_scale
             # MMDet's image conventions are RGB; transport remains BGR so it
             # matches OpenCV/ROS without an encode-decode round trip.
             results["img"] = [cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)]
-            # The upstream nuScenes checkpoint's voxel encoder consumes the
-            # standard five features (x, y, z, intensity, time-lag). The wire
-            # contract remains Nx4; a current-frame zero lag is added here.
-            if points.shape[1] == 4:
+            # The upstream nuScenes checkpoint consumes XYZI/time-lag; its
+            # single-scan path adds zero lag. The native CooperScene model
+            # consumes four features, selected explicitly by its config.
+            if points.shape[1] == 4 and self.point_feature_count == 5:
                 points = np.concatenate((points, np.zeros((len(points), 1), dtype=np.float32)), axis=1)
-            results["points"] = LiDARPoints(points, points_dim=5, attribute_dims=None)
+            if not points.flags.writeable:
+                points = points.copy()
+            results["points"] = LiDARPoints(points, points_dim=self.point_feature_count, attribute_dims=None)
             results["img_shape"] = bgr.shape[:2]
             results["ori_shape"] = bgr.shape[:2]
             return results
@@ -137,6 +152,7 @@ class BevFusionModel:
         centers = instances.bboxes_3d.gravity_center.detach().cpu().numpy()
         scores = instances.scores_3d.detach().cpu().numpy()
         labels = instances.labels_3d.detach().cpu().numpy()
+        class_names = self.model.dataset_meta.get("classes") or ("car",)
         if self.raw_predictions is not None:
             self.raw_predictions.write(request, boxes=boxes, gravity_centers=centers, scores=scores,
                 labels=labels, class_names=self.model.dataset_meta.get("classes", ()))
@@ -156,7 +172,7 @@ class BevFusionModel:
             yaw = (yaw + math.pi) % (2 * math.pi) - math.pi
             detections.append(BevFusionBox(
                 tuple(map(float, center)), (length, width, height), yaw,
-                float(score), int(label), "car",
+                float(score), int(label), str(class_names[int(label)]),
             ))
         completed = time.perf_counter()
         return tuple(detections), {

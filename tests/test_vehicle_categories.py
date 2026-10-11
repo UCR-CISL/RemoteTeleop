@@ -4,6 +4,7 @@ from src.common.vehicle_categories import vehicle_proxy_kind
 
 
 @pytest.mark.parametrize("label,kind", [
+    ("vehicle", "car"),
     ("vehicle.car", "car"), ("vehicle.truck", "truck"),
     ("vehicle.bus.rigid", "bus"), ("vehicle.bus.bendy", "articulated_bus"),
     ("vehicle.trailer", "trailer"), ("vehicle.construction", "construction_vehicle"),
