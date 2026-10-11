@@ -3,6 +3,7 @@
 The general replay protocol deliberately never sends images or point clouds to
 the remote host.  This contract is local to the vehicle and sends one raw BGR
 front image plus an ``Nx4`` little-endian float32 LiDAR cloud to the detector.
+Offline sweep trials may explicitly supply ``Nx5`` XYZ/intensity/time-lag data.
 """
 
 from __future__ import annotations
@@ -55,7 +56,9 @@ class BevFusionRequest:
     """A single front-camera / LiDAR inference request.
 
     ``image_bgr`` is raw row-major BGR uint8 data.  ``lidar_f32`` is a
-    contiguous little-endian float32 matrix shaped ``(lidar_point_count, 4)``.
+    contiguous little-endian float32 matrix shaped
+    ``(lidar_point_count, lidar_feature_count)``. Four features mean XYZI;
+    five mean XYZI and nonnegative past-sweep time lag in seconds.
     Poses map their named sensor coordinates into the playback world frame.
     """
 
@@ -73,6 +76,7 @@ class BevFusionRequest:
     image_bgr: bytes
     lidar_point_count: int
     lidar_f32: bytes
+    lidar_feature_count: int = 4
 
     def __post_init__(self) -> None:
         for name in ("request_id", "scene_generation", "frame_id", "config_id"):
@@ -90,14 +94,16 @@ class BevFusionRequest:
         if len(image) != self.image_width * self.image_height * 3:
             raise ValueError("image_bgr must contain exactly width * height * 3 bytes")
         _non_negative_int(self.lidar_point_count, "lidar_point_count")
+        if isinstance(self.lidar_feature_count, bool) or not isinstance(self.lidar_feature_count, int) or self.lidar_feature_count not in (4, 5):
+            raise ValueError("lidar_feature_count must be 4 or 5")
         lidar = bytes(self.lidar_f32)
-        if len(lidar) != self.lidar_point_count * 16:
-            raise ValueError("lidar_f32 must contain exactly lidar_point_count * 16 bytes")
+        if len(lidar) != self.lidar_point_count * self.lidar_feature_count * 4:
+            raise ValueError("lidar_f32 byte count does not match point and feature counts")
         object.__setattr__(self, "image_bgr", image)
         object.__setattr__(self, "lidar_f32", lidar)
 
     def metadata(self) -> dict[str, Any]:
-        return {
+        payload = {
             "request_id": self.request_id, "scene_generation": self.scene_generation,
             "sequence": self.sequence, "frame_id": self.frame_id,
             "timestamp_us": self.timestamp_us, "config_id": self.config_id,
@@ -106,6 +112,10 @@ class BevFusionRequest:
             "image_width": self.image_width, "image_height": self.image_height,
             "lidar_point_count": self.lidar_point_count,
         }
+        # Preserve the exact default wire representation for existing clients.
+        if self.lidar_feature_count != 4:
+            payload["lidar_feature_count"] = self.lidar_feature_count
+        return payload
 
 
 @dataclass(frozen=True)

@@ -19,6 +19,7 @@ class BevFusionRequest:
     world_T_camera: tuple[float, ...]; world_T_lidar: tuple[float, ...]
     image_width: int; image_height: int; image_bgr: bytes
     lidar_point_count: int; lidar_f32: bytes
+    lidar_feature_count: int = 4
 
 
 @dataclass(frozen=True)
@@ -62,12 +63,15 @@ class BevFusionCodec:
             camera_intrinsic=tuple(payload["camera_intrinsic"]),
             world_T_camera=tuple(payload["world_T_camera"]), world_T_lidar=tuple(payload["world_T_lidar"]),
             image_width=payload["image_width"], image_height=payload["image_height"],
-            image_bgr=bytes(parts[2]), lidar_point_count=payload["lidar_point_count"], lidar_f32=bytes(parts[3]))
+            image_bgr=bytes(parts[2]), lidar_point_count=payload["lidar_point_count"], lidar_f32=bytes(parts[3]),
+            lidar_feature_count=payload.get("lidar_feature_count", 4))
         if request.image_width <= 0 or request.image_height <= 0:
             raise ValueError("BEVFusion image dimensions must be positive")
         if len(request.image_bgr) != request.image_width * request.image_height * 3:
             raise ValueError("invalid BEVFusion BGR byte count")
-        if request.lidar_point_count < 0 or len(request.lidar_f32) != request.lidar_point_count * 16:
+        if isinstance(request.lidar_feature_count, bool) or not isinstance(request.lidar_feature_count, int) or request.lidar_feature_count not in (4, 5):
+            raise ValueError("invalid BEVFusion LiDAR feature count")
+        if request.lidar_point_count < 0 or len(request.lidar_f32) != request.lidar_point_count * request.lidar_feature_count * 4:
             raise ValueError("invalid BEVFusion LiDAR byte count")
         if len(request.camera_intrinsic) != 9:
             raise ValueError("invalid BEVFusion camera intrinsic")

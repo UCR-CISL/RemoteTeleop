@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from threading import Thread
+from dataclasses import replace
 import importlib.util
 from pathlib import Path
 
@@ -45,6 +46,29 @@ def test_docker_wire_decoder_accepts_the_host_codec():
     assert decoded.request_id == request().request_id
     assert decoded.image_bgr == request().image_bgr
     assert decoded.lidar_f32 == request().lidar_f32
+
+
+def test_explicit_sweep_features_round_trip_and_legacy_metadata():
+    assert "lidar_feature_count" not in request().metadata()
+    value = replace(request(), lidar_feature_count=5, lidar_f32=b"\0" * 40)
+    codec = BevFusionCodec()
+    assert codec.decode_request(codec.encode_request(value)) == value
+    wire_path = Path(__file__).parents[1] / "docker/bevfusion/bevfusion_wire.py"
+    spec = importlib.util.spec_from_file_location("docker_sweep_wire", wire_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    decoded = module.BevFusionCodec().decode_request(codec.encode_request(value))
+    assert decoded.lidar_feature_count == 5
+    assert decoded.lidar_f32 == value.lidar_f32
+    for features in (True, 4.0, 6):
+        with pytest.raises(ValueError, match="feature"):
+            replace(value, lidar_feature_count=features)
+    with pytest.raises(ValueError, match="lidar_f32"):
+        replace(value, lidar_f32=b"\0" * 32)
+    parts = codec.encode_request(value)
+    parts[-1] = b"\0" * 32
+    with pytest.raises(ValueError, match="byte count"):
+        module.BevFusionCodec().decode_request(parts)
 
 
 def test_request_rejects_non_raw_bgr_and_wrong_lidar_shape():

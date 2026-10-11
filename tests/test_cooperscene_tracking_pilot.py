@@ -191,3 +191,43 @@ def test_xyz_rejection_propagates_rigid_left_correction_and_handles_missing_prop
     assert diagnostics['propagated'] and not diagnostics['accepted']
     with pytest.raises(ValueError, match='consecutive'):
         policy.pose(rows[3])
+
+
+def test_pilot_past_sweeps_use_sensor_poses_and_limit_development_frames(tmp_path, monkeypatch):
+    root = tmp_path / 'inputs'
+    root.mkdir()
+    rows = []
+    for i in range(3):
+        pose = np.eye(4)
+        pose[0, 3] = i
+        np.savez(root / f'{i}.npz', image=np.zeros((1, 1, 3), np.uint8),
+                 lidar=np.array([[3, 0, 0, 1000]], dtype=np.float32))
+        rows.append(dict(sequence_id='take01-vehicle1', frame_id=str(i), timestamp_us=i*100000,
+                         payload=f'{i}.npz', camera_intrinsic=np.eye(3).tolist(),
+                         world_T_camera=pose.tolist(), world_T_lidar=pose.tolist(),
+                         gt=[TrackingPilot.box(pose, (4, 2, 1), 'GT:private')]))
+    (root / 'inputs.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+    (root / 'manifest.json').write_text(json.dumps(dict(sequences=[dict(inputs='inputs.jsonl', count=3)])))
+    requests = []
+    class Client:
+        def submit(self, value):
+            requests.append(value)
+            return True
+        def poll(self, **kwargs):
+            r = requests[-1]
+            return BevFusionResult(r.request_id, r.scene_generation, r.sequence, r.frame_id, r.timestamp_us, r.config_id)
+        def close(self):
+            pass
+    monkeypatch.setattr('scripts.investigation.cooperscene_tracking.pilot.BevFusionClient.open', lambda *a, **k: Client())
+    output = tmp_path / 'output'
+    TrackingPilot(root).infer('unused', output, 1, intensity_clip=255, past_sweeps=9, limit_frames=2)
+    assert len(requests) == 2
+    assert requests[1].lidar_feature_count == 5
+    np.testing.assert_allclose(np.frombuffer(requests[1].lidar_f32, dtype='<f4').reshape(-1,5),
+                               [[3,0,0,255,0],[2,0,0,255,.1]])
+    result = [json.loads(x) for x in (output / 'frames.jsonl').read_text().splitlines()]
+    assert [r['gt'] for r in result] == [r['gt'] for r in rows[:2]]
+    assert all('GT:private' not in str(r.metadata()) for r in requests)
+    assert json.loads((output / 'manifest.json').read_text())['sequences'][0]['count'] == 2
+    with np.load(root / '0.npz') as original:
+        assert original['lidar'][0,3] == 1000

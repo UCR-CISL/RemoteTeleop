@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 
@@ -35,6 +36,8 @@ def test_raw_dump_retains_noncar_lowconfidence_and_both_origins(tmp_path):
     assert record["predictions"][0]["box_tensor"][2] == -2
     assert record["predictions"][0]["gravity_center"][2] == -1
     assert record["request_id"] == request.request_id
+    assert record["lidar_feature_count"] == 4
+    assert record["lidar_payload_sha256"] == hashlib.sha256(request.lidar_f32).hexdigest()
     assert "image_bgr" not in record and "lidar_f32" not in record
     with pytest.raises(FileExistsError):
         writer.write(request, boxes=boxes, gravity_centers=centers, scores=[.01, .9], labels=[1, 0], class_names=["car", "truck"])

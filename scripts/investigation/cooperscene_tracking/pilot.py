@@ -226,15 +226,29 @@ class TrackingPilot:
             destination.write_text("".join(json.dumps(row)+"\n" for row in rows))
         (output / "manifest.json").write_text(json.dumps(manifest, indent=2)+"\n")
 
-    def infer(self, endpoint, output, timeout_seconds, selected_sequence=None, intensity_clip=None):
+    def infer(self, endpoint, output, timeout_seconds, selected_sequence=None, intensity_clip=None,
+              past_sweeps=0, sweep_max_age_seconds=1.0, limit_frames=None):
         if intensity_clip is not None and (not np.isfinite(intensity_clip) or intensity_clip <= 0):
             raise ValueError("intensity clip must be finite and positive")
+        if isinstance(past_sweeps, bool) or not isinstance(past_sweeps, int) or past_sweeps < 0:
+            raise ValueError("past_sweeps must be a nonnegative integer")
+        if not np.isfinite(sweep_max_age_seconds) or sweep_max_age_seconds <= 0:
+            raise ValueError("sweep maximum age must be finite and positive")
+        if limit_frames is not None and (isinstance(limit_frames, bool) or not isinstance(limit_frames, int) or limit_frames < 1):
+            raise ValueError("limit_frames must be a positive integer")
         output.mkdir(parents=True, exist_ok=False)
         manifest = json.loads((self.root/"manifest.json").read_text())
         if selected_sequence:
             manifest["sequences"] = [s for s in manifest["sequences"] if s["sequence_id"] == selected_sequence]
             if not manifest["sequences"]:
                 raise ValueError(f"Unknown sequence {selected_sequence}")
+        if limit_frames is not None:
+            for sequence in manifest["sequences"]:
+                sequence["count"] = min(sequence["count"], limit_frames)
+        if past_sweeps:
+            manifest["detector_sweeps"] = dict(maximum_past_sweeps=past_sweeps,
+                maximum_age_seconds=sweep_max_age_seconds, compensation="past-only archived XYZ ego poses",
+                feature_layout="x,y,z,intensity,past_time_lag_seconds", object_motion_compensated=False)
         (output/"manifest.json").write_text(json.dumps(manifest,indent=2)+"\n")
         context = zmq.Context()
         client = BevFusionClient.open(context, endpoint, identity="cooperscene-tracking-pilot", timeout_ms=100)
@@ -242,7 +256,12 @@ class TrackingPilot:
             with (output/"frames.jsonl").open("w") as stream:
                 for sequence in manifest["sequences"]:
                     tracker = BevFusionKalmanTracker()
-                    for index, line in enumerate((self.root/sequence["inputs"]).read_text().splitlines()):
+                    sweeps = None
+                    if past_sweeps:
+                        from src.realtime.bevfusion_sweeps import PastSweepAssembler
+                        sweeps = PastSweepAssembler(maximum_past_sweeps=past_sweeps, maximum_age_seconds=sweep_max_age_seconds)
+                    lines = (self.root/sequence["inputs"]).read_text().splitlines()
+                    for index, line in enumerate(lines[:sequence["count"]]):
                         row = json.loads(line)
                         with np.load(self.root/row["payload"]) as payload:
                             image = payload["image"]
@@ -251,10 +270,16 @@ class TrackingPilot:
                             if intensity_clip is not None:
                                 points[:,3] = np.clip(points[:,3],0,intensity_clip)
                             row["lidar_intensity_clip"] = intensity_clip
+                            if sweeps is not None:
+                                points = sweeps.add(points, np.asarray(row["world_T_lidar"]), row["timestamp_us"], row["sequence_id"])
+                                row["detector_sweeps"] = dict(maximum_past_sweeps=past_sweeps,
+                                    maximum_age_seconds=sweep_max_age_seconds, input_point_count=len(points),
+                                    distinct_time_lags_seconds=np.unique(points[:,4]).tolist())
                             request = BevFusionRequest(f"{row['sequence_id']}:{index}", row["sequence_id"], index,
                                 row["frame_id"], row["timestamp_us"], "retained-xyz-pilot",
                                 tuple(np.asarray(row["camera_intrinsic"]).ravel()),tuple(np.asarray(row["world_T_camera"]).ravel()),
-                                tuple(np.asarray(row["world_T_lidar"]).ravel()),image.shape[1],image.shape[0],image.tobytes(),len(points),points.tobytes())
+                                tuple(np.asarray(row["world_T_lidar"]).ravel()),image.shape[1],image.shape[0],image.tobytes(),len(points),points.tobytes(),
+                                lidar_feature_count=points.shape[1])
                         begun = time.monotonic()
                         if not client.submit(request):
                             raise RuntimeError("Unexpected in-flight detector request")
@@ -296,6 +321,9 @@ def main():
     parser.add_argument("--timeout-seconds",type=float,default=120)
     parser.add_argument("--sequence", help="Infer only this prepared sequence; start with take01-vehicle1")
     parser.add_argument("--intensity-clip",type=float,help="Offline input experiment; clamp only intensity, preserving XYZ and cached inputs")
+    parser.add_argument("--past-sweeps",type=int,default=0,help="Offline past-only XYZ ego-compensated sweep trial; default single scan")
+    parser.add_argument("--sweep-max-age-seconds",type=float,default=1.0)
+    parser.add_argument("--limit-frames",type=int,help="Limit inference to the first N prepared frames per sequence")
     parser.add_argument("--map", type=Path, help="Verify archived XYZ map SHA256 during metadata export")
     args = parser.parse_args()
     pilot = TrackingPilot(args.inputs)
@@ -312,7 +340,8 @@ def main():
         pilot.rebase_xyz(args.output, args.search_root, args.map)
     else:
         if args.output is None: parser.error("infer requires --output")
-        pilot.infer(args.endpoint,args.output,args.timeout_seconds,args.sequence,args.intensity_clip)
+        pilot.infer(args.endpoint,args.output,args.timeout_seconds,args.sequence,args.intensity_clip,
+                    args.past_sweeps,args.sweep_max_age_seconds,args.limit_frames)
 
 
 if __name__ == "__main__":

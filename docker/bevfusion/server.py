@@ -37,15 +37,18 @@ def _register_runtime_transform() -> None:
             points = results.pop("bevfusion_points")
             if bgr.ndim != 3 or bgr.shape[2] != 3:
                 raise ValueError("BEVFusion image must be HxWx3 BGR")
-            if points.ndim != 2 or points.shape[1] != 4:
-                raise ValueError("BEVFusion points must be Nx4")
+            if points.ndim != 2 or points.shape[1] not in (4, 5):
+                raise ValueError("BEVFusion points must be Nx4 or explicit Nx5 XYZI/time-lag")
+            if not np.isfinite(points).all() or (points.shape[1] == 5 and np.any(points[:, 4] < 0)):
+                raise ValueError("BEVFusion points must be finite with nonnegative time lag")
             # MMDet's image conventions are RGB; transport remains BGR so it
             # matches OpenCV/ROS without an encode-decode round trip.
             results["img"] = [cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)]
             # The upstream nuScenes checkpoint's voxel encoder consumes the
             # standard five features (x, y, z, intensity, time-lag). The wire
             # contract remains Nx4; a current-frame zero lag is added here.
-            points = np.concatenate((points, np.zeros((len(points), 1), dtype=np.float32)), axis=1)
+            if points.shape[1] == 4:
+                points = np.concatenate((points, np.zeros((len(points), 1), dtype=np.float32)), axis=1)
             results["points"] = LiDARPoints(points, points_dim=5, attribute_dims=None)
             results["img_shape"] = bgr.shape[:2]
             results["ori_shape"] = bgr.shape[:2]
@@ -118,7 +121,7 @@ class BevFusionModel:
             "bevfusion_image_bgr": np.frombuffer(request.image_bgr, dtype=np.uint8).reshape(
                 request.image_height, request.image_width, 3),
             "bevfusion_points": np.frombuffer(request.lidar_f32, dtype="<f4").reshape(
-                request.lidar_point_count, 4),
+                request.lidar_point_count, request.lidar_feature_count),
             "cam2img": cam2img[None, ...], "lidar2cam": lidar_to_camera[None, ...],
             "cam2lidar": camera_to_lidar[None, ...],
             "lidar2img": (cam2img @ lidar_to_camera)[None, ...],
