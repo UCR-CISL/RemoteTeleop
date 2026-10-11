@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 import sys
@@ -19,6 +20,73 @@ from src.localization.cooperscene_calibration import camera_intrinsic, compose_m
 from src.localization.cooperscene_geodetic import FrozenProfile, GeodeticPoses, GEOREFERENCE
 from src.realtime.bevfusion import BevFusionClient, BevFusionRequest
 from src.realtime.bevfusion_tracker import BevFusionKalmanTracker, WorldDetection
+
+
+class ArchivedXYZPosePolicy:
+    """Accepted independent XYZ estimates with explicit raw-pose propagation.
+
+    Rejections never supply an estimator pose. The last accepted map correction
+    follows the current retained raw GNSS/INS reference until a new acceptance.
+    This is an offline archived-frame policy, not a continuous XYZ estimator.
+    """
+
+    def __init__(self, directory: Path, *, recipe_sha256: str, map_sha256=None):
+        self.directory = directory
+        protocol_path = directory.parent / "protocol.json"
+        protocol_bytes = protocol_path.read_bytes()
+        protocol = json.loads(protocol_bytes)
+        if protocol["recipe_sha256"] != recipe_sha256:
+            raise ValueError("Archived XYZ recipe hash differs from prepared/current recipe")
+        if map_sha256 is not None and protocol["map_sha256"] != map_sha256:
+            raise ValueError("Archived XYZ map hash differs from selected map")
+        self.provenance = dict(recipe_sha256=recipe_sha256, map_sha256=protocol["map_sha256"],
+                               map_hash_verified=map_sha256 is not None,
+                               protocol_sha256=hashlib.sha256(protocol_bytes).hexdigest(),
+                               archive_inputs_sha256=hashlib.sha256((directory / "inputs.json").read_bytes()).hexdigest())
+        self.record_hash = hashlib.sha256()
+        self.last_index = self.last_timestamp = None
+        self.accepted_index = self.accepted_timestamp = None
+        self.correction = None
+
+    def pose(self, row):
+        index, timestamp = row["frame_index"], row["timestamp_us"]
+        if self.last_index is not None and (index != self.last_index + 1 or timestamp <= self.last_timestamp):
+            raise ValueError("Archived XYZ input frames must be consecutive with increasing timestamps")
+        raw = (self.directory / f"frame-{index:06d}.json").read_bytes()
+        record = json.loads(raw)
+        metadata, xyz = record["frame"], record["methods"]["xyz"]
+        if (metadata["frame_index"] != index or metadata["frame_id"] != row["frame_id"]
+                or metadata["timestamp_ns"] // 1000 != timestamp
+                or metadata["lidar_ns"] != metadata["timestamp_ns"]):
+            raise ValueError("Archived XYZ frame ID/index/capture timestamp mismatch")
+        reference = FrozenProfile._validated_pose(row["reference_world_T_lidar"])
+        # Certified rejections may have no optimized error/pose at all.
+        archived_reference = xyz.get("error", {}).get("reference_map_T_lidar")
+        if archived_reference is None:
+            archived_reference = record["initial"]["error"]["reference_map_T_lidar"]
+        archived_reference = FrozenProfile._validated_pose(archived_reference)
+        if not np.allclose(reference, archived_reference, atol=1e-8, rtol=0):
+            raise ValueError("Archived XYZ reference differs from current retained raw recipe pose")
+        accepted = xyz.get("accepted") is True
+        if accepted:
+            if not all(xyz.get(key) is True for key in
+                       ("upstream_scan_accepted", "fusion_attempted", "fusion_converged")):
+                raise ValueError("Archived XYZ acceptance contradicts upstream/fusion flags")
+            estimated = FrozenProfile._validated_pose(xyz["error"]["estimated_map_T_lidar"])
+            self.correction = estimated @ np.linalg.inv(reference)
+            self.accepted_index, self.accepted_timestamp = index, timestamp
+        else:
+            if self.correction is None:
+                raise ValueError("Archived XYZ policy must start on an accepted frame")
+            estimated = self.correction @ reference
+        self.last_index, self.last_timestamp = index, timestamp
+        self.record_hash.update(raw)
+        return estimated, dict(policy="archived_independent_xyz" if accepted else "raw_recipe_propagated_last_accepted_xyz_correction",
+                               accepted=accepted, propagated=not accepted,
+                               source_accepted_frame_index=self.accepted_index,
+                               seconds_since_acceptance=(timestamp-self.accepted_timestamp)/1e6,
+                               archive_status=xyz.get("status"),
+                               archive_record_sha256=hashlib.sha256(raw).hexdigest())
 
 
 class TrackingPilot:
@@ -92,6 +160,72 @@ class TrackingPilot:
                                                archived_summary_sha256=hashlib.sha256(summary_path.read_bytes()).hexdigest()))
         (self.root/"manifest.json").write_text(json.dumps(manifest, indent=2)+"\n")
 
+    def rebase_xyz(self, output, search_root, map_path=None):
+        """Export corrected metadata while reusing each original NPZ read-only."""
+        if output.exists():
+            raise FileExistsError(output)
+        source_bytes = (self.root / "manifest.json").read_bytes()
+        manifest = json.loads(source_bytes)
+        recipe_hash = hashlib.sha256(FrozenProfile().path.read_bytes()).hexdigest()
+        if manifest["recipe_sha256"] != recipe_hash:
+            raise ValueError("Prepared inputs differ from current retained recipe")
+        map_hash = None if map_path is None else hashlib.sha256(map_path.read_bytes()).hexdigest()
+        exported = []
+        for sequence in manifest["sequences"]:
+            match = re.fullmatch(r"take(\d+)-vehicle([123])", sequence["sequence_id"])
+            if not match:
+                raise ValueError("Unknown CooperScene sequence")
+            take, agent = map(int, match.groups())
+            directory = search_root / f"take{take:02d}" / sequence["sequence_id"]
+            summary_path = directory / "summary.json"
+            candidate = json.loads(summary_path.read_text())["methods"]["xyz"]["earliest_qualifying"]
+            if (candidate is None or candidate["frame"]["frame_index"] != sequence["start_index"]
+                    or candidate["frame"]["frame_id"] != sequence["start_frame"]):
+                raise ValueError("Prepared start differs from earliest strict XYZ-qualified archived frame")
+            policy = ArchivedXYZPosePolicy(directory, recipe_sha256=recipe_hash, map_sha256=map_hash)
+            input_path = self.root / sequence["inputs"]
+            input_bytes = input_path.read_bytes()
+            rows = []
+            for line in input_bytes.decode().splitlines():
+                row = json.loads(line)
+                if row["sequence_id"] != sequence["sequence_id"]:
+                    raise ValueError("Input sequence ID differs from manifest")
+                if not rows and (row["frame_index"] != sequence["start_index"] or row["frame_id"] != sequence["start_frame"]):
+                    raise ValueError("First input differs from prepared start")
+                estimated, diagnostics = policy.pose(row)
+                payload = (self.root / row["payload"]).resolve()
+                if not payload.is_file():
+                    raise FileNotFoundError(payload)
+                row["payload"] = os.path.relpath(payload, output.resolve())
+                row["world_T_lidar"] = estimated.tolist()
+                row["world_T_camera"] = compose_map_T_camera(estimated, camera_T_lidar(agent)).tolist()
+                reference = np.asarray(row["reference_world_T_lidar"])
+                row["localization_xyz_error_m"] = float(np.linalg.norm(estimated[:3,3]-reference[:3,3]))
+                row["localization"] = diagnostics
+                rows.append(row)
+            if len(rows) != sequence["count"] or not rows:
+                raise ValueError("Input count differs from manifest or is empty")
+            revised = {key: value for key, value in sequence.items() if key != "correction"}
+            revised.update(xyz_pose_provenance=policy.provenance,
+                           source_inputs_sha256=hashlib.sha256(input_bytes).hexdigest(),
+                           archived_summary_sha256=hashlib.sha256(summary_path.read_bytes()).hexdigest(),
+                           archive_records_sha256=policy.record_hash.hexdigest(),
+                           accepted_frames=sum(row["localization"]["accepted"] for row in rows),
+                           propagated_frames=sum(row["localization"]["propagated"] for row in rows))
+            exported.append((revised, rows))
+        manifest.update(policy="earliest strict XYZ-qualified start; independent per-frame archived XYZ acceptances; rejected frames propagate last accepted correction on current retained raw recipe",
+                        continuous_xyz_estimator=False, independent_per_frame_xyz=True,
+                        rejected_pose_policy="last accepted pose @ inverse(reference at acceptance) @ current raw recipe reference; rejected optimizer proposals never consumed",
+                        source_manifest_sha256=hashlib.sha256(source_bytes).hexdigest(),
+                        payload_policy="reuse original read-only NPZ via relative paths; no array copies or rewrites",
+                        sequences=[sequence for sequence, _ in exported])
+        output.mkdir(parents=True, exist_ok=False)
+        for sequence, rows in exported:
+            destination = output / sequence["inputs"]
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text("".join(json.dumps(row)+"\n" for row in rows))
+        (output / "manifest.json").write_text(json.dumps(manifest, indent=2)+"\n")
+
     def infer(self, endpoint, output, timeout_seconds, selected_sequence=None, intensity_clip=None):
         if intensity_clip is not None and (not np.isfinite(intensity_clip) or intensity_clip <= 0):
             raise ValueError("intensity clip must be finite and positive")
@@ -152,7 +286,7 @@ class TrackingPilot:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("prepare","infer"))
+    parser.add_argument("mode", choices=("prepare","infer","rebase-xyz"))
     parser.add_argument("--inputs",type=Path,required=True)
     parser.add_argument("--output",type=Path)
     parser.add_argument("--count",type=int,default=60)
@@ -162,6 +296,7 @@ def main():
     parser.add_argument("--timeout-seconds",type=float,default=120)
     parser.add_argument("--sequence", help="Infer only this prepared sequence; start with take01-vehicle1")
     parser.add_argument("--intensity-clip",type=float,help="Offline input experiment; clamp only intensity, preserving XYZ and cached inputs")
+    parser.add_argument("--map", type=Path, help="Verify archived XYZ map SHA256 during metadata export")
     args = parser.parse_args()
     pilot = TrackingPilot(args.inputs)
     if args.mode == "prepare":
@@ -172,6 +307,9 @@ def main():
             if not match: parser.error("sequence must be takeNN-vehicleN")
             selections = [(int(match[1]),int(match[2]))]
         pilot.prepare(args.data_root,args.search_root,args.count,selections)
+    elif args.mode == "rebase-xyz":
+        if args.output is None: parser.error("rebase-xyz requires --output")
+        pilot.rebase_xyz(args.output, args.search_root, args.map)
     else:
         if args.output is None: parser.error("infer requires --output")
         pilot.infer(args.endpoint,args.output,args.timeout_seconds,args.sequence,args.intensity_clip)
