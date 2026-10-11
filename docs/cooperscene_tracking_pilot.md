@@ -1,5 +1,12 @@
 # CooperScene tracking pilot, 2026-10-11
 
+Current take-2 results remain provisional: the native and released refined GT
+exports disagree on the same 300 frames. Existing native-export scores are
+preserved, but do not establish complete front-camera GT coverage. A separate
+unfiltered refined-export comparison now finds 17 never-matched geometric-front
+IDs; neither coverage nor precision targets pass. Camera correspondence and
+annotation authority remain unresolved. Other sequences remain on hold.
+
 The initial pilot evaluated take 1 / vehicle 1: native frames **481260–481760**, 501
 consecutive frames (50.00 s between first and last captures). The first 60
 frames were development inputs; frames 60–500 were held out from the initial
@@ -1272,3 +1279,366 @@ original XYZ poses and no ground placement. Asset47 at45.69m projects307 pixels:
 visible. This verifies shared asset/scene depth buffering for this distant case,
 not optical camera calibration. The existing CloudXR processes remain untouched.
 Evidence: `artifacts/tracking-take2-actual-delivery-gamma-primitives-20261011/`.
+
+### Production wait polling: actual full-rate rerun
+
+The scheduled-wait fix services the nonblocking detector poll between capture
+callbacks, using sleeps of at most10ms during positive waits. Both MCAP paths
+share the helper. Late captures remain immediate, no-detector pacing retains its
+single sleep, and EOF/publication/timestamp policies are unchanged. All109 relevant
+adapter, tracker and MCAP tests pass locally and on both isolated hosts. Blocking
+callbacks still delay service;10ms is a requested sleep bound, not real-time QoS.
+
+A separately frozen one-condition actual rerun calls the production helper on
+the same300 predecoded Take2/V1 captures at wallrate1.0. Source/model/wire/own
+native-to-sidecar and lifecycle controls pass, with independent seven-view recount.
+The original capture epoch, XYZ/start policy, GT and thresholds remain fixed.
+
+| Actual condition | Served captures | Published precision | Published recall | Geometric IDF1 | Switches | Fragmentations |
+|---|---:|---:|---:|---:|---:|---:|
+| Original1.0 | 151/300 | 57.65% | 76.05% | 0.5774 | 3 | 8 |
+| Wait polling1.0 | 251/300 | 62.16% | 86.70% | 0.6481 | 5 | 10 |
+| Original0.5 | 300/300 | 62.79% | 90.91% | 0.6685 | 4 | 5 |
+
+Candidate published GT84 coverage is36/70 and GT92 is67/79. All11 IDs match at
+least once, but precision, per-ID90% coverage and at-most-one-switch per100 GT
+observations remain unmet. Detector source-capture precision/recall is73.91%/
+74.10% on251 served captures (390 GT observations):289TP,102FP,101FN. Matched
+center RMSE is0.831m for detections and0.951m for published tracks. This is a
+served subset, not the identical exposure of the original151 or300 results.
+Held latest primary recall at current captures is44.79%, separate from tracking.
+Median latest-result source age is200.084ms versus300.367ms originally. Two
+candidate responses arrive after the final publication; no synthetic frames are
+added to track coverage.
+
+250 native batches match the cached proposals bitwise; one differs. At source
+ordinal233, one weak proposal crosses the0.1 continuation threshold (actual
+0.100710 versus cached0.098854); primary0.2 membership is unchanged. Thus tracker
+inputs are not perfectly identical between executions. The observed delivery and
+coverage gains are not a replicated causal estimate or a universal NN determinism
+claim. The paired model-free simulation supports earlier dispatch but models no
+CPU/network/OS costs. ID switches and fragmentation increase in the actual rerun;
+there is no tracker-parameter or detector-quality promotion from these results.
+
+Evidence: `artifacts/tracking-take2-scheduled-wait-native-trial-20261011/`,
+`artifacts/tracking-take2-scheduled-wait-native-evaluation-20261011/` and the
+corresponding prelaunch/completed independent audits. The new evaluator includes
+one labelled300-frame10FPS source-timeline video and eight camera/LiDAR PNGs.
+Predecoded/mock-publication, calibration uncertainty and no wireframe depth
+occlusion remain explicit. Other sequences remain on hold; optical calibration
+and the GT84/92 detection/identity failures still require work.
+
+### Same-sequence miss and association diagnosis
+
+The requested minimum remains: every front-visible GT ID must be detected at
+least once. These Take2 trials use stronger frozen promotion targets:90%
+coverage for every ID present in at least five frames,90% precision and at most
+one ID switch per100 GT observations before expanding beyond this sequence. Current
+counts use geometric camera FOV; unresolved physical calibration prevents treating
+them as certified optical visibility. All11 geometric IDs are detected at least
+once, but sustained coverage and precision still fail.
+
+The source-capture miss audit finds no primary match changes across130 paired
+GT84/92 observations between the wait-poll run and the full300 slower run. In the
+latter, GT84 has7/70 primary detections:35 misses have a nearby0.1–0.2 proposal,
+19 a proposal below0.1 and nine no retained proposal within2m. GT92 has50/79:
+eight weak,13 below0.1 and eight absent nearby proposals. Raw200 proposals have
+already passed model-head filtering. Nearby low-confidence geometry is not a
+valid detection. Sparse distant LiDAR support and roughly0.5m conditional vertical
+discrepancies are diagnostic evidence, not justification to change localization,
+height, calibration or confidence gates. Camera crops still show uncertain
+physical correspondence. Evidence:
+`artifacts/tracking-take2-detector-miss-mechanisms-20261011/`.
+
+Exact reconstruction of the wait-poll publications identifies weak updates with
+3–4m innovations that impart large velocities to established tracks. Subsequent
+coasting and overlapping2m GT association neighborhoods contribute to switches;
+birth/death alone does not explain them. A single artifact-only CPU probe retains
+predicted velocity during weak position correction, using the corresponding
+restricted-gain Joseph covariance update. Strong updates, inputs, clocks,
+thresholds and gate code remain fixed. Independent recount confirms:
+
+| Recorded timeline | Baseline TP/FP/FN | Probe TP/FP/FN | Baseline→probe IDF1 | Switches | GT84 coverage |
+|---|---:|---:|---:|---:|---:|
+| Wait polling1.0 |391/238/60|400/229/51|0.6481→0.6667|5→4|36→43/70|
+| Original0.5 |410/243/41|413/240/38|0.6685→0.6739|4→4|45→47/70|
+
+These are counterfactual projected states from recorded detector responses,
+not fresh detector runs or actual new adapter publications. Candidate center
+RMSE worsens0.9514→0.9676m and one GT92 observation is lost; slower-run RMSE
+improves0.9084→0.9001m. Both variants fail precision and per-ID coverage targets.
+The probe is rejected for promotion; production tracking remains unchanged.
+Evidence: `artifacts/tracking-take2-candidate-association-failure-audit-20261011/`,
+`artifacts/tracking-take2-weak-position-only-probe-20261011/` and its separate
+prelaunch/completed independent audits.
+
+A read-only auxiliary-input audit finds qualified V2 XYZ available only from
+primary ordinal107; V3 has no qualified pose within this pilot. Latest-past V2
+headers precede the primary by about57ms, but original per-point scan times show
+the four fixed V2 scans complete about42ms after the primary header and57ms
+before primary scan completion. This supports a complete-scan diagnostic policy,
+not availability at the primary header instant or hardware synchronization.
+Future best poses are excluded. Raw recipe sensor composition and rejected-frame
+propagation must remain explicit; released ICP poses cannot receive G directly.
+The retained search explicitly passes the assumed0.03m rotated antenna offset
+for every agent; the geodetic API's default is0. V1-only axis/mount corrections
+are separate. The frozen feasibility report's V1-only antenna statement is
+incorrect and is superseded by the auxiliary preflight composition audit.
+Cross-agent concatenation changes the native model input distribution and has
+not been evaluated or promoted. Evidence:
+`artifacts/tracking-take2-cooperative-input-feasibility-20261011/` and
+`artifacts/tracking-take2-auxiliary-scan-timing-audit-20261011/`.
+The CPU-only V2 preflight prepares four fixed pairs at ordinals120,180,240,299,
+preserving the original V1 point prefix, camera and raw intensities. All193
+sequential V2 raw-recipe references match the archive to1.43e-14; rejected XYZ
+frames use the retained propagation policy. Peer points are transformed by
+inverse(primary XYZ pose) times peer XYZ pose. There is no new GT masking,
+deskew, dynamic-object time compensation or NN run. Point/voxel budgets are CPU
+estimates, not GPU latency/memory validation. Prepared inputs and provenance:
+`artifacts/tracking-take2-auxiliary-v2-input-preflight-20261011/`.
+
+### Fixed auxiliary-LiDAR detector comparison
+
+Eight fresh native requests compare original V1 inputs against V1 plus transformed
+V2 points at the four preselected ordinals120/180/240/299. Camera, capture poses,
+XYZ localization, checkpoint, raw intensity handling and thresholds remain fixed.
+GT is used only downstream for evaluation; no tracker runs on these four gapped
+samples. Association remains class-aware inclusive2m XYZ, maximum cardinality
+then minimum distance, with the original reference XY±54m and camera projection.
+The native single-camera model was not trained here for concatenated peer clouds;
+this diagnostic changes its point distribution, without deskew or dynamic-object
+time compensation. Fresh original controls are the comparator, not cached results.
+
+| Primary score≥0.2 scope | Original TP/FP/FN | Combined TP/FP/FN | Precision | Recall | Center RMSE |
+|---|---:|---:|---:|---:|---:|
+| Geometric front |6/0/5|6/2/5|100%→75%|54.55%→54.55%|0.783→1.046m|
+| Reference XY±54m |46/3/14|45/7/15|93.88%→86.54%|76.67%→75%|0.651→0.719m|
+
+The combined input gains GT84 at299 (score0.190524→0.200349, crossing the fixed
+0.2 threshold) but loses front GT48 at120 (0.293851→0.154865). Across the larger
+scope it also gains GT106 at299 and loses GT88 at180/240. GT92 remains unmatched
+in both annotated samples. The diagnostic score≥0.1 view has unchanged front
+matches8/11 but FP2→5; broader matches remain50/60 with FP11→14. It does not
+justify lowering the primary threshold. Dimensions and heading errors also
+worsen. Independently recounted results fail the frozen no-loss and precision
+gates: **stop this variant; no larger auxiliary NN window or threshold search**.
+Neither production inputs nor tracking parameters are promoted.
+
+The optional GT-box point audit finds no added peer points inside GT84 at240 or
+299, despite its299 match gain. GT92 receives eight and three exact-box peer
+points respectively without gaining a match. These source-derived counts do not
+establish optical visibility or a causal explanation. GT84/92 annotations are
+absent at120/180; no missing boxes are invented or false positives discarded.
+All16 camera/LiDAR PNGs preserve localized height. The projected boxes still
+float above physical cars, so geometric front eligibility cannot certify the
+user's optical-visibility requirement. Prediction labels are frame-local indices,
+not persistent IDs; these samples provide no IDF1 or ID-switch measurement.
+
+Two earlier executions are frozen **failed/unscored**. The first exposed a
+tuple-versus-JSON-list receipt bug; the second exposed host OpenBLAS versus pinned
+runtime MKL differences in float32 calibration reconstruction. A CPU-only audit
+inside the unchanged pinned runtime reproduces all64 stored matrices exactly.
+Before the final fresh execution, source-derived calibration expectations were
+frozen and exact dtype, shape, array and byte-hash checks replaced the incorrect
+host reconstruction. A rehashed one-ULP corruption is rejected; no tolerance,
+camera calibration or localization correction was changed. The final eight
+requests pass source, wire, own raw-proposal normalization and typed packed-input
+checks. Owned-container cleanup, no OOM, free GPU/port and source preservation
+are verified. Existing queues, original repositories and mounted data are intact.
+
+Evidence: `artifacts/tracking-take2-auxiliary-v2-native-canonical-20261011/`,
+`artifacts/tracking-take2-auxiliary-v2-native-evaluation-20261011/`,
+`artifacts/tracking-take2-auxiliary-v2-calibration-verifier-audit-20261011/` and the
+canonical prelaunch/completed independent audits. This is one exploratory
+four-pair experiment, not a replicated detector-effect estimate, tracking pass,
+independent localization accuracy result or reason to expand to other takes.
+
+### Prediction point support and camera evidence
+
+A frozen sensor-only pass counts LiDAR points inside all 3,705 native prediction
+cuboids from the actual 251 served captures. Raw response, source NPZ and wire
+receipt hashes are checked before counting; GT is loaded only after the count
+file is frozen. An independent full recount reproduces every count and the
+subsequent fixed-threshold assignments. Exact boxes and boxes padded by 0.25 m
+are counted separately, in full raw clouds and the native strict model range
+(-72,-72,-5) < XYZ < (72,72,3). These are pre-voxel counts, not learned feature
+contributions. Both cloud selections give identical counts for these boxes.
+
+At score >=0.2, source-capture geometric-front detections remain 289 TP, 102 FP,
+101 FN: precision 73.91%, recall 74.10%, matched center RMSE 0.831m. Exact-box
+support medians are 85 for TP and 5.5 for FP, but distant 40–54m TP span 1–82 points
+and FP span 0–25. In the wider 54m scope, 283 matched TP and 44 FP have zero exact
+support. A point minimum would remove valid geometric matches and can retain
+erroneous boxes supported by other surfaces. **No point-count filter, threshold
+search or tracker change is promoted.** Three front FP match GT in the wider
+scope but fail GT camera-projection eligibility, illustrating another limitation
+of treating geometric-front FP as proven false physical objects.
+
+The prespecified static-pole search yields ambiguous facade candidates, not a
+certified camera/LiDAR correspondence; no reprojection correction is fitted.
+Bounded read-only recovery of a malformed February2026 calibration SQLite bag
+recovers one complete 1920x1200 RGB checkerboard image and its adjacent LiDAR
+message, reading 19.53MB of source pages. Their sensor headers differ 32.24ms.
+Metric board dimensions, motion, target correspondence, and linkage to the
+September 2025 CooperScene camera/lens/rig remain unverified. This is diagnostic
+evidence, not a replacement intrinsic/extrinsic calibration. Mounted data and
+localized object heights remain unchanged.
+
+Evidence: `artifacts/tracking-take2-prediction-point-support-20261011/`, its
+prelaunch/completed independent audits,
+`artifacts/tracking-native-range-boundary-source-20261011/`,
+`artifacts/tracking-take2-static-pole-correspondence-20261011/`,
+`artifacts/tracking-camera-calibration-structural-recovery-20261011/`,
+`artifacts/tracking-camera-calibration-btree-prefix-20261011/` and
+`artifacts/tracking-camera-calibration-single-pair-recovery-20261011/`.
+
+### Native versus refined GT coverage on the same 300 frames
+
+The preparation step filters native GT to reference LiDAR XY+/-54m, whereas
+the native model point range extends to 72m. A read-only audit of all supplied
+native annotations at 487867–488166 finds 3,825 observations, 39 IDs, and no
+annotation outside 54m (maximum coordinate magnitude 50.333m). Every retained
+box matches the canonical benchmark exactly. Thus the preparation filter loses
+no supplied native annotation here; it does not prove the export is complete.
+
+The released `250928/2/1/labels_refined` export contains 5,875 observations for
+these identical frame names. Only 3,128 observations join by textual ID;
+2,747 occur only in refined and 697 only in native. ID sets differ in all 300
+frames. Of the refined-only observations, 1,639 are within 54m, 389 between 54–72m,
+and 719 beyond 72m; 236, 274 and 567 respectively pass the original geometric-front
+projection. These counts are source discrepancies, not additional certified
+visible GT or boxes added to scoring.
+
+Independent manual reconstruction verifies native location+R*center/2*extent,
+refined ENU quaternion wxyz/LWH, all 600 YAML hashes and the frozen reference
+mapping. Of the 3,128 joins, 2,689 geometries agree at the declared tolerances;
+80 additional joins agree when 180-degree heading reversals are treated as
+equivalent, and 359 still differ. ID29 at 488034 has a 14.769m center difference
+and 43.846-degree heading difference, despite a zero native center offset and
+only 0.030m maximum dimension difference. This cannot be explained by a harmless
+heading reversal or omitted center composition. Neither export is silently
+preferred, combined, relabelled or used as tracker input. Existing scores remain
+valid only for their declared native-export benchmark; the all-visible-GT
+condition remains unestablished pending export/identity provenance.
+
+The retained SensorPlatform exporter source provides a possible scope mechanism:
+`late_fusion/gen_local_labels.py` selects annotations by ego provenance or planar
+distance <=50m, using `VEHICLE_LIDAR_RANGE`. The inspected OPV2V exporter selects
+`LABEL_FOLDER='labels_tracked'`, rather than `labels_refined`, and preserves
+IDs/ENU geometry without an additional 50m filter.
+This source inspection does not identify the exact version that generated the
+mounted native export; range selection also cannot explain the changed geometry
+of shared IDs. A future refined-export comparison must therefore be declared
+separately, with its own continuity audit, rather than replacing historical GT.
+
+The same 300 native/release metadata rows and clocks agree exactly. All 5,875
+refined ENU centers transformed by inverse native LiDAR pose agree with their
+own stored LiDAR centers to 9.75e-13m. Thus this transfer is supported without
+changing localization. Neither export triggers the declared adjacent-appearance
+jump gate max(10m, 50m/s*dt+2m); absence of such jumps does not prove physical
+identity continuity or resolve differences between exports.
+Historical local-quaternion variable names conflict with SciPy's xyzw ordering;
+the audited transfer uses the declared ENU wxyz quaternion and native ego pose,
+rather than assuming that stored local quaternion tuple has the same ordering.
+
+Evidence: `artifacts/tracking-take2-range-coverage-audit-20261011/`,
+`artifacts/tracking-take2-native-refined-gt-coverage-20261011/` and
+`artifacts/tracking-take2-native-refined-gt-coverage-independent-20261011/` and
+`artifacts/tracking-take2-gt-export-provenance-audit-20261011/`.
+
+### GT-source sensitivity with unchanged detections and published tracks
+
+Two preregistered CPU comparisons use the same 251 actually served primary
+detection captures and 300 actually published tracking snapshots. Original
+native scores reproduce exactly before refined scoring. The first comparison
+keeps reference LiDAR XY+/-54m; the second reconstructs unfiltered source traces
+and verifies that their 54m subsets reproduce the original frames exactly.
+Neither runs inference or tracking. Refined ENU wxyz poses pass through inverse
+native ego pose and retained reference pose; GT remains evaluation-only.
+
+| Geometric-front view / GT scope | TP / FP / FN | Precision / recall | Center RMSE | Geometric IDF1 / switches / fragments |
+|---|---:|---:|---:|---:|
+| Served detections / native54 |289 / 102 / 101|73.91% / 74.10%|0.831m|Not tracking|
+| Served detections / refined54 |283 / 108 / 214|72.38% / 56.94%|0.834m|Not tracking|
+| Served detections / refined full front |283 / 108 / 912|72.38% / 23.68%|0.834m|Not tracking|
+| Published tracks / native54 |391 / 238 / 60|62.16% / 86.70%|0.951m|0.6481 / 5 / 10|
+| Published tracks / refined54 |399 / 230 / 177|63.43% / 69.27%|0.972m|0.6390 / 5 / 16|
+| Published tracks / refined full front |404 / 229 / 1013|63.82% / 28.51%|0.970m|0.3805 / 5 / 16|
+
+Full-front refined GT has 30 IDs, with 17 never matched in either view. Among
+IDs exposed for at least five frames, 15 of 28 are never detected and 16 of 29
+are never tracked. Thus even the minimum geometric coverage condition fails;
+this is not proof that every unmatched annotation is optically visible. Within
+54m the never-matched refined IDs are 71,75,100,103,105. Each export retains its
+own IDs; no cross-export identity mapping, union, exclusion or GT extension is
+introduced. Refined IDs71/85/95 have 41-frame annotation gaps; permissive jump
+checks find no flagged jumps, without establishing identity through gaps.
+
+Global matching precedes range stratification, so a prediction cannot be reused
+across bands. Published refined GT/match counts are 576/399 within54m,
+274/5 at54–72m, and 567/0 beyond72m. Served counts are 497/283,229/0,469/0.
+Bands use max(|x|,|y|) in reference LiDAR coordinates, not Euclidean radius.
+All 2,955 source detections were already within54m; unfiltered publication adds
+four prompts, yielding 633. The model's configured point range is a separate
+input constraint. Detection captures include two results received after the
+last publication; these are not 300 fresh camera-time detections. Published
+prompts retain actual weak-confidence continuations and capture-derived poses.
+
+Both comparisons receive independent complete recounts, including source hashes,
+manual quaternion transforms, assignments, per-ID coverage, geometry errors and
+identity metrics. No detector/tracker improvement follows from changing GT
+source. Precision and per-ID recall gates fail; other sequences remain on hold.
+
+Separate 54m and full-front paired videos each contain 300 frames at 10FPS,
+with 12 PNG comparisons per scope. Native/refined panels use identical camera,
+LiDAR and predictions, with persistent track IDs distinguished from frame-local
+proposal indices. Full-front BEV extent 180m is display-only and contains all
+eligible GT boxes; camera/evaluation boxes are never cropped to that extent.
+Five additional postscore PNGs inspect the missed refined IDs. At150, near
+GT71 projects across curb/road/sky without a confidently identifiable vehicle;
+other boxes remain above physical cars. These observations preserve all scored
+annotations and identify unresolved correspondence, not invalid GT or a height
+correction. All original heights, K, poses, thresholds and source bytes remain
+unchanged. Wireframes do not certify optical visibility or primitive occlusion;
+the earlier unchanged primitive-depth test remains separate evidence.
+
+Evidence: `artifacts/tracking-take2-refined-gt-sensitivity-20261011/`,
+`artifacts/tracking-take2-refined-gt-full-front-sensitivity-20261011/`, their
+prelaunch/completed independent audits and rendering roots, and
+`artifacts/tracking-take2-refined-missed-track-review-20261011/`.
+
+
+### Missed-GT provenance and recorded LiDAR support
+
+A bounded source audit traces the same five missed refined IDs to the mounted
+original and corrected-orientation editor JSON and global tracked labels. Their
+local refined geometry agrees with corrected editor PSR and global tracked
+records. Editor `Car` is not a detailed physical category: the inspected
+historical forward converter hardcodes it, while the reverse converter preserves
+`obj_type`. That historical forward script is restricted to another take/frame
+window, so it does not prove the invocation that produced these Take2 files.
+At frame488017, the global tracked ID71 record has type4 (`trailer` in the
+historical class list),
+but across its 78 source appearances its type changes among 0/4/2. Its recorded
+score is zero; score semantics and human review are not established. No origin
+agent field or verified ego-vehicle identity was found. These records therefore
+cannot establish that GT71 is physically a trailer, invalid, or optically visible.
+
+A separate fixed five-frame diagnostic uses the full oriented 3D cuboids, raw
+cached LiDAR and unchanged localized poses. Inclusive half-LWH containment has
+no padding, height shift or source filtering. Exact in-box counts are zero for
+GT71@150, GT100@265, GT103@270 and GT105@290; GT75@174 contains 34 points in
+31 fixed 0.25m voxels. Projection overlap in BEV/side views is not 3D support.
+Neither an empty cuboid nor a nonempty one certifies optical visibility, object
+semantics or annotation validity. Ten PNGs show original camera projection and
+LiDAR context. GT105@290 retains the previously documented invalid image clock
+(`image_ns=0`) and duplicated preceding image; its camera panel cannot certify
+LiDAR-time correspondence. Its LiDAR count remains valid. Historical scores and
+all replay rows remain unchanged. All source hashes/arrays are preserved; no detector, tracker,
+localization, calibration, score or GT exclusion changes follow from this audit.
+GT review/version provenance remains necessary before these misses can support
+an optical-coverage claim or a justified detector correction.
+
+Evidence: `artifacts/tracking-take2-missed-gt-ontology-provenance-20261011/`,
+`artifacts/tracking-take2-missed-gt-lidar-support-20261011/`, and
+`artifacts/tracking-take2-missed-gt-diagnostics-independent-20261011/`.
