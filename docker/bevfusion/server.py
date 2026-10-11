@@ -21,6 +21,7 @@ import zmq
 
 sys.path.insert(0, "/workspace")
 from bevfusion_wire import BevFusionBox, BevFusionCodec, BevFusionRequest, BevFusionResult  # type: ignore[import-not-found]
+from raw_predictions import RawPredictionWriter
 
 
 def _register_runtime_transform() -> None:
@@ -57,7 +58,7 @@ _register_runtime_transform()
 class BevFusionModel:
     """Owns the MMDetection3D model lifecycle and single-frame inference."""
 
-    def __init__(self, config: Path, checkpoint: Path, device: str, score_threshold: float) -> None:
+    def __init__(self, config: Path, checkpoint: Path, device: str, score_threshold: float, raw_predictions_dir: Path | None = None) -> None:
         from mmdet3d.apis import init_model
         from mmengine.dataset import Compose
         self.model = init_model(str(config), str(checkpoint), device=device)
@@ -65,6 +66,7 @@ class BevFusionModel:
         self.device = device
         self.score_threshold = score_threshold
         self._warmed = False
+        self.raw_predictions = RawPredictionWriter(raw_predictions_dir) if raw_predictions_dir is not None else None
 
     def warmup(self) -> None:
         import torch
@@ -132,6 +134,9 @@ class BevFusionModel:
         centers = instances.bboxes_3d.gravity_center.detach().cpu().numpy()
         scores = instances.scores_3d.detach().cpu().numpy()
         labels = instances.labels_3d.detach().cpu().numpy()
+        if self.raw_predictions is not None:
+            self.raw_predictions.write(request, boxes=boxes, gravity_centers=centers, scores=scores,
+                labels=labels, class_names=self.model.dataset_meta.get("classes", ()))
         detections = []
         for box, center, score, label in zip(boxes, centers, scores, labels):
             if int(label) != 0 or float(score) < self.score_threshold:
@@ -210,10 +215,11 @@ def main() -> None:
     parser.add_argument("--metrics-path", default="-")
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--score-threshold", type=float, default=0.2)
+    parser.add_argument("--raw-predictions-dir", type=Path, help="optional writable diagnostic directory; includes all model-output classes before sidecar filtering")
     args = parser.parse_args()
     if not args.config.is_file() or not args.checkpoint.is_file():
         parser.error("--config and --checkpoint must name readable files in /workspace")
-    model = BevFusionModel(args.config, args.checkpoint, args.device, args.score_threshold)
+    model = BevFusionModel(args.config, args.checkpoint, args.device, args.score_threshold, args.raw_predictions_dir)
     model.warmup()
     context = zmq.Context(); socket = context.socket(zmq.ROUTER)
     socket.setsockopt(zmq.SNDHWM, 1); socket.setsockopt(zmq.RCVHWM, 1); socket.setsockopt(zmq.ROUTER_MANDATORY, 1)
