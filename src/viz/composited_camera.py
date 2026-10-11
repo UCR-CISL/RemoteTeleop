@@ -132,7 +132,7 @@ class PoseOnlyCompositedCameraBackend:
         proxy_thickness: int = 2,
         alpha_threshold: float = 0.01,
         depth_tolerance_m: float = 0.03,
-        ground_z: float | None = 0.0,
+        ground_z: float | None = None,
         vehicle_proxies: "VehicleProxyRenderer | None" = None,
         ground_plane: GroundPlane | GroundSurface | None = None,
     ) -> None:
@@ -625,7 +625,7 @@ class CompositedCameraBackend:
         proxy_thickness: int = 2,
         alpha_threshold: float = 0.01,
         depth_tolerance_m: float = 0.03,
-        ground_z: float = 0.0,
+        ground_z: float | None = None,
     ) -> None:
         if proxy_thickness <= 0:
             raise ValueError("proxy_thickness must be positive")
@@ -635,7 +635,7 @@ class CompositedCameraBackend:
         self._proxy_thickness = proxy_thickness
         self._alpha_threshold = float(alpha_threshold)
         self._depth_tolerance_m = float(depth_tolerance_m)
-        self._ground_z = float(ground_z)
+        self._ground_z = None if ground_z is None else float(ground_z)
         self._generation: str | None = None
         self._retired_generations: set[str] = set()
         self._assets: dict[str, _MeshAsset] = {}
@@ -764,7 +764,7 @@ def _draw_box_proxy(
     alpha_threshold: float,
     depth_tolerance_m: float,
     *,
-    ground_z: float | None = 0.0,
+    ground_z: float | None = None,
     ground_plane: GroundPlane | GroundSurface | None = None,
     object_depth: np.ndarray | None = None,
     placed_pose: np.ndarray | None = None,
@@ -788,7 +788,7 @@ def _draw_box_proxy(
 
 
 def _flat_ground_box_pose(
-    box: BoxPrompt, *, ground_z: float | None = 0.0,
+    box: BoxPrompt, *, ground_z: float | None = None,
     ground_plane: GroundPlane | GroundSurface | None = None,
 ) -> np.ndarray:
     """Anchor an oriented GT box to the flat GSplat ground without changing x/y."""

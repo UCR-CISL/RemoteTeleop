@@ -55,7 +55,7 @@ def test_plane_round_trip_and_compositor_dispatch():
     placed = _flat_ground_box_pose(box, ground_z=None, ground_plane=plane)
     assert placed[2, 3] == 4
     with pytest.raises(ValueError, match="ground_z"):
-        _flat_ground_box_pose(box, ground_plane=plane)
+        _flat_ground_box_pose(box, ground_z=0.0, ground_plane=plane)
 
 
 def test_riverside_plane_preserves_legacy_lowest_corner_placement():

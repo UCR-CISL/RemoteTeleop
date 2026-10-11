@@ -212,13 +212,13 @@ def test_pose_only_renderer_draws_depth_tested_detection_proxies():
         camera_intrinsic=np.array([[20.0, 0.0, 16.0], [0.0, 20.0, 12.0], [0.0, 0.0, 1.0]]),
         image_size=(32, 24),
     )
-    backend = PoseOnlyCompositedCameraBackend(FakeGaussianRenderer(depth=5.0), camera)
+    backend = PoseOnlyCompositedCameraBackend(FakeGaussianRenderer(depth=5.0), camera, ground_z=0.0)
 
     visible = backend.render_pose(_pose(), (_box(z=4.0),))
     assert visible.track_states == {"car": "proxy"}
     assert np.any(visible.rgb[..., 1:] > 0)
 
-    hidden = PoseOnlyCompositedCameraBackend(FakeGaussianRenderer(depth=2.0), camera).render_pose(
+    hidden = PoseOnlyCompositedCameraBackend(FakeGaussianRenderer(depth=2.0), camera, ground_z=0.0).render_pose(
         _pose(), (_box(z=4.0),)
     )
     assert hidden.track_states == {"car": "proxy"}
@@ -245,7 +245,7 @@ def test_pose_only_mesh_waits_for_its_source_frame_and_uses_snapshot_box_pose(tm
     rendered = backend.render_pose(_pose(sequence=2), (_box(z=8.0),))
 
     assert rendered.track_states == {"car": "mesh"}
-    np.testing.assert_allclose(meshes.poses[-1][1][:3, 3], [0, 0, 1])
+    np.testing.assert_allclose(meshes.poses[-1][1][:3, 3], [0, 0, 8])
 
 
 def test_flat_ground_anchor_removes_vertical_jitter_without_changing_xy_or_rotation():
@@ -258,7 +258,7 @@ def test_flat_ground_anchor_removes_vertical_jitter_without_changing_xy_or_rotat
         world_T_object=tuple(pose.reshape(-1)),
     )
 
-    anchored = _flat_ground_box_pose(box)
+    anchored = _flat_ground_box_pose(box, ground_z=0.0)
     corners = np.array([
         [-2.0, -1.0, -0.75], [-2.0, -1.0, 0.75], [-2.0, 1.0, -0.75], [-2.0, 1.0, 0.75],
         [2.0, -1.0, -0.75], [2.0, -1.0, 0.75], [2.0, 1.0, -0.75], [2.0, 1.0, 0.75],
@@ -340,12 +340,12 @@ def test_pose_only_mesh_without_source_sequence_waits_for_source_timestamp(tmp_p
 
 def test_proxy_is_immediate_and_depth_occluded():
     mesh_renderer = FakeMeshRenderer()
-    visible = CompositedCameraBackend(FakeGaussianRenderer(5.0), mesh_renderer)
+    visible = CompositedCameraBackend(FakeGaussianRenderer(5.0), mesh_renderer, ground_z=0.0)
     visible_frame = visible.render_frame(_frame(boxes=(_box(z=4.0),)))
     assert visible_frame.track_states == {"car": "proxy"}
     assert np.any(visible_frame.rgb[..., 1:] > 0)
 
-    occluded = CompositedCameraBackend(FakeGaussianRenderer(2.0), mesh_renderer)
+    occluded = CompositedCameraBackend(FakeGaussianRenderer(2.0), mesh_renderer, ground_z=0.0)
     occluded_frame = occluded.render_frame(_frame(boxes=(_box(z=4.0),)))
     assert not np.any(occluded_frame.rgb > 0)
 
@@ -369,13 +369,13 @@ def test_ready_mesh_atomically_replaces_proxy_and_tracks_gt_pose(tmp_path):
     backend.render_frame(_frame(boxes=(), frame_id="2"))
     backend.render_frame(_frame(boxes=(_box(z=8.0),), frame_id="3"))
     assert meshes.loads == [mesh_path]
-    np.testing.assert_allclose(meshes.poses[-1][1][:3, 3], [0, 0, 1])
+    np.testing.assert_allclose(meshes.poses[-1][1][:3, 3], [0, 0, 8])
 
 
 def test_failure_retains_proxy_and_scene_reset_rejects_late_asset(tmp_path):
     meshes = FakeMeshRenderer()
     meshes.fail_render = True
-    backend = CompositedCameraBackend(FakeGaussianRenderer(), meshes)
+    backend = CompositedCameraBackend(FakeGaussianRenderer(), meshes, ground_z=0.0)
     mesh_path = tmp_path / "car.glb"
     mesh_path.write_bytes(b"glTF")
     ready = AssetEvent(
@@ -425,7 +425,7 @@ def test_vehicle_proxy_receives_each_current_bbox_and_rigid_pose():
     proxies = FakeVehicleProxies(renderer)
     camera = RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24))
     backend = PoseOnlyCompositedCameraBackend(
-        FakeGaussianRenderer(), camera, renderer, ground_z=None, vehicle_proxies=proxies,
+        FakeGaussianRenderer(), camera, renderer, vehicle_proxies=proxies,
     )
     pose = np.eye(4)
     pose[:3, :3] = [[0., -1., 0.], [1., 0., 0.], [0., 0., 1.]]
@@ -439,6 +439,7 @@ def test_vehicle_proxy_receives_each_current_bbox_and_rigid_pose():
     for (_, dimensions, model), box in zip(proxies.calls, (car, bus)):
         assert dimensions == box.dimensions_lwh
         np.testing.assert_allclose(model, pose)
+    assert result.ground_placements['car']['status'] == 'preserve_input_pose'
     assert backend.render_pose(_pose(1, 100_000), ()).track_states == {}
     tall = replace(car, dimensions_lwh=(4.6, 1.85, 3.))
     backend.render_pose(_pose(2, 200_000), (tall,))
