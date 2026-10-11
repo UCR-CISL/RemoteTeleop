@@ -160,7 +160,8 @@ class BevFusionKalmanTracker:
     def __init__(self, *, maximum_coast_seconds: float = 0.5,
                  minimum_confirmation_hits: int = 1,
                  birth_score_threshold: float = 0.0,
-                 continuation_score_threshold: float = 0.0) -> None:
+                 continuation_score_threshold: float = 0.0,
+                 suppress_duplicate_births: bool = False) -> None:
         if maximum_coast_seconds <= 0:
             raise ValueError("maximum_coast_seconds must be positive")
         if (isinstance(minimum_confirmation_hits, bool)
@@ -175,9 +176,16 @@ class BevFusionKalmanTracker:
         self.minimum_confirmation_hits = minimum_confirmation_hits
         self.birth_score_threshold = float(birth_score_threshold)
         self.continuation_score_threshold = float(continuation_score_threshold)
+        self.suppress_duplicate_births = suppress_duplicate_births
         self._tracks: list[_KalmanTrack] = []
         self._next_track_id = 0
         self._timestamp_us: int | None = None
+        self._suppressed_birth_pairs: tuple[tuple[int, int], ...] = ()
+
+    @property
+    def suppressed_birth_pairs(self) -> tuple[tuple[int, int], ...]:
+        """Last update's (unmatched input index, matched reference index) pairs."""
+        return self._suppressed_birth_pairs
 
     def update(
         self, detections: Sequence[WorldDetection], *, timestamp_us: int
@@ -185,6 +193,7 @@ class BevFusionKalmanTracker:
         if self._timestamp_us is not None and timestamp_us < self._timestamp_us:
             raise ValueError("tracker timestamps must be monotonic")
         self._timestamp_us = timestamp_us
+        self._suppressed_birth_pairs = ()
         # Expiry is decided before association: a new detection must not revive
         # an identity whose observation gap already exceeded the coast limit.
         self._tracks = [
@@ -200,6 +209,11 @@ class BevFusionKalmanTracker:
         low = [i for i, detection in enumerate(detections)
                if self.continuation_score_threshold <= detection.score < self.birth_score_threshold]
         assignments = self._associate(range(len(self._tracks)), high, detections, timestamp_us)
+        # Protect only current high detections associated to identities that
+        # were already confirmed. Coasting ghosts, tentative confirmations and
+        # new births must not prevent another object from starting a track.
+        birth_references = [column for row, column in assignments
+                            if self._tracks[row].confirmed]
         high_assigned_tracks = {row for row, _ in assignments}
         continuing = [i for i, track in enumerate(self._tracks)
                       if track.confirmed and i not in high_assigned_tracks]
@@ -212,22 +226,89 @@ class BevFusionKalmanTracker:
             if not track.confirmed and track_index not in assigned_tracks:
                 track.hit_streak = 0
 
+        suppressed = []
         for detection_index in high:
             if detection_index in assigned_detections:
                 continue
             detection = detections[detection_index]
+            if self.suppress_duplicate_births:
+                reference = next((column for column in birth_references
+                                  if self._duplicate_birth(detection, detections[column])), None)
+                if reference is not None:
+                    suppressed.append((detection_index, reference))
+                    continue
             label = detection.label.replace(".", "_").replace("/", "_")
             track_id = f"bevfusion:{label}:{self._next_track_id}"
             self._next_track_id += 1
             self._tracks.append(_KalmanTrack(
                 track_id, detection, timestamp_us, self.minimum_confirmation_hits,
             ))
+        self._suppressed_birth_pairs = tuple(suppressed)
 
         self._tracks = [
             track
             for track in self._tracks
             if timestamp_us - track.last_observed_us <= self.maximum_coast_us
         ]
+
+    @staticmethod
+    def _duplicate_birth(candidate: WorldDetection, reference: WorldDetection) -> bool:
+        """Frozen exploratory birth guard; never removes a detector box."""
+        if candidate.label != reference.label:
+            return False
+        candidate_pose = np.asarray(candidate.world_T_object, dtype=float)
+        reference_pose = np.asarray(reference.world_T_object, dtype=float)
+        if abs(candidate_pose[:3, 0] @ reference_pose[:3, 0]) < math.cos(math.radians(30)):
+            return False
+        overlap = BevFusionKalmanTracker._parallel_box_iou(candidate, reference)
+        return overlap is not None and overlap >= 0.3
+
+    @staticmethod
+    def _parallel_box_iou(candidate: WorldDetection, reference: WorldDetection) -> float | None:
+        """Exact cuboid IoU for parallel vertical axes, in reference box axes.
+
+        Current detector boxes share a LiDAR vertical axis. Arbitrary world
+        rotations preserve this test; nonparallel normals are skipped rather
+        than approximating their 3D intersection.
+        """
+        pose = np.asarray(candidate.world_T_object, dtype=float)
+        other = np.asarray(reference.world_T_object, dtype=float)
+        if np.linalg.norm(np.cross(pose[:3, 2], other[:3, 2])) > 1e-6:
+            return None
+        rotation = other[:3, :3].T @ pose[:3, :3]
+        center = other[:3, :3].T @ (pose[:3, 3] - other[:3, 3])
+        length, width, height = candidate.dimensions_lwh
+        ref_length, ref_width, ref_height = reference.dimensions_lwh
+        vertical = max(0.0, min(center[2] + height / 2, ref_height / 2)
+                       - max(center[2] - height / 2, -ref_height / 2))
+        if vertical == 0:
+            return 0.0
+        corners = np.array(((-1, -1), (1, -1), (1, 1), (-1, 1)))
+        polygon = (corners * (length / 2, width / 2)) @ rotation[:2, :2].T + center[:2]
+        # Clip the candidate footprint against the reference rectangle.
+        for axis, bound, direction in ((0, ref_length / 2, 1), (0, -ref_length / 2, -1),
+                                       (1, ref_width / 2, 1), (1, -ref_width / 2, -1)):
+            if len(polygon) == 0:
+                return 0.0
+            clipped = []
+            previous = polygon[-1]
+            previous_inside = direction * (previous[axis] - bound) <= 0
+            for point in polygon:
+                inside = direction * (point[axis] - bound) <= 0
+                if inside != previous_inside:
+                    fraction = (bound - previous[axis]) / (point[axis] - previous[axis])
+                    clipped.append(previous + fraction * (point - previous))
+                if inside:
+                    clipped.append(point)
+                previous, previous_inside = point, inside
+            polygon = np.asarray(clipped)
+        if len(polygon) < 3:
+            return 0.0
+        area = abs(float(polygon[:, 0] @ np.roll(polygon[:, 1], 1)
+                         - polygon[:, 1] @ np.roll(polygon[:, 0], 1))) / 2
+        intersection = area * vertical
+        union = length * width * height + ref_length * ref_width * ref_height - intersection
+        return min(1.0, max(0.0, intersection / union))
 
     def _associate(self, track_indices: Sequence[int], detection_indices: Sequence[int],
                    detections: Sequence[WorldDetection], timestamp_us: int) -> list[tuple[int, int]]:

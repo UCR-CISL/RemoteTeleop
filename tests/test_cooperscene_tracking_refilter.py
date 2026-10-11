@@ -112,3 +112,40 @@ def test_native_generic_vehicle_class_keeps_ontology_and_rejects_pedestrians(tmp
     assert all(len(x['detections']) == 1 for x in result)
     assert all(x['detections'][0]['detector_class_name'] == 'vehicle' for x in result)
     assert result[0]['tracks'][0]['track_id'] == result[1]['tracks'][0]['track_id']
+
+
+def test_optional_duplicate_birth_guard_preserves_primary_detections_and_ignores_gt(tmp_path):
+    source, raw, original = fixture_inputs(tmp_path)
+    path = raw / '1.json'
+    record = json.loads(path.read_text())
+    duplicate = dict(record['predictions'][0], gravity_center=[.8, 0, 10],
+                     box_tensor=[.8, 0, 9, 2, 4, 2, 0])
+    record['predictions'].append(duplicate)
+    path.write_text(json.dumps(record))
+    outputs = []
+    for enabled in (False, True):
+        directory = tmp_path / str(enabled)
+        manifest = CachedVehicleClassTrial(classes=['car', 'truck'], suppress_duplicate_births=enabled).run(source, raw, directory)
+        assert manifest['suppress_duplicate_births'] is enabled
+        assert '3D IoU>=0.3' in manifest['duplicate_birth_policy']
+        if enabled:
+            diagnostics = [json.loads(line) for line in (directory / manifest['birth_suppression_diagnostics']).read_text().splitlines()]
+            assert manifest['suppressed_birth_count'] == 1
+            assert diagnostics[0]['suppressed_births'] == []
+            assert diagnostics[1]['suppressed_births'] == [dict(tracker_input_index=1,
+                matched_tracker_input_index=0, raw_prediction_index=2, matched_raw_prediction_index=0)]
+        else:
+            assert not (directory / 'birth_suppression_diagnostics.jsonl').exists()
+        outputs.append([json.loads(line) for line in (directory / 'frames.jsonl').read_text().splitlines()])
+    baseline, guarded = outputs
+    assert baseline[1]['detections'] == guarded[1]['detections']
+    assert len(guarded[1]['detections']) == 2
+    assert len(baseline[1]['tracks']) == 2 and len(guarded[1]['tracks']) == 1
+    assert baseline[1]['tracks'][0] == guarded[1]['tracks'][0]
+    for frame in original:
+        frame['gt'] = []
+    source.write_text(''.join(json.dumps(frame) + '\n' for frame in original))
+    directory = tmp_path / 'no_gt'
+    CachedVehicleClassTrial(classes=['car', 'truck'], suppress_duplicate_births=True).run(source, raw, directory)
+    without_gt = [json.loads(line) for line in (directory / 'frames.jsonl').read_text().splitlines()]
+    assert [frame['tracks'] for frame in guarded] == [frame['tracks'] for frame in without_gt]

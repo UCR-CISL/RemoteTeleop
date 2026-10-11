@@ -17,7 +17,8 @@ class CachedVehicleClassTrial:
 
     motor_vehicle_classes = {"car", "truck", "bus", "trailer", "construction_vehicle", "vehicle"}
 
-    def __init__(self, *, classes, score_threshold=.2, continuation_score_threshold=None, minimum_confirmation_hits=1):
+    def __init__(self, *, classes, score_threshold=.2, continuation_score_threshold=None, minimum_confirmation_hits=1,
+                 suppress_duplicate_births=False):
         self.classes = set(classes)
         if not self.classes or not self.classes <= self.motor_vehicle_classes:
             raise ValueError("classes must be a nonempty subset of declared motor vehicle classes")
@@ -30,6 +31,7 @@ class CachedVehicleClassTrial:
         if isinstance(minimum_confirmation_hits, bool) or not isinstance(minimum_confirmation_hits, int) or minimum_confirmation_hits < 1:
             raise ValueError("minimum_confirmation_hits must be a positive integer")
         self.minimum_confirmation_hits = minimum_confirmation_hits
+        self.suppress_duplicate_births = suppress_duplicate_births
 
     def run(self, frames_path: Path, raw_directory: Path, output_dir: Path) -> dict:
         raw = {}
@@ -64,15 +66,17 @@ class CachedVehicleClassTrial:
             last_times[sequence] = frame["timestamp_us"]
             paired.append((frame, record))
         output_dir.mkdir(parents=True, exist_ok=False)
+        suppression_records = []
         with (output_dir / "frames.jsonl").open("w") as output:
             for original, record in paired:
                 frame = dict(original)
                 sequence = frame["sequence_id"]
                 tracker = trackers.setdefault(sequence, BevFusionKalmanTracker(
                     birth_score_threshold=self.threshold, continuation_score_threshold=self.continuation_threshold,
-                    minimum_confirmation_hits=self.minimum_confirmation_hits))
+                    minimum_confirmation_hits=self.minimum_confirmation_hits,
+                    suppress_duplicate_births=self.suppress_duplicate_births))
                 world = np.asarray(frame["world_T_lidar"]).reshape(4, 4)
-                detections, world_detections = [], []
+                detections, world_detections, raw_indices = [], [], []
                 for raw_index, box in enumerate(record["predictions"]):
                     if box["class_name"] not in self.classes or box["score"] < self.continuation_threshold:
                         continue
@@ -94,8 +98,15 @@ class CachedVehicleClassTrial:
                             dimensions_lwh=dimensions, label="vehicle", detector_class_name=box["class_name"],
                             detector_class_id=box["class_id"], score=box["score"]))
                     world_detections.append(WorldDetection(pose, dimensions, "vehicle", box["score"], detector_class_name=box["class_name"]))
+                    raw_indices.append(raw_index)
                 # Only raw detector boxes and original timestamps enter tracking.
                 tracker.update(world_detections, timestamp_us=frame["timestamp_us"])
+                if self.suppress_duplicate_births:
+                    suppression_records.append(dict(sequence_id=sequence, frame_id=frame["frame_id"],
+                        timestamp_us=frame["timestamp_us"], suppressed_births=[dict(
+                            tracker_input_index=candidate, matched_tracker_input_index=reference,
+                            raw_prediction_index=raw_indices[candidate], matched_raw_prediction_index=raw_indices[reference])
+                            for candidate, reference in tracker.suppressed_birth_pairs]))
                 frame["detections"] = detections
                 frame["tracks"] = [dict(track_id=box.track_id, world_T_object=box.world_T_object.tolist(),
                     dimensions_lwh=box.dimensions_lwh, label="vehicle", score=box.score, detector_class_name=box.detector_class_name)
@@ -105,6 +116,8 @@ class CachedVehicleClassTrial:
         manifest = dict(input_frames=str(frames_path.resolve()), raw_directory=str(raw_directory.resolve()),
             frames=len(frames), sequence_frame_counts=counts, score_threshold=self.threshold,
             continuation_score_threshold=self.continuation_threshold, minimum_confirmation_hits=self.minimum_confirmation_hits,
+            suppress_duplicate_births=self.suppress_duplicate_births,
+            duplicate_birth_policy="unmatched high vs current high matched to previously confirmed tracks; same class, parallel vertical axes within1e-6, 3D IoU>=0.3, heading modulo180<=30deg; association unchanged",
             confidence_policy="primary detections and births use score_threshold; lower-score boxes can only associate unmatched confirmed tracks",
             detector_classes=sorted(self.classes), evaluated_class="vehicle",
             gt_label_policy="native YAML vehicles has no detailed category; preserve annotation_class_name and group only evaluation label",
@@ -112,6 +125,11 @@ class CachedVehicleClassTrial:
             tracker="BevFusionKalmanTracker; 0.5 seconds coast; expiry before association",
             gt_used_as_tracker_input=False, gt_geometry_and_timestamps_unchanged=True,
             raw_provenance="exact generation/frame/timestamp/request identity/ordinal; matching calibration and image dimensions")
+        if self.suppress_duplicate_births:
+            diagnostic = output_dir / "birth_suppression_diagnostics.jsonl"
+            diagnostic.write_text("".join(json.dumps(record) + "\n" for record in suppression_records))
+            manifest["birth_suppression_diagnostics"] = diagnostic.name
+            manifest["suppressed_birth_count"] = sum(len(record["suppressed_births"]) for record in suppression_records)
         (output_dir / "refilter_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         return manifest
 
@@ -124,10 +142,12 @@ def main():
     parser.add_argument("--score-threshold", type=float, default=.2)
     parser.add_argument("--continuation-score-threshold", type=float, help="optional lower threshold for confirmed-track continuation only")
     parser.add_argument("--minimum-confirmation-hits", type=int, default=1)
+    parser.add_argument("--suppress-duplicate-births", action="store_true", help="Exploratory birth-only cuboid overlap guard; detector boxes and association remain unchanged")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     print(json.dumps(CachedVehicleClassTrial(classes=args.classes, score_threshold=args.score_threshold,
-        continuation_score_threshold=args.continuation_score_threshold, minimum_confirmation_hits=args.minimum_confirmation_hits).run(
+        continuation_score_threshold=args.continuation_score_threshold, minimum_confirmation_hits=args.minimum_confirmation_hits,
+        suppress_duplicate_births=args.suppress_duplicate_births).run(
         args.frames, args.raw_directory, args.output_dir), indent=2))
 
 

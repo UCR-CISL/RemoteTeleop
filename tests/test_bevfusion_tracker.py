@@ -238,3 +238,157 @@ def test_low_confidence_continuation_keeps_class_distance_and_score_gates(x, lab
 def test_invalid_confidence_stage_thresholds_are_rejected(birth, continuation):
     with pytest.raises(ValueError, match='score thresholds'):
         BevFusionKalmanTracker(birth_score_threshold=birth, continuation_score_threshold=continuation)
+
+
+def test_duplicate_birth_guard_preserves_assigned_track_and_detector_inputs():
+    from dataclasses import replace
+
+    original = _detection(0.)
+    continued = _detection(.1)
+    duplicate = replace(_detection(.8), score=.6)
+    saved = duplicate.world_T_object.copy()
+    baseline = BevFusionKalmanTracker()
+    guarded = BevFusionKalmanTracker(suppress_duplicate_births=True)
+    for tracker in (baseline, guarded):
+        tracker.update((original,), timestamp_us=0)
+        tracker.update((continued, duplicate), timestamp_us=100_000)
+    before, after = baseline.boxes_at(100_000), guarded.boxes_at(100_000)
+    assert len(before) == 2 and len(after) == 1  # Default remains unchanged.
+    assert after[0].track_id == before[0].track_id
+    assert after[0].score == continued.score
+    np.testing.assert_array_equal(after[0].world_T_object, before[0].world_T_object)
+    np.testing.assert_array_equal(duplicate.world_T_object, saved)
+
+
+@pytest.mark.parametrize('kind', ['adjacent', 'other_class', 'other_height', 'other_heading', 'tilted'])
+def test_duplicate_guard_allows_distinct_boxes_and_nonparallel_normals(kind):
+    from dataclasses import replace
+    from scipy.spatial.transform import Rotation
+
+    candidate = _detection(.8)
+    pose = candidate.world_T_object.copy()
+    if kind == 'adjacent':
+        pose[:3, 3] = (0, 2., 1.)
+    elif kind == 'other_class':
+        candidate = replace(candidate, label='truck')
+    elif kind == 'other_height':
+        pose[2, 3] = 4.
+    elif kind == 'other_heading':
+        pose[:3, :3] = Rotation.from_euler('z', 45, degrees=True).as_matrix()
+    else:
+        pose[:3, :3] = Rotation.from_euler('x', 10, degrees=True).as_matrix()
+        assert BevFusionKalmanTracker._parallel_box_iou(replace(candidate, world_T_object=pose), _detection(0.)) is None
+    candidate = replace(candidate, world_T_object=pose)
+    tracker = BevFusionKalmanTracker(suppress_duplicate_births=True)
+    tracker.update((_detection(0.),), timestamp_us=0)
+    tracker.update((_detection(0.), candidate), timestamp_us=100_000)
+    assert len(tracker.boxes_at(100_000)) == 2
+
+
+def test_duplicate_overlap_is_exact_for_parallel_boxes_and_modulo_pi():
+    from dataclasses import replace
+    from scipy.spatial.transform import Rotation
+
+    original = _detection(0.)
+    shifted = _detection(1.)
+    # Parallel boxes with identical heights/widths reduce to their interval IoU.
+    assert BevFusionKalmanTracker._parallel_box_iou(shifted, original) == pytest.approx(3.5 / 5.5)
+    pose = shifted.world_T_object.copy()
+    pose[:3, :3] = Rotation.from_euler('z', 180, degrees=True).as_matrix()
+    reversed_heading = replace(shifted, world_T_object=pose)
+    assert BevFusionKalmanTracker._duplicate_birth(reversed_heading, original)
+    pose[:3, :3] = Rotation.from_euler('x', 180, degrees=True).as_matrix()
+    assert BevFusionKalmanTracker._parallel_box_iou(replace(shifted, world_T_object=pose), original) == pytest.approx(3.5 / 5.5)
+
+
+def test_duplicate_guard_is_invariant_to_arbitrary_world_rotation_and_translation():
+    from dataclasses import replace
+    from scipy.spatial.transform import Rotation
+
+    world = np.eye(4)
+    world[:3, :3] = Rotation.from_euler('xyz', [63, -45, 32], degrees=True).as_matrix()
+    world[:3, 3] = (10., -20., 30.)
+    boxes = (_detection(0.), _detection(.1), _detection(.8))
+    transformed = tuple(replace(box, world_T_object=world @ box.world_T_object) for box in boxes)
+    assert BevFusionKalmanTracker._parallel_box_iou(boxes[2], boxes[1]) == pytest.approx(
+        BevFusionKalmanTracker._parallel_box_iou(transformed[2], transformed[1]))
+    output = []
+    for collection in (boxes, transformed):
+        tracker = BevFusionKalmanTracker(suppress_duplicate_births=True)
+        tracker.update(collection[:1], timestamp_us=0)
+        tracker.update(collection[1:], timestamp_us=100_000)
+        output.append(tracker.boxes_at(100_000))
+    assert len(output[0]) == len(output[1]) == 1
+    assert output[0][0].track_id == output[1][0].track_id
+    np.testing.assert_allclose(world @ output[0][0].world_T_object, output[1][0].world_T_object, atol=1e-12)
+
+
+def test_duplicate_guard_does_not_use_coasted_unmatched_ghost_as_birth_reference():
+    from dataclasses import replace
+
+    ghost = replace(_detection(0.), dimensions_lwh=(20., 2., 2.))
+    candidate = replace(_detection(8.), dimensions_lwh=(20., 2., 2.))
+    assert BevFusionKalmanTracker._duplicate_birth(candidate, ghost)
+    tracker = BevFusionKalmanTracker(suppress_duplicate_births=True)
+    tracker.update((ghost,), timestamp_us=0)
+    # The 8m innovation fails the association gate, while the long boxes overlap.
+    tracker.update((candidate,), timestamp_us=100_000)
+    assert len(tracker.boxes_at(100_000)) == 2
+
+
+def test_newly_confirmed_tentative_track_cannot_suppress_another_birth():
+    tracker = BevFusionKalmanTracker(suppress_duplicate_births=True, minimum_confirmation_hits=2)
+    tracker.update((_detection(0.),), timestamp_us=0)
+    tracker.update((_detection(0.), _detection(.8)), timestamp_us=100_000)
+    assert len(tracker.boxes_at(100_000)) == 1
+    # The second box still starts its own tentative identity at this frame.
+    tracker.update((_detection(.8),), timestamp_us=200_000)
+    assert len(tracker.boxes_at(200_000)) == 2
+
+
+def test_parallel_box_iou_clips_rotated_footprint_and_partial_height():
+    from dataclasses import replace
+    from scipy.spatial.transform import Rotation
+
+    square = replace(_detection(0.), dimensions_lwh=(2., 2., 2.))
+    pose = square.world_T_object.copy()
+    pose[:3, :3] = Rotation.from_euler('z', 45, degrees=True).as_matrix()
+    rotated = replace(square, world_T_object=pose)
+    assert BevFusionKalmanTracker._parallel_box_iou(rotated, square) == pytest.approx(1 / math.sqrt(2))
+    pose = square.world_T_object.copy()
+    pose[2, 3] += 1.
+    assert BevFusionKalmanTracker._parallel_box_iou(replace(square, world_T_object=pose), square) == pytest.approx(1 / 3)
+
+
+def test_suppression_provenance_is_read_only_and_resets_each_update():
+    tracker = BevFusionKalmanTracker(suppress_duplicate_births=True)
+    assert tracker.suppressed_birth_pairs == ()
+    tracker.update((_detection(0.),), timestamp_us=0)
+    tracker.update((_detection(0.), _detection(.8)), timestamp_us=100_000)
+    assert tracker.suppressed_birth_pairs == ((1, 0),)
+    with pytest.raises(AttributeError):
+        tracker.suppressed_birth_pairs = ()
+    tracker.update((), timestamp_us=200_000)
+    assert tracker.suppressed_birth_pairs == ()
+    default = BevFusionKalmanTracker()
+    default.update((_detection(0.),), timestamp_us=0)
+    default.update((_detection(0.), _detection(.8)), timestamp_us=100_000)
+    assert default.suppressed_birth_pairs == ()
+
+
+def test_duplicate_guard_ignores_low_stage_reference_and_same_update_births():
+    from dataclasses import replace
+
+    ghost = replace(_detection(0.), dimensions_lwh=(20., 2., 2.))
+    candidate = replace(_detection(8.), dimensions_lwh=(20., 2., 2.))
+    tracker = BevFusionKalmanTracker(suppress_duplicate_births=True,
+                                    birth_score_threshold=.6, continuation_score_threshold=.1)
+    tracker.update((ghost,), timestamp_us=0)
+    tracker.update((candidate, replace(ghost, score=.2)), timestamp_us=100_000)
+    assert len(tracker.boxes_at(100_000)) == 2
+    assert tracker.boxes_at(100_000)[0].score == .2  # Low continuation remains untouched.
+    assert tracker.suppressed_birth_pairs == ()
+    newborns = BevFusionKalmanTracker(suppress_duplicate_births=True)
+    newborns.update((_detection(0.), _detection(.8)), timestamp_us=0)
+    assert len(newborns.boxes_at(0)) == 2
+    assert newborns.suppressed_birth_pairs == ()
