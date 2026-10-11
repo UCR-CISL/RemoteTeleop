@@ -745,3 +745,287 @@ tracker input, localization or GT geometry was changed. Evidence and reproductio
 scripts are in `artifacts/tracking-take2-camera-timestamp-sensitivity-20261011/`;
 exact source proof is in
 `artifacts/tracking-take2-camera-correspondence-audit-20261011/`.
+
+
+### Confirmed-track continuation and residual source audit
+
+One development candidate retains primary detections and births at.20 while
+allowing.10–.20 proposals to update unmatched previously confirmed tracks. It
+uses immediate confirmation, the optional duplicate-birth guard and unchanged
+.5s coast. No weak proposal can create a track. The first60 take1 development
+frames gain two matches and twoFP; full501 guard recall95.91%→97.12%, precision
+95.28%→95.00%, switches5→2, fragmentation6→3, geometricIDF1 .9302→.9522. Independent
+replay finds24 gained and4 lost GT-frame matches (two each on GT85/130), net20.
+Detections and every non-track field are unchanged. Take1 overlaps training.
+
+The single candidate was then run on the already-inspected take2 window as an
+explicitly exploratory followup, not untouched heldout validation. On the original
+300 frames, guard recall85.37%→92.68%, precision62.70%→63.24%, switches6→4,
+fragmentation7→3, geometricIDF1 .6066→.6763. GT84 tracking21→49/70 and GT92
+68→73/79;33 matched GT-frame observations are gained with no losses. All primary
+detections remain unchanged. Independent replay confirms511/589 low updates in
+take1/take2 and zero low births. In take2,369 weak updates are farther than2m from
+any suppliedGT, so continuation also sustains unsupported proposals. Strong per-ID
+coverage and precision still fail; defaults are not promoted. Cross-host detection
+pose reconstruction differed only by1–2ULP; metadata is exact, poses are checked
+within1e-12, and archived canonical detections are preserved in evaluation copies.
+Evidence and labelled video/coverage plot are in
+`artifacts/tracking-take1-native-continuation-development-20261011/` and
+`artifacts/tracking-take2-native-continuation-exploratory-20261011/`.
+
+Residual guard229FP comprise116 detector-updated and113 coasted outputs; coasting
+also contributes50TP. Stable track50 accounts for82FP before GT92's first supplied
+annotation. Original unfiltered native/refined labels confirm those82 absences,
+but source camera/point views cannot prove that the persistent proposal is a real
+vehicle. Canonical counts remain unchanged; do not suppress this track or shorten
+coasts merely to remove those scores. Four of six guard switches are expiry/rebirth,
+one is identity migration through a finite4.454m association, and one is a related
+rebirth. All six have accepted XYZ errors .0194–.0258m; no localization change is
+justified. Lifecycle/cost/weak-update evidence and13 camera/LiDAR panels are in
+`artifacts/tracking-take2-residual-tracker-audit-20261011/`.
+
+Original take2 ROS SQLite recordings provide additional independent source evidence:
+three selected1920×1200 RGB images equal native BGR pixels exactly, and every native
+XYZ point uniquely pairs with original os_sensor PointCloud2 within1.43µm, with exact
+intensity. Both original sensor headers differ from export metadata by+37s, preserving
+pair skew; this is not a37s inter-sensor offset. Front-sector per-point times lie about
+40–59ms into100ms scans. Images follow those returns by about5–23ms before
+the copied-image event, but followup exports after the loss use images about76–94ms
+older than front-sector returns. This affects moving-object correspondence. Late
+raw-GNSS ego motion bounds (<.14px rotation/.022px translation at45m) do not explain
+persistent fixed-scene projection offsets. Export cropping and a systematic rigid
+point conversion are ruled out in the checked frames. Actual calibration capture
+ROI/binning/rectification/distortion, exposure/PTP and deployed driver configuration
+remain unavailable; source consistency is not physical calibration accuracy. No GT
+fit, height shift, source edit or XYZ refinement was applied. Reproducible original-
+bag, point-time, clock, annotation-birth and direct projection evidence is in
+`artifacts/tracking-take2-camera-correspondence-audit-20261011/`.
+
+### Controlled front-scan camera-pairing followup
+
+A fresh exploratory take2/V1 rerun preserves the same 300 LiDAR samples, XYZ/reference
+poses, GT, start frame, camera K/extrinsics and raw intensity policy. Its frozen,
+GT-independent rule selects the positive published camera timestamp nearest the
+LiDAR header +50 ms, with absolute residual ≤40 ms. This midpoint comes from measured
+front-sector acquisition times. Exactly 10 images change (488157–488166 use captures
+488158–488167); 290 canonical payloads are reused. All 300 selected native BGR images
+and original/native XYZI arrays pass exact verification. Maximum residual is
+14.739072 ms. Camera world poses intentionally remain original; this isolates image
+selection without exposure-pose interpolation or a calibration fit.
+
+Lambda GPU 1 completes all 300 requests with the exact original Docker image,
+checkpoint, native configuration/server and four-feature normalization. Its own
+container stops afterward; existing work is preserved. Independent comparison
+finds all 200 raw proposals bit-exact on each of the 290 unchanged inputs. The 10
+changed images affect predictions: all 151 primary boxes scoring ≥0.20 have
+GT-independent center correspondences, with maximum changes of 2.375 mm in center,
+1.436 mm in dimensions, 0.0244° in heading and 0.0004801 in confidence. Large ordered
+weak-proposal differences are ranking changes rather than primary displacement.
+The image path responds, but this small intervention does not establish how strongly
+the camera branch contributes or resolve optical correspondence.
+
+All five frozen tracker variants reproduce primary precision/recall, identities,
+fragmentation, geometric IDF1 and per-ID coverage counts. This holds for all 300
+frames (451 geometric FOV observations), the common 299 excluding the original
+invalid capture (446 observations), and the declared unchanged 290/changed 10
+partitions. Subset scoring uses full-window tracker outputs and never resets tracking
+at a subset boundary. Small geometric error changes remain explicit. Detection stays
+337 TP/123 FP/114 FN (precision 73.26%, recall 74.72%). Guard stays 385 TP/229 FP/66 FN,
+with six switches. Continuation stays 418 TP/243 FP/33 FN (precision 63.24%, recall
+92.68%), four switches, three fragmentations and geometric IDF1 0.6763. All 11 geometric
+FOV IDs are ever detected, but the stronger per-ID coverage and precision targets
+still fail. Production defaults and the canonical benchmark are unchanged; there
+is no expansion to all takes.
+
+Frozen inputs, reproduction scripts, execution receipts and 20 paired camera/BEV
+PNGs plus two 10-frame videos are in
+`artifacts/tracking-take2-front-scan-camera-pairing-inputs-20261011/` and
+`artifacts/tracking-take2-camera-pairing-trial-20261011/`. Independent source selection,
+wire/raw parity and four-window metric audits are in
+`artifacts/tracking-take2-camera-pairing-independent-audit-20261011/`.
+The overlays label GT/predicted IDs, misses, FP and association errors. Their
+wireframes do not perform depth occlusion. Separate real-map primitive diagnostics
+cover scene/asset occlusion. Timing repair does not resolve persistent fixed-scene
+projection offsets. Camera calibration provenance and camera-branch influence are
+the next concrete checks, with localization held fixed.
+
+### Camera influence and rejected development changes
+
+The camera influence diagnostic uses six fixed, uniformly sampled take2 frames,
+each with its original image, a black image and the first sample's image. All 18
+requests retain identical LiDAR, camera matrices and XYZ poses. Original predictions
+are bit-exact against the paired-camera cache. The camera branch is active: black
+and mismatched images substantially change image-neck features, but change camera
+BEV features by only 2.20–7.28% and 1.79–3.42% relative RMS. Primary box center changes
+are at most 24.3 mm and 50.4 mm, respectively. Camera BEV also consumes unchanged
+sparse LiDAR depth; these aggregate ratios do not isolate learned image importance.
+Synthetic image trials are diagnostics, not physical detection benchmarks, and
+profiling hooks invalidate latency comparisons. Inputs, execution receipts and the
+independent source/geometry audit are in
+`artifacts/tracking-take2-camera-influence-inputs-20261011/`,
+`artifacts/tracking-take2-camera-influence-trial-20261011/` and
+`artifacts/tracking-take2-camera-influence-independent-audit-20261011/`.
+
+The native camera voxel pool truncates negative fractional indices toward zero,
+retaining ray samples below its intended z=-10 m boundary. A separately frozen
+six-sample take1 development diagnostic changes only this operation to floor.
+All original proposals reproduce the development cache exactly, and actual geometry
+and lifted features match across modes before pooling. Floor removes about 51,577
+invalid ray samples (9.06–11.07% of absolute lifted-feature mass), but both modes
+score 18 TP/1 FP/2 FN in geometric front FOV. Center RMSE changes only 0.44147 to
+0.44120 m. This inherited training behavior is not silently fixed or promoted;
+there is no evidence of recovered detection coverage. Sampled frames do not support
+tracking metrics. Evidence is in
+`artifacts/tracking-camera-voxel-floor-inputs-20261011/` and
+`artifacts/tracking-camera-voxel-floor-trial-20261011/`.
+
+A separate tracker prototype permits unmatched assignments with a fixed heuristic
+penalty, keeping the existing gates and confirmed low-score continuation. Its full
+501-frame take1 development trial recovers no additional GT observations, adds
+25 FP (85 to 110), and raises ID switches from two to six. Most new FP duplicate
+already matched objects. The prototype is rejected without a take2 trial or parameter
+search; production association is unchanged. Reproduction, decision and independent
+audit are in `artifacts/tracking-association-abstention-development-20261011/`.
+
+All 18,492 mounted motion-info records have camera matrices exactly matching the
+retained replay constants for all three agents. They provide no distortion or
+rectification metadata and are not the standard training-info files named by the
+checkpoint. The documented `Downloads/tower-params` package is absent under Justin
+on both Lambda and Gamma; protected Cisl paths remain uninspected. These findings
+are in `artifacts/training-camera-info-audit-20261011/`,
+`artifacts/tracking-camera-calibration-provenance-search-20261011/` and
+`artifacts/tracking-camera-calibration-remote-search-20261011/`. Physical camera
+correspondence remains unresolved. The single take2 benchmark, retained XYZ policy,
+acceptance thresholds and production defaults remain unchanged; no all-take
+expansion is justified by these diagnostics.
+
+### Crop, sparse support and temporal LiDAR diagnosis
+
+The frozen take2 benchmark is also audited against the actual native camera crop:
+1920×1200 →576×360 →crop[32,104,544,360] →512×256. Of 451 geometric front GT
+observations, 433 intersect this crop and 18 do not. Of 114 detection misses,
+108 are fully inside, three partially inside and three outside. All 70 ID84 and
+79 ID92 observations are fully inside. Crop exclusion does not explain the main
+coverage failures. The full native-camera benchmark remains unchanged; cropping
+is not grounds to exclude a user-visible object.
+
+Original single-scan LiDAR points transformed by archived XYZ yield median five
+points inside ID84 boxes at 47–49 m, and median zero for ID92 at 45.6–46.7 m.
+All 451 point counts are independently reproduced. Zero support does not prove
+occlusion or invalid GT: 44 of 50 matched ID92 detections also have zero nominal
+GT-box points. GT is used only for downstream diagnosis. Ten labelled native/crop
+PNGs, source hashes and exact support reports are in
+`artifacts/tracking-take2-camera-crop-audit-20261011/`; the independent audit is in
+`artifacts/tracking-take2-camera-crop-independent-audit-20261011/`.
+
+An independent raw-proposal audit classifies the 114 canonical misses: 56 have a
+vehicle proposal within the fixed 2 m gate scoring 0.1–0.2, 33 below 0.1, 23 have
+none within 2 m, and two have ≥0.2 proposals failing predicted geometric FOV while
+their GT passes. These are candidate diagnostics, not automatically recoverable
+one-to-one matches. The raw audit reproduces every original canonical assignment
+and does not change thresholds. See `artifacts/tracking-take2-raw-miss-audit-20261011/`.
+
+One frozen temporal-input development trial tests whether additional LiDAR support
+helps: current scan plus up to two immediately preceding scans (≤250 ms), transformed
+using archived XYZ into current LiDAR coordinates. The current image, calibration,
+GT, reference and native model remain fixed. Original intensities are preserved and
+normalized once on the server. Six take1 samples compare the original and candidate;
+the first has no history and is an exact control. Source ordinal500 retains the
+explicit baseline propagated-pose policy. There is no GT-based aggregation, motion
+compensation, voxel thinning or threshold search. Moving-object smear and the
+different training distribution are declared limitations.
+
+The 12-request trial completes on Lambda. Both variants score 18 TP/2 FN in front
+geometric FOV; the candidate gains one GT37 observation but loses one GT77 observation.
+FP increases from one to three, and center RMSE rises from 0.44147 to 0.61739 m.
+The candidate is rejected without a full development or take2 rerun. These gapped
+samples do not support tracking metrics or generalization claims. Frozen inputs,
+execution, decision and independent verification are in
+`artifacts/tracking-lidar-three-scan-inputs-20261011/`,
+`artifacts/tracking-lidar-three-scan-trial-20261011/`,
+`artifacts/tracking-lidar-three-scan-independent-audit-20261011/` and
+`artifacts/tracking-lidar-three-scan-completed-audit-20261011/`.
+No detector/tracker default, localization or acceptance target is changed.
+
+The mounted `cooperscene_motion_infos_val_visible.pkl` is also checked rather than
+assuming its filename supplies camera visibility labels. It contains only takes13/14,
+not take2; 12,362 instances are removed relative to ordinary validation infos, with
+all non-instance fields unchanged. Its instances provide only boxes, class labels
+and velocities, with no optical visibility, occlusion, image boxes or point counts.
+This undocumented filter cannot certify front-camera GT visibility or replace the
+canonical benchmark: 7,810 retained object centers are behind the front camera.
+Filtering also leaves the original ID/motion arrays unfiltered in 2,206 rows, so
+the file must not be used directly as tracking annotations. Provenance evidence is in
+`artifacts/tracking-visible-info-provenance-audit-20261011/`.
+
+### Static camera correspondence and confidence capability
+
+GT-independent native-cloud projections find two plausible reflective sign
+correspondences persistently above their RGB footprints. The Iowa sign's six
+image-minus-projected footprint-midpoint differences are 94.96–98.36 px; a second
+keep-right sign gives 87.44 px. Independent extraction reproduces source hashes,
+point indices and arithmetic, while reporting broader-cluster ambiguities in two
+frames. These are unsurveyed identity hypotheses and partial sampled footprints,
+not exact homologous point errors or a unique calibration solution. No GT, ENU,
+model boxes, pose optimization or fitted image shift enter extraction. Native
+panels and limitations are in `artifacts/tracking-take2-static-landmark-audit-20261011/`
+and `artifacts/tracking-take2-static-landmark-independent-20261011/`.
+
+One labelled nonunique sensitivity probe changes model Kcy by +95 px on six frozen
+Take1 development samples. All original controls are bit-exact; source images,
+XYZI, extrinsics, archived XYZ, GT and thresholds are unchanged. Canonical evaluation
+restores original K after preserving native model-K provenance, so both variants
+score identical FOV membership. Both yield 18 TP/1 FP/2 FN front-camera and
+84 TP/4 FP/9 FN LiDAR; neither gains or loses a GT observation. Maximum primary
+center change is 8.97 mm. Reject without expansion or calibration promotion. Inputs,
+execution, K-only evaluation receipts and independent review are in
+`artifacts/tracking-camera-cy-sensitivity-{inputs,trial,independent-audit,completed-audit}-20261011/`.
+Gapped development samples do not support tracking or generalization claims.
+
+An exact confidence capability audit then rematches all 60,000 immutable Take2 raw
+proposals at 59,982 descending unique score events, batching ties and recomputing
+maximum-cardinality/minimum-distance Hungarian assignments in affected frames.
+Original class mapping, XYZ, symmetric 54 m scope, native camera FOV and inclusive
+2 m XYZ gate remain fixed. Canonical score0.2 exactly reproduces 337 TP/123 FP/114 FN.
+At ≥90% precision, maximum confidence-curve recall is only 307/451=68.07%
+(34 FP/144 FN); all 11 IDs appear, but ID84 has only 1/70 matched observations and
+ID92 only 40/79. Retaining every scoped raw proposal still leaves 25 observations
+unmatched. Confidence adjustment alone cannot meet simultaneous 90% precision and
+90% coverage on this benchmark. No operating threshold is selected or deployed.
+Custom all-points precision-envelope AP is 0.840307 for this center-distance/FOV
+protocol, not official IoU AP. Figure, full curve, per-ID counts, source hashes and
+four full evaluator controls are in `artifacts/tracking-take2-detector-pr-audit-20261011/`.
+Optical visibility remains uncertified; these results are conditional geometric
+reference comparisons. The one-sequence benchmark and stronger targets remain in force.
+
+### Native LiDAR-only checkpoint comparison
+
+A pinned native single-agent LiDAR-only checkpoint is retrieved and audited before
+use (115,390,760 bytes, SHA256
+`d71292a772a3f422eb818ab5012a893ee325bffef572524f9c89681eea50f761`).
+Its embedded model equals the published and artifact runtime model: epoch30,
+298 tensors, one vehicle class, native four-feature points and ±72m preprocessing.
+A CPU runtime preflight confirms all state keys/shapes and points-only packing,
+once-only intensity scaling, unchanged source points and exclusion of images and
+camera metadata from model input. The native palette-only lazy dataset factory
+loads no GT. Frozen preparation receipts and later resolved execution policy remain
+separate. This is a distinct trained checkpoint comparison, not a controlled causal
+camera-branch removal or proof of independent training coverage.
+
+Twelve Lambda requests compare it with the current checkpoint on six fixed Take2
+ordinals [0,60,120,180,240,299]. All200 original proposals are bit-exact against the
+canonical300-frame cache, including original ordinal299 rather than its later
+paired-image diagnostic. Both variants detect the same 7/12 front-FOV observations,
+with zero front FP. Front center RMSE worsens 0.72521→0.80162m. In symmetric reference
+LiDAR scope, TP/FP/FN worsen 60/4/16→50/9/26; one observation is gained and eleven lost.
+Reject without full-sequence expansion or promotion. The retained XYZ/reference,
+source images/clouds/timestamps, GT, original evaluation K, score0.2 and matching
+thresholds remain fixed. Gapped samples support no tracking metrics.
+
+Matching-pair provenance, frozen inputs, execution, twelve labelled camera/LiDAR
+PNGs and independent preflight/completed reviews are in
+`artifacts/tracking-native-lidar-only-{checkpoint,inputs,trial,preflight-independent,completed-independent}-20261011/`.
+PNG wireframes preserve localized object height and use no ground placement; they
+are explicitly labelled without depth occlusion and do not replace primitive-asset
+occlusion validation. Camera FOV still does not certify actual optical visibility.
+The current detector, tracker and primary one-sequence benchmark remain unchanged.
