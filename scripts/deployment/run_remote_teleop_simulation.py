@@ -643,11 +643,26 @@ class RemoteTeleopSimulationLauncher:
         )
 
     def _bevfusion_ready_script(self) -> str:
-        endpoint = self.options.bevfusion_endpoint.removeprefix("tcp://")
-        host, port_text = endpoint.rsplit(":", 1)
         probe = (
-            "import socket; "
-            f"socket.create_connection(({host!r}, {int(port_text)}), timeout=1).close()"
+            "import sys, zmq\n"
+            "from zmq.utils.monitor import recv_monitor_message\n"
+            "context = zmq.Context()\n"
+            "socket = context.socket(zmq.DEALER)\n"
+            "monitor = None\n"
+            "ready = False\n"
+            "try:\n"
+            "    socket.setsockopt(zmq.LINGER, 0)\n"
+            "    monitor = socket.get_monitor_socket(events=zmq.EVENT_HANDSHAKE_SUCCEEDED)\n"
+            "    monitor.setsockopt(zmq.LINGER, 0)\n"
+            f"    socket.connect({self.options.bevfusion_endpoint!r})\n"
+            "    if monitor.poll(1000):\n"
+            "        ready = recv_monitor_message(monitor)['event'] == zmq.EVENT_HANDSHAKE_SUCCEEDED\n"
+            "finally:\n"
+            "    if monitor is not None:\n"
+            "        monitor.close(linger=0)\n"
+            "    socket.close(linger=0)\n"
+            "    context.term()\n"
+            "sys.exit(0 if ready else 1)\n"
         )
         return self._bevfusion_alive_script() + " && " + shlex.join(
             self._vehicle_python_command() + ["-c", probe]

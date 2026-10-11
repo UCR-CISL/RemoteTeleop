@@ -57,7 +57,9 @@ class LatestBevFusionBoxes:
     of stalling the durable 10 Hz stream.
     """
 
-    def __init__(self, client: BevFusionClient, *, score_threshold: float, minimum_area_px: float = 64.0) -> None:
+    def __init__(self, client: BevFusionClient, *, score_threshold: float, minimum_area_px: float = 64.0,
+                 continuation_score_threshold: float | None = None, minimum_confirmation_hits: int = 1,
+                 suppress_duplicate_births: bool = False) -> None:
         if not 0.0 <= score_threshold <= 1.0:
             raise ValueError("bevfusion score threshold must be between zero and one")
         self.client = client
@@ -70,7 +72,12 @@ class LatestBevFusionBoxes:
         self._inflight_lidar_poses: dict[str, np.ndarray] = {}
         self._pending: Any | None = None
         self._latest_sequence: int | None = None
-        self._tracker = BevFusionKalmanTracker()
+        self._tracker = BevFusionKalmanTracker(
+            birth_score_threshold=score_threshold,
+            continuation_score_threshold=score_threshold if continuation_score_threshold is None else continuation_score_threshold,
+            minimum_confirmation_hits=minimum_confirmation_hits,
+            suppress_duplicate_births=suppress_duplicate_births,
+        )
         self.submitted_count = 0
         self.replaced_pending_count = 0
         self.result_count = 0
@@ -116,7 +123,7 @@ class LatestBevFusionBoxes:
             dimensions = tracked.dimensions_lwh
             label = tracked.label
             score = tracked.score
-            if vehicle_proxy_kind(label) is None or score < self.score_threshold:
+            if vehicle_proxy_kind(label) is None:
                 continue
             projected = project_vehicle_box(
                 world_T_object=world_T_object, world_T_camera=world_T_camera,
@@ -165,6 +172,10 @@ class LatestBevFusionBoxes:
             self._inflight_lidar_poses[request.request_id] = np.asarray(request.world_T_lidar, dtype=np.float64).reshape(4, 4)
         else:
             self._pending = request
+
+    def poll(self) -> None:
+        """Process ready inference and latest pending work without publishing frames."""
+        self._poll()
 
     def _poll(self) -> None:
         result = self.client.poll()
@@ -410,6 +421,20 @@ class McapFrameReplay:
         self.reader_factory = reader_factory or _mcap_reader
         self.agent = agent
 
+    def _wait_until(self, target: float) -> None:
+        """Service pending detector work while preserving the capture deadline."""
+        remaining = target - self.monotonic()
+        if self.adapter.bevfusion is None:
+            if remaining > 0:
+                self.sleep(remaining)
+            return
+        while remaining > 0:
+            self.adapter.bevfusion.poll()
+            remaining = target - self.monotonic()
+            if remaining > 0:
+                self.sleep(min(remaining, 0.01))
+            remaining = target - self.monotonic()
+
     def replay(self, path: Path) -> None:
         metadata_count = 0
         image_count = 0
@@ -445,9 +470,7 @@ class McapFrameReplay:
                 target = replay_started + (
                     (message.log_time - first_log_time) / 1_000_000_000.0 / self.rate
                 )
-                remaining = target - self.monotonic()
-                if remaining > 0:
-                    self.sleep(remaining)
+                self._wait_until(target)
                 previous_log_time = message.log_time
                 if channel.topic == self.image_topic:
                     self.adapter.analysis_assembler.receive_image(_decode_mcap_image(message.data))
@@ -497,9 +520,7 @@ class McapFrameReplay:
                 first_metadata_timestamp_us = int(frame.metadata["timestamp_us"])
                 started = self.monotonic()
             target = started + (frame.timestamp_ns - first_timestamp) / 1e9 / self.rate
-            remaining = target - self.monotonic()
-            if remaining > 0:
-                self.sleep(remaining)
+            self._wait_until(target)
             metadata = dict(frame.metadata)
             metadata["recorded_source_sequence"] = frame.sequence
             metadata["recorded_timestamp_us"] = metadata["timestamp_us"]
@@ -1207,6 +1228,10 @@ def main() -> None:
     parser.add_argument("--bbox-source", choices=("gt", "bevfusion"), default="gt")
     parser.add_argument("--bevfusion-endpoint")
     parser.add_argument("--bevfusion-score-threshold", type=float, default=0.2)
+    parser.add_argument("--bevfusion-continuation-score-threshold", type=float,
+                        help="Minimum score for confirmed-track updates; defaults to the birth score")
+    parser.add_argument("--bevfusion-minimum-confirmation-hits", type=int, default=1)
+    parser.add_argument("--bevfusion-duplicate-birth-guard", action="store_true")
     parser.add_argument("--frames-endpoint", default="tcp://0.0.0.0:5555")
     parser.add_argument("--queue-depth", type=int, default=2_048)
     parser.add_argument("--high-water-mark", type=int, default=2_048)
@@ -1250,6 +1275,11 @@ def main() -> None:
             )
     if not 0 <= args.bevfusion_score_threshold <= 1:
         parser.error("--bevfusion-score-threshold must be between zero and one")
+    if (args.bevfusion_continuation_score_threshold is not None
+            and not 0 <= args.bevfusion_continuation_score_threshold <= args.bevfusion_score_threshold):
+        parser.error("--bevfusion-continuation-score-threshold must be between zero and the birth score")
+    if args.bevfusion_minimum_confirmation_hits < 1:
+        parser.error("--bevfusion-minimum-confirmation-hits must be positive")
     if args.bbox_source == "bevfusion" and not args.bevfusion_endpoint:
         parser.error("--bbox-source bevfusion requires --bevfusion-endpoint")
 
@@ -1292,6 +1322,9 @@ def main() -> None:
         bevfusion = LatestBevFusionBoxes(
             _open_bevfusion_client(args.bevfusion_endpoint),
             score_threshold=args.bevfusion_score_threshold,
+            continuation_score_threshold=args.bevfusion_continuation_score_threshold,
+            minimum_confirmation_hits=args.bevfusion_minimum_confirmation_hits,
+            suppress_duplicate_births=args.bevfusion_duplicate_birth_guard,
         )
     localization_metrics = None
     localization_reference = None
@@ -1373,6 +1406,8 @@ def main() -> None:
                 start_sequence=args.mcap_start_sequence,
             ).replay(args.mcap)
         while rclpy is None or rclpy.ok():
+            if bevfusion is not None:
+                bevfusion.poll()
             if rclpy is not None:
                 assert node is not None
                 rclpy.spin_once(node, timeout_sec=0.1)

@@ -344,7 +344,8 @@ def test_bevfusion_nuscenes_mcap_starts_a_narrowly_mounted_service_before_adapte
     assert "/home/jyue86/Documents/CISL-Projects/RemoteTeleop:/workspace" not in service_start
     assert "bevfusion_converted.pth" in service_start
     assert "--config /workspace/nuscenes_front.py" in service_start
-    assert "socket.create_connection" in readiness
+    assert "EVENT_HANDSHAKE_SUCCEEDED" in readiness
+    assert "monitor.poll(1000)" in readiness
     assert "--bbox-source bevfusion" in adapter_start
     assert "--lidar-topic /lidar/points" in adapter_start
     assert "--bevfusion-endpoint tcp://127.0.0.1:8772" in adapter_start
@@ -363,3 +364,62 @@ def test_non_dry_run_refuses_an_existing_local_artifact_destination(tmp_path):
 
     with pytest.raises(LaunchError, match="already exists"):
         RemoteTeleopSimulationLauncher(options).run()
+
+
+def _run_local_bevfusion_readiness_probe(tmp_path, endpoint):
+    import sys
+
+    launcher = RemoteTeleopSimulationLauncher(
+        _options(tmp_path, bevfusion_endpoint=endpoint), dry_run=True
+    )
+    script = launcher._bevfusion_ready_script()
+    assert script.startswith(launcher._bevfusion_alive_script() + " && ")
+    probe = shlex.split(script)[-1]
+    return subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, timeout=5
+    )
+
+
+def test_bevfusion_readiness_rejects_tcp_accept_without_zmq_handshake(tmp_path):
+    import socket
+    from threading import Event, Thread
+
+    listener = socket.create_server(("127.0.0.1", 0))
+    listener.settimeout(5)
+    stopped = Event()
+    accepted = Event()
+
+    def accept_without_protocol():
+        with listener.accept()[0]:
+            accepted.set()
+            stopped.wait(5)
+
+    thread = Thread(target=accept_without_protocol)
+    thread.start()
+    try:
+        result = _run_local_bevfusion_readiness_probe(
+            tmp_path, f"tcp://127.0.0.1:{listener.getsockname()[1]}"
+        )
+        assert accepted.is_set()
+        assert result.returncode == 1
+        assert result.stderr == ""
+    finally:
+        stopped.set()
+        listener.close()
+        thread.join(timeout=5)
+    assert not thread.is_alive()
+
+
+def test_bevfusion_readiness_accepts_router_without_sending_application_request(tmp_path):
+    import zmq
+
+    context = zmq.Context()
+    router = context.socket(zmq.ROUTER)
+    try:
+        port = router.bind_to_random_port("tcp://127.0.0.1")
+        result = _run_local_bevfusion_readiness_probe(tmp_path, f"tcp://127.0.0.1:{port}")
+        assert result.returncode == 0, result.stderr
+        assert not router.poll(0)
+    finally:
+        router.close(linger=0)
+        context.term()

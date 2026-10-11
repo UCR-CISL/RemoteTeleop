@@ -65,3 +65,56 @@ camera-only timestamp sensitivity, evaluate with `--front-camera-only
 missing metadata is an error, and all LiDAR scoring and tracker inputs remain
 unchanged. This does not certify optical visibility or replace the fixed primary
 benchmark. Do not reconstruct missing capture timestamps from floating-point skew.
+
+The replay adapter now exposes optional tracker controls:
+`--bevfusion-continuation-score-threshold`,
+`--bevfusion-minimum-confirmation-hits` and
+`--bevfusion-duplicate-birth-guard`. By default, continuation uses the primary
+`--bevfusion-score-threshold`, confirmation requires one observation, and the
+birth guard is off. The primary threshold gates track creation; a weak server
+proposal cannot create a hidden track. When explicitly enabled, low-score updates
+can maintain already-confirmed tracks and their rendered IDs. Box prompts retain
+the actual latest confidence rather than inventing a high score or hiding a valid
+confirmed track solely because its latest update is weak.
+
+The previously evaluated exploratory guard/continuation policy uses primary0.2,
+continuation0.1, one confirmation hit and the birth guard. To reproduce it in a
+separate recorded-only adapter run, pass:
+
+```sh
+--bevfusion-score-threshold 0.2 \
+--bevfusion-continuation-score-threshold 0.1 \
+--bevfusion-minimum-confirmation-hits 1 \
+--bevfusion-duplicate-birth-guard
+```
+
+The pinned native detector server must also emit scores down to0.1; a server
+filtering at0.2 cannot supply continuation proposals. Lower server filtering does
+not lower the adapter's0.2 birth threshold. Do not enable this policy in existing
+queues automatically: primary benchmark precision and per-ID coverage still fail.
+Combining continuation with two-hit confirmation lost21 front-camera GT observations
+on the fixed Take2 window and is rejected. The deterministic cached sensor-join
+check is distinct from full asynchronous MCAP throughput or optical visibility.
+
+During scheduled MCAP pacing waits, the replay services the detector through
+its nonblocking public poll and sleeps in intervals of at most10ms. This lets
+ready results dispatch pending requests between captures. Record order, capture
+deadlines, timestamps and publication counts remain unchanged; overdue records
+proceed immediately. Without a detector, pacing retains its single sleep.
+Decoding and callbacks can still delay polling; this is not a real-time bound
+or a lossless inference guarantee.
+
+After MCAP input ends, the running adapter continues polling BEVFusion in its
+existing idle service loop. This consumes a ready response and dispatches the
+latest pending request without requiring another image/metadata callback. It
+preserves each request's capture timestamp and does not rewrite durable snapshots
+or publish synthetic camera frames. Shutdown still cancels outstanding work;
+this is not a blocking drain or a lossless inference policy.
+
+The replay queue keeps only the latest pending request when inference is busy.
+A fixed Take2/V1 cached simulation using actual Foxglove publication order shows
+front tracking recall90.91%/76.05%/21.06% at virtual50/150/300ms service delays.
+These are simulated workload results, not measured GPU latency. At300ms, stale
+observations often exceed the existing0.5s coast limit. No automatic queue, coast,
+replay-rate or detector-threshold changes are applied. See the tracking pilot
+report and `artifacts/tracking-take2-delayed-adapter-trial-20261011/`.

@@ -1,6 +1,6 @@
 # CooperScene tracking pilot, 2026-10-11
 
-Only take 1 / vehicle 1 was evaluated: native frames **481260–481760**, 501
+The initial pilot evaluated take 1 / vehicle 1: native frames **481260–481760**, 501
 consecutive frames (50.00 s between first and last captures). The first 60
 frames were development inputs; frames 60–500 were held out from the initial
 nuScenes input-parameter selection. Subsequent native/checkpoint and tracker
@@ -1029,3 +1029,246 @@ PNG wireframes preserve localized object height and use no ground placement; the
 are explicitly labelled without depth occlusion and do not replace primitive-asset
 occlusion validation. Camera FOV still does not certify actual optical visibility.
 The current detector, tracker and primary one-sequence benchmark remain unchanged.
+
+### Confirmation/continuation tradeoff and replay integration
+
+One fixed exploratory candidate combines already-established two-hit strong
+confirmation with0.1 continuation for previously confirmed tracks, primary/birth0.2,
+existing duplicate-birth guard and0.5s coast. The three-way cached300-frame Take2
+comparison reproduces both prior controls. No detector inputs, primary detections,
+XYZ/reference/GT/timestamps/K or matching gates change; no new parameter search is
+performed. Compared with one-hit low continuation, front TP/FP/FN change
+418/243/33→397/233/54, precision63.24%→63.02%, recall92.68%→88.03%, and geometric
+IDF1 .67626→.66050. Switches/fragmentations stay4/3. It loses21 front observations
+(GT84 eleven, GT92 nine, GT0 one), with none gained. Wider precision improves
+75.62%→79.32%, but75 matched observations are lost. Reject for the front-camera
+coverage objective; do not promote based only on wider precision.
+
+Independent raw-only replay reproduces all identities and both-scope metrics.
+The candidate's479 weak updates produce no weak births, tentative updates or
+confirmations. Native capture-time birth-to-confirm delay has median100.037ms,
+p95 815.482ms and maximum1000.192ms; this is observation waiting time rather than
+network/inference latency. Frozen protocol, lifecycle events and decision are in
+`artifacts/tracking-take2-confirmed-continuation-trial-20261011/`, with separate
+`artifacts/tracking-take2-confirmed-continuation-independent-20261011/` review.
+
+The real replay adapter also needed integration changes before optional continuation
+could reach rendering: it previously let weak server responses create hidden tracks,
+and discarded rendered boxes whenever the latest score fell below the primary
+threshold. It now gates births inside the existing tracker, exposes explicit
+confirmation/continuation/birth-guard options, and retains confirmed-track prompts
+with honest latest confidence. Ordinary primary-filtered responses retain the
+same defaults; sub-primary responses no longer create hidden identities. Optional
+continuation remains off by default. Source changes are confined to the adapter,
+its lifecycle/CLI tests and replay documentation; detector/tracker algorithms,
+localization, object heights and rendering ground placement remain unchanged.
+
+A cached public-adapter replay joins image/metadata/LiDAR in three arrival orders
+for all300 frames, validating canonical BGR, raw XYZI and calibration before each
+cached native response. No GT enters adapter metadata. Tracker outputs and all665
+projected prompts reproduce the frozen one-hit continuation run with zero observed
+pose difference;203 prompts across163 frames retain an honest latest score below0.2.
+These are confirmed-track prompts, not203 new true detections. An independent fresh
+run reproduces outputs and receipts byte-for-byte. Evidence is in
+`artifacts/tracking-take2-offline-adapter-parity{,-independent}-20261011/`.
+This test uses area16 rather than CLI default64, full native range rather than the
+XY54m evaluation scope, and serial cached responses. It establishes neither NN
+accuracy, asynchronous drop/latency behavior nor actual optical visibility.
+Adapter/tracker/CooperScene/Foxglove replay regression checks pass:89 tests locally.
+The stronger front-camera coverage and precision targets remain unmet.
+
+### Delayed results through the actual offline publisher
+
+A fixed cached Take2/V1 trial now uses actual `RosFrameAdapter.receive_metadata`
+publication, following Foxglove replay's image→LiDAR→metadata order. Published
+boxes are sampled before submitting current metadata, unlike the earlier serial
+post-join parity test. Three prespecified virtual service delays50/150/300ms retain
+all300 camera evaluation frames, original capture times, raw bytes, calibration,
+XYZ/reference and GT; GT never enters adapter metadata. Delays are simulations,
+not measured GPU/network latency or throughput. Detector fields remain the frozen
+current-frame reference and must not be presented as newly delivered detections.
+
+| Virtual service delay | Served / replaced requests after tail polling | Front TP / FP / FN | Track precision / recall | Geometric IDF1 | Switches / fragments |
+| --- | --- | --- | --- | --- | --- |
+|50ms|300 /0|410 /243 /41|62.79% /90.91%|.66848|4 /5|
+|150ms|151 /149|343 /252 /108|57.65% /76.05%|.57744|3 /8|
+|300ms|88 /212|95 /74 /356|56.21% /21.06%|.26452|4 /78|
+
+Latest-result capture age at publication has median100/300/600ms, including public
+poll timing and time waiting for submission. At300ms,212 camera frames have empty
+prompts as observations age beyond0.5s coast. Tail polling needs1/2/2 calls and
+adds no evaluated camera frames or rewritten durable snapshots. The stronger
+coverage/precision targets remain unmet; no coast, score or queue defaults change.
+Frozen evidence is in `artifacts/tracking-take2-delayed-adapter-trial-20261011/`.
+Its execution receipt binds the pre-fix adapter SHA to both execution start and end.
+
+A separate original-K projection sensitivity check confirms that area16 and the
+CLI default64 retain identical full-range counts in this window:451 GT,460 primary
+detections and665 serial low-continuation track prompts, with zero removals.
+Evidence is in `artifacts/tracking-take2-adapter-area-audit-20261011/`; this does not
+certify optical visibility or other sequences.
+
+An independent recount verifies delayed matches, switches, fragmentation,
+geometric IDF1, capture clocks, coast limits and pending/drain accounting in
+`artifacts/tracking-take2-delayed-adapter-independent-20261011/`. A labelled plot
+is in `artifacts/tracking-take2-delayed-adapter-visuals-20261011/`.
+
+The production idle loop now polls ready BEVFusion results after MCAP input ends,
+so the latest pending request can execute while services remain active. This is
+an EOF lifecycle fix rather than a detection-quality improvement or lossless mode.
+A real-main mocked replay regression verifies late response processing, unchanged
+capture timestamps and exactly the original durable snapshots. Adapter, tracker,
+CooperScene and Foxglove replay checks pass:90 tests locally. The delayed benchmark
+above exercises the pre-fix source recorded in its execution receipt; it does not
+claim a full post-fix NN or asynchronous-performance evaluation.
+
+### Native BEV reflection diagnostic
+
+A single fixed horizontal reflection follows native training augmentation:
+normalized LiDAR Y negates and `lidar_aug_matrix=diag(1,-1,1,1)` left-composes;
+RGB, original K and physical extrinsics remain unchanged. Native single-pipeline
+prediction does not undo augmentation, so raw center Y and yaw are inversely mapped
+before normal sidecar length-axis normalization and physical world composition.
+Box rotations stay proper; reflection is never used as a world pose. Synthetic
+cuboid/projection and actual native CPU packing checks pass. Directed vehicle
+front/back is not certified by the cuboid/modulo180-degree heading protocol.
+
+The six prespecified Take2/V1 ordinals0/60/120/180/240/299 reuse the canonical
+payloads, XYZ/reference, timestamps and GT. All200 proposals of each original NN
+control match canonical outputs exactly before reflected requests are permitted.
+Twelve serial requests and fixed detection evaluation complete successfully.
+Front TP/FP/FN change7/0/5→7/3/5: recall58.33% unchanged, precision100%→70%,
+center RMSE .72521→.83813m. No original front GT observation is lost or gained;
+GT84,92 and96 remain undetected in these samples. Wider54m TP/FP/FN change
+60/4/16→57/3/19, losing IDs44/45 at487927 and52 at488107 with no gains.
+False positives here mean unmatched supplied annotations; they do not certify
+that an apparent physical vehicle is nonexistent. Optical visibility remains
+unverified. The frozen expansion rule fails, so reject without full300 inference,
+ensemble promotion or any detector/tracker/localization/default changes.
+
+Independent GT-free comparison finds57 primary proposal pairs within2m among
+64 original and60 reflected predictions, with7 original/3 reflected unpaired.
+Raw augmented↔physical inversion, normalized point hashes, original controls and
+independent fixed-GT metric recount all pass. Six gapped frames support no tracking
+metrics. Twelve labelled camera/LiDAR wireframe PNGs preserve localized heights
+and use no ground placement; their explicit no-depth-occlusion labels distinguish
+them from the separately verified primitive-asset compositor.
+Evidence: `artifacts/tracking-take2-bev-reflection-{inputs,trial}-20261011/` and
+`artifacts/tracking-take2-reflection-{preflight-independent,independent}-20261011/`.
+
+Instrumented original submit-to-reply times after the startup request span
+93.63–116.04ms; reflected requests span110.21–123.57ms. The first original request
+waits7.139s while server initialization/warmup precedes endpoint availability;
+its server processing is100.87ms. Reflected point-copy/hash/extra raw writing adds
+diagnostic overhead. These serial samples are neither10Hz throughput evidence
+nor a production latency comparison, and no replay rate is selected from them.
+They justify measuring real queue delivery and startup readiness on the same
+fixed sequence before relying on simulated service delays. The owned probe
+container is stopped; inference exit0 is distinct from explicit-stop exit137.
+
+### Native delivery control stop and startup readiness
+
+The fixed300-frame Take2/V1 actual-client delivery trial stopped at its frozen
+exact-output gate. Of153 served camera requests,152 reproduced all200 canonical
+proposals exactly; ordinal284/frame488151 differed by at most6.42mm in gravity
+center and0.000119 in confidence. LiDAR wire bytes and recorded physical
+calibration metadata match. Independent review confirms unchanged proposal
+membership at scores0.1/0.2, but the cause remains unproven. No tolerance was
+introduced retrospectively, no delivery metrics are reported, and the planned
+0.5× condition was not launched. All300 camera callbacks and the EOF drain ran,
+but publication traces were lost because control validation preceded their
+serialization. A future attempt must preserve unvalidated traces before the
+gate while withholding metrics on failure. Evidence is in
+`artifacts/tracking-take2-real-delivery-{trial,independent}-20261011/`.
+
+A separate CPU-only Docker probe demonstrated that a published TCP port can
+accept connections before the backend ZeroMQ socket binds. The launcher now
+requires `EVENT_HANDSHAKE_SUCCEEDED` using a temporary DEALER monitor, without
+sending an inference request. The existing container check and overall startup
+deadline remain in effect. All19 launcher tests pass, including rejection of a
+TCP-only listener and acceptance of a real ROUTER with no application request.
+Evidence is in `artifacts/tracking-bevfusion-readiness-audit-20261011/`.
+This fixes startup sequencing; it does not establish detector quality or queue
+performance. Further evaluation remains confined to the same Take2/V1 window;
+the stronger front-camera coverage and precision targets remain unmet.
+
+### Same-input native output repeatability
+
+Eight prespecified serial requests alternate ordinals282/284 four times each.
+Actual decoded image/XYZI bytes, typed packed tensors and camera/augmentation
+metadata are identical across same-frame repeats. All sidecar responses exactly
+normalize their own native outputs. Ordinal282 matches the archived200 proposals
+on all four repeats; ordinal284 matches once and produces a second mutually
+identical variant three times. The second variant also matches the prior failed
+delivery batch. Its maximum center/box-tensor/score differences remain
+6.42mm/0.022686/0.000119, with no class or0.1/0.2 membership changes observed.
+Independent inspection verifies source/model pins and all stored byte/tensor
+copies. Evidence is in
+`artifacts/tracking-take2-delivery-control-repeat{,-independent}-20261011/`.
+
+This demonstrates output variation downstream of equal observed packed inputs,
+which precede the model data preprocessor. It does not identify a particular
+kernel, establish universal numerical bounds or certify determinism. The frozen
+repeat gate fails as declared; all forensic traces survive. The earlier300-frame
+attempt remains failed and unscored. A new delivery protocol will retain exact
+source/model/wire controls, persist traces before validation and report native
+output variation separately, evaluating actual outputs rather than requiring
+universal bitwise equality to cached proposals. No accuracy target, matching gate,
+localization policy or production default changes follow from this diagnostic.
+
+### Actual client delivery on the fixed Take2/V1 window
+
+A new prespecified retry passed exact source, model, decoded wire and lifecycle
+controls at both wall replay rates. All300 captures, archived XYZ poses, camera
+calibration, GT, confidence thresholds and association gates remain fixed.
+The instrumented native client uses the real adapter/tracker with an in-memory
+publisher; this is not live ROS/network/compositor throughput. Unvalidated traces
+are persisted before gates. Native proposal drift is descriptive; cached outputs
+are a separate reference. Independent reconstruction agrees on all seven metric
+views and per-ID counts.
+
+| Wall rate | Served captures | Published precision | Published recall | Geometric IDF1 | ID switches | Fragmentations |
+|---|---:|---:|---:|---:|---:|---:|
+| 1.0 | 151/300 | 57.65% | 76.05% | 0.5774 | 3 | 8 |
+| 0.5 | 300/300 | 62.79% | 90.91% | 0.6685 | 4 | 5 |
+
+All11 geometric front-FOV IDs match at least once. Neither rate meets90% precision
+and90% coverage for each eligible ID. GT84 published coverage is4/70 versus45/70;
+GT92 is61/79 versus70/79. At rate0.5 the fresh detector still matches only7/70 for
+GT84 and50/79 for GT92. Source-capture detector precision/recall is73.39%/75.00%
+over151 served captures versus73.26%/74.72% over300, with different exposure.
+Matching remains class-aware inclusive2m XYZ, maximum cardinality then minimum
+distance, symmetric reference XY54 and original geometric camera FOV with16px
+minimum projected area. IDF1 uses this center association, not standard IoU HOTA.
+Optical visibility remains unverified: projected boxes visibly float above physical
+cars, so geometric FOV alone cannot certify camera visibility.
+
+Two rate1.0 results and one rate0.5 result arrive after the final publication;
+they are scored only at their original captures, never as extra camera frames.
+Median latest-result source age at publication is300.367ms versus99.997ms.
+Held primary boxes at current camera captures have recall20.84% versus66.08%,
+preserving original result world poses. Slower replay improves availability but
+does not establish detector accuracy or meet the user target.
+
+Three rate0.5 requests differ from cached outputs. Proposal row permutations
+explain large index-wise center differences; GT-free geometric correspondence
+shows maximum primary-center differences below0.9mm for these requests. Selected
+boxes are not bitwise identical; these observations are not universal drift bounds
+or accuracy tolerances. Raw proposals and exact wire receipts survive. The earlier
+failed delivery trial remains failed and unscored.
+
+Evidence: `artifacts/tracking-take2-real-delivery-retry-20261011/`,
+`artifacts/tracking-take2-real-delivery-retry-evaluation-20261011/` and
+`artifacts/tracking-take2-real-delivery-retry-completed-independent-20261011/`.
+Evaluator `render-rate-{1.0,0.5}/` directories contain labelled300-frame10FPS
+source-timeline videos and camera/LiDAR PNGs showing GT/predicted IDs, misses,
+false positives and ID switches. Wireframes explicitly have no depth occlusion;
+localized height is preserved without ground placement. Primitive compositor
+occlusion evidence is separate. Work remains on this same sequence.
+
+A separate Gamma primitive render uses the actual published rate0.5 frame299,
+original XYZ poses and no ground placement. Asset47 at45.69m projects307 pixels:
+72 are hidden by Gaussian scene depth and235 by nearer assets, leaving zero
+visible. This verifies shared asset/scene depth buffering for this distant case,
+not optical camera calibration. The existing CloudXR processes remain untouched.
+Evidence: `artifacts/tracking-take2-actual-delivery-gamma-primitives-20261011/`.

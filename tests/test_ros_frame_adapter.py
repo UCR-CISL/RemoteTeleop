@@ -490,7 +490,7 @@ def test_foxglove_selected_start_rebases_and_preserves_provenance(tmp_path, monk
     images, metadata_rows, clouds = [], [], []
     adapter = SimpleNamespace(scene_generation=scene,
         analysis_assembler=SimpleNamespace(receive_image=images.append, raise_if_failed=lambda: None),
-        bevfusion=SimpleNamespace(receive_image=lambda x: None, receive_lidar=clouds.append),
+        bevfusion=SimpleNamespace(receive_image=lambda x: None, receive_lidar=clouds.append, poll=lambda: None),
         receive_metadata=metadata_rows.append)
     waits, now = [], [0.0]
     def sleep(seconds):
@@ -500,7 +500,8 @@ def test_foxglove_selected_start_rebases_and_preserves_provenance(tmp_path, monk
         lidar_topic='/lidar', expected_samples=2, start_sequence=2,
         sleep=sleep, monotonic=lambda: now[0])
     replay._replay_foxglove(tmp_path / 'unused.mcap')
-    assert waits == pytest.approx([.1])
+    assert sum(waits) == pytest.approx(.1)
+    assert max(waits) <= .01
     assert [row['frame_id'] for row in metadata_rows] == ['102', '103']
     assert [row['timestamp_us'] for row in metadata_rows] == [0, 100000]
     assert [row['recorded_source_sequence'] for row in metadata_rows] == [2, 3]
@@ -509,3 +510,321 @@ def test_foxglove_selected_start_rebases_and_preserves_provenance(tmp_path, monk
     assert [image.header.stamp.nanosec for image in images] == [0, 100000000]
     assert len(clouds) == 2
     assert frames[2].metadata['timestamp_us'] == 200000
+
+
+@pytest.mark.parametrize("foxglove", [False, True])
+def test_mcap_wait_dispatches_pending_detection_without_extra_publications(tmp_path, monkeypatch, foxglove):
+    import src.deployment.ros_frame_adapter as module
+    import src.data.foxglove_mcap as foxglove_module
+    from src.data.foxglove_mcap import FoxgloveFrame
+
+    now, waits = [0.0], []
+
+    class DelayedClient:
+        def __init__(self):
+            self.requests = []
+            self.pending = None
+
+        def submit(self, request):
+            assert self.pending is None
+            self.requests.append((request, now[0]))
+            self.pending = (request, now[0] + .035)
+            return True
+
+        def poll(self):
+            if self.pending is None or now[0] < self.pending[1]:
+                return None
+            request, _ = self.pending
+            self.pending = None
+            return BevFusionResult(request.request_id, request.scene_generation, request.sequence,
+                                   request.frame_id, request.timestamp_us, request.config_id, ())
+
+    def sleep(seconds):
+        waits.append(seconds)
+        now[0] += seconds
+
+    timestamps = (0, 10_000, 100_000)
+    scene = "cooperscene:train:1:1"
+    client = DelayedClient()
+    detector = LatestBevFusionBoxes(client, score_threshold=.2)
+    snapshots = VehicleFrameSpool(tmp_path / "frames")
+    assembler = RosAnalysisAssembler(VehicleAnalysisSpool(tmp_path / "analysis"), expected_samples=3)
+    publisher = _Publisher()
+    adapter = RosFrameAdapter(publisher, RosFrameAdapterConfig(expected_samples=3, bbox_source="bevfusion"),
+                              snapshot_sink=snapshots, analysis_assembler=assembler, bevfusion=detector)
+    records, frames = [], []
+    for sequence, timestamp in enumerate(timestamps):
+        metadata = _metadata(timestamp_us=timestamp, frame_id=str(sequence), generation=scene)
+        frames.append(FoxgloveFrame(sequence, timestamp * 1000, np.zeros((1, 1, 3), np.uint8),
+                                   metadata, np.zeros((2, 4), np.float32), ()))
+        detections = FrameDetections(frame_id=str(sequence), request_id=metadata["request_id"],
+            scene_generation=scene, timestamp_us=timestamp, image_jpeg=b"x",
+            camera_intrinsic=metadata["camera_intrinsic"], world_T_camera=metadata["world_T_camera"],
+            world_T_ego=metadata["world_T_ego"], boxes=())
+        for topic, schema, data in (
+            ("/image", "sensor_msgs/msg/Image", _serialize_image(timestamp_ns=timestamp * 1000,
+                frame_id="camera0", height=1, width=1, data=b"\x01\x02\x03")),
+            ("/lidar", "sensor_msgs/msg/PointCloud2", str(timestamp).encode()),
+            ("/metadata", "std_msgs/msg/String", _serialize_metadata(detections)),
+        ):
+            records.append((SimpleNamespace(name=schema), SimpleNamespace(topic=topic, message_encoding="cdr"),
+                            SimpleNamespace(log_time=timestamp * 1000, data=data)))
+
+    class Reader:
+        def iter_messages(self, **kwargs):
+            return iter(records)
+
+    def cloud(data):
+        timestamp = int(data)
+        return SimpleNamespace(header=_image(timestamp).header, points=np.zeros((2, 4), np.float32))
+
+    monkeypatch.setattr(module, "_decode_mcap_point_cloud2", cloud)
+    monkeypatch.setattr(foxglove_module, "FoxgloveMcapReader", lambda *a, **k: frames)
+    path = tmp_path / "input.mcap"
+    path.write_bytes(b"test")
+    replay = McapFrameReplay(adapter, image_topic="/image", metadata_topic="/metadata", lidar_topic="/lidar",
+        expected_samples=3, sleep=sleep, monotonic=lambda: now[0], reader_factory=lambda _: Reader())
+    if foxglove:
+        replay._replay_foxglove(path)
+    else:
+        replay.replay(path)
+    assembler.close()
+
+    assert [r.timestamp_us for r, _ in client.requests] == list(timestamps)
+    assert [r.sequence for r, _ in client.requests] == [0, 1, 2]
+    assert client.requests[1][1] == pytest.approx(.04)  # Pending frame dispatched before next capture.
+    assert client.requests[2][1] == pytest.approx(.1)
+    assert sum(waits) == pytest.approx(.1)
+    assert max(waits) <= .01
+    assert len(publisher.messages) == 6
+    assert [snapshots.get(scene, i).timestamp_us for i in range(3)] == list(timestamps)
+    assert detector.result_count == 2
+    assert detector.latest_sequence == 1  # Replay EOF still leaves final request in flight.
+
+
+def test_mcap_wait_keeps_late_frames_immediate_and_no_detector_sleep_unchanged():
+    now, waits, polls = [1.0], [], []
+    def sleep(seconds):
+        waits.append(seconds)
+        now[0] += seconds
+    adapter = SimpleNamespace(analysis_assembler=object(), bevfusion=None)
+    replay = McapFrameReplay(adapter, image_topic="/image", metadata_topic="/metadata", expected_samples=None,
+                             sleep=sleep, monotonic=lambda: now[0])
+    replay._wait_until(1.1)
+    assert waits == pytest.approx([.1])
+    adapter.bevfusion = SimpleNamespace(poll=lambda: polls.append(now[0]))
+    replay._wait_until(1.0)
+    assert polls == []
+    assert waits == pytest.approx([.1])
+
+
+class _LifecycleBevFusionClient:
+    def __init__(self):
+        self.requests = []
+        self.result = None
+
+    def submit(self, request):
+        self.requests.append(request)
+        return True
+
+    def poll(self):
+        result, self.result = self.result, None
+        return result
+
+
+def _complete_lifecycle_detection(detector, client, timestamp_us, sequence, score, extra_boxes=()):
+    payload = _metadata(timestamp_us=timestamp_us, frame_id=str(sequence), generation="offline-lifecycle")
+    payload["camera_intrinsic"] = [50., 0., 50., 0., 50., 50., 0., 0., 1.]
+    payload["world_T_camera"] = np.eye(4).reshape(-1).tolist()
+    payload["world_T_ego"] = payload["world_T_camera"]
+    detector.receive_image(_image(timestamp_us))
+    detector.receive_metadata(payload, sequence)
+    detector.receive_lidar(SimpleNamespace(
+        header=SimpleNamespace(stamp=SimpleNamespace(
+            sec=timestamp_us // 1_000_000, nanosec=(timestamp_us % 1_000_000) * 1000)),
+        points=np.zeros((1, 4), dtype=np.float32),
+    ))
+    request = client.requests[-1]
+    client.result = BevFusionResult(
+        request_id=request.request_id, scene_generation=request.scene_generation,
+        sequence=request.sequence, frame_id=request.frame_id, timestamp_us=request.timestamp_us,
+        config_id=request.config_id,
+        boxes=(BevFusionBox((0, 0, 10), (4, 2, 2), 0, score, class_name="car"), *extra_boxes),
+    )
+    return detector.boxes_for(payload, (100, 100))
+
+
+@pytest.mark.parametrize("continuation", [None, .1])
+def test_bevfusion_weak_server_proposal_cannot_birth_a_track(continuation):
+    client = _LifecycleBevFusionClient()
+    detector = LatestBevFusionBoxes(client, score_threshold=.2, minimum_area_px=1,
+                                  continuation_score_threshold=continuation)
+    assert _complete_lifecycle_detection(detector, client, 0, 0, .15) == ()
+    assert _complete_lifecycle_detection(detector, client, 100_000, 1, .15) == ()
+    strong = _complete_lifecycle_detection(detector, client, 200_000, 2, .9)
+    assert strong[0].track_id == "bevfusion:car:0"
+
+
+def test_bevfusion_confirmed_weak_update_remains_visible_with_honest_confidence():
+    client = _LifecycleBevFusionClient()
+    detector = LatestBevFusionBoxes(client, score_threshold=.2, minimum_area_px=1,
+                                  continuation_score_threshold=.1)
+    strong = _complete_lifecycle_detection(detector, client, 0, 0, .9)
+    weak = _complete_lifecycle_detection(detector, client, 100_000, 1, .15)
+    assert len(weak) == 1
+    assert weak[0].track_id == strong[0].track_id
+    assert weak[0].detection_confidence == .15
+
+
+def test_bevfusion_default_primary_only_ignores_weak_updates_then_expires():
+    client = _LifecycleBevFusionClient()
+    detector = LatestBevFusionBoxes(client, score_threshold=.2, minimum_area_px=1)
+    strong = _complete_lifecycle_detection(detector, client, 0, 0, .9)
+    coast = _complete_lifecycle_detection(detector, client, 100_000, 1, .15)
+    assert coast[0].track_id == strong[0].track_id
+    assert coast[0].detection_confidence == .9
+    assert _complete_lifecycle_detection(detector, client, 500_001, 2, .15) == ()
+
+
+def test_bevfusion_weak_updates_cannot_confirm_tentative_tracks():
+    client = _LifecycleBevFusionClient()
+    detector = LatestBevFusionBoxes(client, score_threshold=.2, minimum_area_px=1,
+                                  continuation_score_threshold=.1, minimum_confirmation_hits=2)
+    assert _complete_lifecycle_detection(detector, client, 0, 0, .9) == ()
+    assert _complete_lifecycle_detection(detector, client, 100_000, 1, .15) == ()
+    assert _complete_lifecycle_detection(detector, client, 200_000, 2, .9) == ()
+    confirmed = _complete_lifecycle_detection(detector, client, 300_000, 3, .9)
+    assert len(confirmed) == 1
+    assert confirmed[0].track_id == "bevfusion:car:0"
+
+
+@pytest.mark.parametrize("settings", [
+    {"continuation_score_threshold": -.1},
+    {"continuation_score_threshold": .3},
+    {"continuation_score_threshold": float("nan")},
+    {"minimum_confirmation_hits": 0},
+    {"minimum_confirmation_hits": True},
+])
+def test_bevfusion_adapter_rejects_invalid_tracker_settings(settings):
+    with pytest.raises(ValueError):
+        LatestBevFusionBoxes(_LifecycleBevFusionClient(), score_threshold=.2, **settings)
+
+
+@pytest.mark.parametrize("arguments, expected", [
+    (["--bevfusion-continuation-score-threshold", ".3"], "between zero and the birth score"),
+    (["--bevfusion-continuation-score-threshold", "nan"], "between zero and the birth score"),
+    (["--bevfusion-minimum-confirmation-hits", "0"], "must be positive"),
+])
+def test_bevfusion_cli_rejects_invalid_tracker_settings_before_transport(monkeypatch, capsys, arguments, expected):
+    from src.deployment import ros_frame_adapter
+    monkeypatch.setattr("sys.argv", ["ros_frame_adapter", *arguments])
+    with pytest.raises(SystemExit) as error:
+        ros_frame_adapter.main()
+    assert error.value.code == 2
+    assert expected in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("guard, expected_count", [(False, 2), (True, 1)])
+def test_bevfusion_adapter_optional_duplicate_birth_guard_preserves_continuation(guard, expected_count):
+    client = _LifecycleBevFusionClient()
+    detector = LatestBevFusionBoxes(client, score_threshold=.2, minimum_area_px=1,
+                                  suppress_duplicate_births=guard)
+    strong = _complete_lifecycle_detection(detector, client, 0, 0, .9)
+    boxes = _complete_lifecycle_detection(
+        detector, client, 100_000, 1, .9,
+        extra_boxes=(BevFusionBox((.2, 0, 10), (4, 2, 2), 0, .8, class_name="car"),),
+    )
+    assert len(boxes) == expected_count
+    assert boxes[0].track_id == strong[0].track_id
+    assert boxes[0].detection_confidence == .9
+
+
+def test_main_idle_loop_advances_final_bevfusion_pending_request(monkeypatch, tmp_path):
+    from src.deployment import ros_frame_adapter as module
+
+    spools = []
+    adapters = []
+
+    class Client(_LifecycleBevFusionClient):
+        def complete(self, request):
+            self.result = BevFusionResult(
+                request_id=request.request_id, scene_generation=request.scene_generation,
+                sequence=request.sequence, frame_id=request.frame_id, timestamp_us=request.timestamp_us,
+                config_id=request.config_id,
+                boxes=(BevFusionBox((0, 0, 10), (4, 2, 2), 0, .9, class_name="car"),),
+            )
+
+        def submit(self, request):
+            accepted = super().submit(request)
+            if request.sequence == 2:
+                self.complete(request)
+            return accepted
+
+    class Router:
+        def close(self): pass
+
+    class Spool:
+        def __init__(self, *args):
+            self.snapshots = []
+            spools.append(self)
+        def append(self, snapshot): self.snapshots.append(snapshot)
+
+    class Assembler:
+        def __init__(self, *args, **kwargs): pass
+        def receive_image(self, image): pass
+        def receive_metadata(self, payload, sequence): pass
+        def raise_if_failed(self): pass
+        def close(self): pass
+
+    class Service:
+        def __init__(self, *args): self.checks = 0
+        def start(self): pass
+        def stop(self): pass
+        def raise_if_failed(self):
+            self.checks += 1
+            if self.checks == 2:
+                raise RuntimeError("stop fake idle loop")
+
+    class Replay:
+        def __init__(self, adapter, **kwargs):
+            self.adapter = adapter
+            adapters.append(adapter)
+        def replay(self, path):
+            for i in range(3):
+                timestamp = i * 100_000
+                self.adapter.bevfusion.receive_image(_image(timestamp))
+                self.adapter.bevfusion.receive_lidar(SimpleNamespace(
+                    header=SimpleNamespace(stamp=SimpleNamespace(sec=0, nanosec=timestamp * 1000)),
+                    points=np.zeros((1, 4), np.float32),
+                ))
+                self.adapter.receive_metadata(_metadata(timestamp_us=timestamp, frame_id=str(i)))
+            # Response0 arrives only after EOF; no further image/metadata callback.
+            assert [r.sequence for r in client.requests] == [0]
+            client.complete(client.requests[0])
+
+    client = Client()
+    mcap = tmp_path / "offline.mcap"
+    mcap.touch()
+    monkeypatch.setattr("sys.argv", ["ros_frame_adapter", "--mcap", str(mcap),
+        "--bbox-source", "bevfusion", "--bevfusion-endpoint", "fake",
+        "--analysis-endpoint", "fake"])
+    monkeypatch.setattr(module, "_open_bevfusion_client", lambda endpoint: client)
+    monkeypatch.setattr(module.zmq, "Context", lambda: SimpleNamespace(term=lambda: None))
+    monkeypatch.setattr(module.RouterTransport, "open", lambda *args, **kwargs: Router())
+    monkeypatch.setattr(module, "VehicleFrameSpool", Spool)
+    monkeypatch.setattr(module, "VehicleAnalysisSpool", Spool)
+    monkeypatch.setattr(module, "VehicleFrameSession", lambda *args: None)
+    monkeypatch.setattr(module, "FrameRouterService", Service)
+    monkeypatch.setattr(module, "RosAnalysisAssembler", Assembler)
+    monkeypatch.setattr(module, "McapFrameReplay", Replay)
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+    with pytest.raises(RuntimeError, match="stop fake idle loop"):
+        module.main()
+    assert [r.sequence for r in client.requests] == [0, 2]
+    assert [r.timestamp_us for r in client.requests] == [0, 200_000]
+    assert client.result is None
+    assert adapters[0].bevfusion.result_count == 2
+    assert adapters[0].bevfusion.latest_sequence == 2
+    # Polling advances inference only; published source frames remain immutable.
+    assert [s.timestamp_us for s in spools[0].snapshots] == [0, 100_000, 200_000]
+    assert [len(s.boxes) for s in spools[0].snapshots] == [0, 0, 0]
