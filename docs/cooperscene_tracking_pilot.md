@@ -193,3 +193,56 @@ refilter provenance are retained. The initial mislabelled low-confidence run
 reached the old detector before restart and is marked discarded; only the
 `low-confidence-retry2` records were evaluated. A raw-logging Docker request
 compatibility error was fixed and regression-tested before collecting them.
+
+## Follow-up: lifecycle and failure audit
+
+The first 60 frames remain the development window. A reproducible failure audit
+and six labelled camera PNGs are in
+`artifacts/tracking-take1-failure-audit-20261011/`. Of 30 detection misses,
+27 have a geometrically eligible raw motor-vehicle proposal below score 0.2.
+Lowering the threshold globally to 0.1 improves recall but reduces detection
+precision to 67.5% and tracking precision to 48.4%. No tested scalar threshold
+(0.1, 0.2, 0.3, 0.5) passes the declared acceptance checks.
+
+Thirty-one of 49 unmatched detections contain no native LiDAR points inside
+the predicted cuboid, compared with five of 253 matched detections. This is
+a sensor-support diagnostic, not an automatic rejection rule: genuinely
+occluded or distant vehicles can have sparse or absent returns. Checking the
+native annotation union of agents 0–3 resolves none of the unmatched boxes.
+GT absence alone does not establish that a physical vehicle is absent. GT 55's
+jump and the distant pickup's uncertain camera correspondence remain flagged.
+The published camera extrinsic exactly matches the raw calibration pickle;
+that equality verifies provenance, not physical projection accuracy.
+
+Optional tracker trials preserve primary detections at score 0.2 and use the
+same 0.5 s coast, geometry, timestamps and GT. Confirmation requires consecutive
+distinct captures; unconfirmed tracks are not emitted. Two-stage association
+first matches score ≥0.2, then lets score 0.1–0.2 observations continue only
+unmatched confirmed tracks. Weaker observations cannot create or confirm tracks.
+Native detector class names are retained on grouped track snapshots for assets.
+
+| Tracker policy | Track precision | Track recall | Geometric IDF1 | ID switches |
+|---|---:|---:|---:|---:|
+| Original lifecycle | 75.5% | 97.9% | 0.852 | 0 |
+| Two-hit confirmation | 79.4% | 95.4% | 0.867 | 0 |
+| Low-score continuation | 71.0% | 98.6% | 0.825 | 0 |
+| Confirmation + continuation | 75.5% | 95.8% | 0.844 | 0 |
+
+These are development comparisons. Two-hit confirmation removes 20 false
+positive observations but loses seven true positive observations and worsens
+the two weak IDs. Low-score continuation extends false tracks as well as true
+tracks. Neither experiment is promoted as an overall solution; defaults remain
+unchanged. Exact baseline replay compatibility and GT-input isolation are tested.
+
+All 501 native take-1/V1 frames (481260–481760, 50.00 s) are prepared under the
+same initialization and trajectory policy. First-60 image/LiDAR arrays and
+existing metadata exactly match the pilot; explicit image dimensions are added.
+The fixed XYZ initialization correction has conditional recipe disagreement of
+0.0356–0.4364 m over the complete window. This frozen correction plus recipe
+trajectory is not continuous per-frame XYZ registration, and the short-pilot
+strict XYZ qualification must not be extrapolated to the whole sequence.
+Candidate policies and the held-out frame range 60–500 are frozen in
+`artifacts/tracking-take1-full-validation-20261011/frozen-policy.json` before
+held-out inference. Full-sequence model evaluation is pending; other takes
+remain on hold. Payload hashes are in the new input directory's
+`payload-verification.json`.
