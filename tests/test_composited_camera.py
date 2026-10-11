@@ -406,3 +406,72 @@ def test_mesh_behind_gaussian_is_hidden(tmp_path):
     result = backend.render_frame(_frame(boxes=(_box(),)))
     assert result.track_states == {"car": "mesh"}
     assert not np.any(result.rgb > 0)
+
+
+class FakeVehicleProxies:
+    def __init__(self, renderer):
+        self.renderer = renderer
+        self.calls = []
+
+    def render(self, kind, dimensions, pose, camera, intrinsic, image_size):
+        self.calls.append((kind, dimensions, pose.copy()))
+        return self.renderer.render(kind, pose, camera, intrinsic, image_size)
+
+
+def test_vehicle_proxy_receives_each_current_bbox_and_rigid_pose():
+    from dataclasses import replace
+
+    renderer = FakeMeshRenderer()
+    proxies = FakeVehicleProxies(renderer)
+    camera = RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24))
+    backend = PoseOnlyCompositedCameraBackend(
+        FakeGaussianRenderer(), camera, renderer, ground_z=None, vehicle_proxies=proxies,
+    )
+    pose = np.eye(4)
+    pose[:3, :3] = [[0., -1., 0.], [1., 0., 0.], [0., 0., 1.]]
+    pose[:3, 3] = [2., 3., 4.]
+    car = replace(_box(), text_label="car", dimensions_lwh=(4.6, 1.85, 1.5),
+                  world_T_object=tuple(pose.reshape(-1)))
+    bus = replace(car, track_id="bus", text_label="vehicle.bus.bendy", dimensions_lwh=(18., 2.5, 3.2))
+    result = backend.render_pose(_pose(), (car, bus))
+    assert result.track_states == {"car": "mesh", "bus": "mesh"}
+    assert [call[0] for call in proxies.calls] == ["car", "articulated_bus"]
+    for (_, dimensions, model), box in zip(proxies.calls, (car, bus)):
+        assert dimensions == box.dimensions_lwh
+        np.testing.assert_allclose(model, pose)
+    assert backend.render_pose(_pose(1, 100_000), ()).track_states == {}
+    tall = replace(car, dimensions_lwh=(4.6, 1.85, 3.))
+    backend.render_pose(_pose(2, 200_000), (tall,))
+    assert proxies.calls[-1][1] == tall.dimensions_lwh
+
+
+def test_vehicle_proxy_preserves_ground_occlusion_and_nonvehicle_boxes():
+    from dataclasses import replace
+
+    renderer = FakeMeshRenderer()
+    proxies = FakeVehicleProxies(renderer)
+    backend = PoseOnlyCompositedCameraBackend(
+        FakeGaussianRenderer(depth=3.), RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)),
+        renderer, ground_z=0., vehicle_proxies=proxies,
+    )
+    car = replace(_box(), text_label="vehicle.truck", dimensions_lwh=(8., 2.5, 3.))
+    result = backend.render_pose(_pose(), (car,))
+    assert result.track_states == {"car": "mesh"}
+    assert not result.rgb.any()  # Mesh depth 4 is behind opaque scene depth 3.
+    np.testing.assert_allclose(renderer.poses[-1][1][2, 3], 1.5)
+    pedestrian = replace(car, track_id="person", text_label="pedestrian")
+    assert backend.render_pose(_pose(1, 100_000), (pedestrian,)).track_states == {"person": "proxy"}
+    assert len(renderer.poses) == 1
+
+
+def test_vehicle_proxy_errors_are_explicit():
+    from dataclasses import replace
+
+    renderer = FakeMeshRenderer()
+    backend = PoseOnlyCompositedCameraBackend(
+        FakeGaussianRenderer(), RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)),
+        renderer, vehicle_proxies=FakeVehicleProxies(renderer),
+    )
+    renderer.fail_render = True
+    with pytest.raises(RuntimeError, match="render failed"):
+        backend.render_pose(_pose(), (replace(_box(), text_label="car"),))

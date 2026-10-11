@@ -379,6 +379,7 @@ class CompositedCameraProcess:
         ground_z: float | None = None,
         cursor_path: Path | None = None,
         mesh_cache_dir: Path | None = None,
+        asset_proxy: bool = False,
     ) -> None:
         self._context = zmq.Context()
         self._frames = DealerTransport.open(self._context, frames_endpoint, identity=receiver_id)
@@ -388,11 +389,17 @@ class CompositedCameraProcess:
         self._metrics = JsonlMetricsWriter(metrics_path)
         self._writer = CompositedFrameWriter(output_dir, frames_per_second)
         gaussian_map = load_gaussian_map(splat_path)
+        mesh_renderer = PyTorch3DObjectMeshRenderer(device=device, max_faces=mesh_max_faces)
+        vehicle_proxies = None
+        if asset_proxy:
+            from src.viz.vehicle_proxy import VehicleProxyRenderer
+
+            vehicle_proxies = VehicleProxyRenderer(
+                mesh_renderer, asset_dir=output_dir / "vehicle-proxies",
+            )
         self._backend = PoseOnlyCompositedCameraBackend(
             CudaGaussianBufferRenderer(gaussian_map, device=device, downsample=1),
-            camera,
-            PyTorch3DObjectMeshRenderer(device=device, max_faces=mesh_max_faces),
-            ground_z=ground_z,
+            camera, mesh_renderer, ground_z=ground_z, vehicle_proxies=vehicle_proxies,
         )
         self._cursor = FrameCursor(cursor_path or output_dir / "frame-cursor.json", scene_generation)
         self._writer.reconcile(self._cursor.next_sequence)
@@ -400,7 +407,7 @@ class CompositedCameraProcess:
             RemoteAssetReceiver(
                 assets_endpoint, receiver_id, scene_generation,
                 mesh_cache_dir or output_dir / "mesh-cache",
-            ) if assets_endpoint is not None else None
+            ) if assets_endpoint is not None and not asset_proxy else None
         )
         self._stop = False
 
@@ -532,6 +539,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frames-endpoint", required=True)
     parser.add_argument("--assets-endpoint")
+    parser.add_argument(
+        "--asset-proxy", action="store_true",
+        help="Render local vehicle proxies with fixed circular wheels; skip remote assets.",
+    )
     parser.add_argument("--mesh-cache-dir", type=Path)
     parser.add_argument("--scene-generation", required=True)
     parser.add_argument("--receiver-id", required=True)
@@ -598,6 +609,7 @@ def main() -> None:
         mesh_max_faces=args.mesh_max_faces,
         ground_z=args.ground_z,
         cursor_path=args.cursor_path, mesh_cache_dir=args.mesh_cache_dir,
+        asset_proxy=args.asset_proxy,
     )
     signal.signal(signal.SIGINT, process.request_stop)
     signal.signal(signal.SIGTERM, process.request_stop)

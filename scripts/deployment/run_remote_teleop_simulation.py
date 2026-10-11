@@ -394,7 +394,7 @@ class RemoteTeleopSimulationLauncher:
         ]
         if self.options.source_mode == "mcap":
             command.extend([
-                "--assets-endpoint", self.vehicle.asset_endpoint_uri,
+                *self._remote_asset_arguments(),
                 "--agent", "1", "--render-width", "480", "--render-height", "300",
             ])
         else:
@@ -412,7 +412,14 @@ class RemoteTeleopSimulationLauncher:
                 "0", "0", "1", "0", "0", "0", "0", "1",
                 "--render-width", "480", "--render-height", "270",
             ])
+        command.extend(self._remote_compositor_arguments())
         return self._background_script(self.remote.repo_path, command, root / "logs" / "compositor.log", root / "compositor.pid")
+
+    def _remote_asset_arguments(self) -> list[str]:
+        return ["--assets-endpoint", self.vehicle.asset_endpoint_uri]
+
+    def _remote_compositor_arguments(self) -> list[str]:
+        return []
 
     def _vehicle_adapter_script(self) -> str:
         root = self._vehicle_output_root()

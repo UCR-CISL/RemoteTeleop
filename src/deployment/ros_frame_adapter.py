@@ -20,6 +20,7 @@ import cv2
 import numpy as np
 import zmq
 
+from src.common.vehicle_categories import vehicle_proxy_kind
 from src.realtime.process_support import JsonlMetrics
 from src.realtime.protocol import BoxPrompt, EgoPoseSample, FrameDetections, FrameEnd, FrameObjectDetections, FrameSnapshot
 from src.realtime.bevfusion_tracker import BevFusionKalmanTracker, WorldDetection
@@ -113,7 +114,7 @@ class LatestBevFusionBoxes:
             dimensions = tracked.dimensions_lwh
             label = tracked.label
             score = tracked.score
-            if label not in {"car", "vehicle.car"} or score < self.score_threshold:
+            if vehicle_proxy_kind(label) is None or score < self.score_threshold:
                 continue
             projected = project_vehicle_box(
                 world_T_object=world_T_object, world_T_camera=world_T_camera,
@@ -126,7 +127,7 @@ class LatestBevFusionBoxes:
                 track_id=tracked.track_id,
                 xyxy=tuple(float(value) for value in projected.xyxy), dimensions_lwh=dimensions,
                 world_T_object=tuple(float(value) for value in world_T_object.reshape(-1)),
-                text_label="car", visibility=projected.visible_fraction,
+                text_label=label, visibility=projected.visible_fraction,
                 detection_confidence=score,
             ))
         return tuple(boxes)

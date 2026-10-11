@@ -205,3 +205,74 @@ def test_sam_launcher_starts_bevfusion_before_vehicle_adapter_for_nuscenes_mcap(
     assert "cd /home/justin/Documents/CISL-Projects/RemoteTeleop" in preflight
     assert f"test -f {localization}" in preflight
     assert any("docker rm -f remote-teleop-bevfusion-lambda" in command for command in commands)
+
+
+def test_asset_proxy_commands_skip_sam_and_asset_delivery(tmp_path):
+    launcher = _launcher(tmp_path)
+    launcher.sam = SamLaunchOptions(asset_proxy=True)
+    commands = [" ".join(command) for command in launcher.planned_commands()]
+    combined = "\n".join(commands)
+    compositor = next(c for c in commands if "composited_camera_process" in c)
+    adapter = next(c for c in commands if "nohup" in c and "ros_frame_adapter" in c)
+
+    assert "--asset-proxy" in compositor
+    assert "--assets-endpoint" not in combined
+    assert "--asset-store-root" not in combined
+    for forbidden in ("sam3d", "mask_process", "gpu-residency", "nvidia-smi"):
+        assert forbidden not in combined
+    assert "--analysis-spool-root" in adapter
+    assert "--analysis-endpoint" in adapter
+    assert "--mcap " in adapter
+    assert "from pytorch3d.renderer" in combined
+    preflight = launcher._sam_vehicle_preflight_script()
+    assert "import mcap, numpy, zmq, cv2" in preflight
+    assert "torch" not in preflight
+
+
+def test_asset_proxy_run_keeps_replay_and_render_validation(tmp_path, monkeypatch):
+    launcher = _launcher(tmp_path)
+    launcher.sam = SamLaunchOptions(asset_proxy=True)
+    launcher.dry_run = False
+    calls = []
+    monkeypatch.setattr(launcher, "_checked", lambda *args: None)
+    monkeypatch.setattr(launcher, "sleep", lambda _: None)
+    monkeypatch.setattr(launcher, "_require_alive", lambda host, path, label: calls.append(label))
+    for name in ("_launch_remote", "_launch_vehicle_adapter", "_wait_for_remote_metrics", "_retrieve_artifacts"):
+        monkeypatch.setattr(launcher, name, lambda name=name: calls.append(name))
+    monkeypatch.setattr(launcher, "_wait_for_spool_end", lambda spool, label: calls.append(spool))
+    monkeypatch.setattr(RemoteTeleopSimulationLauncher, "_validate_retrieved_metrics", lambda self: calls.append("validate"))
+    monkeypatch.setattr(RemoteTeleopSimulationLauncher, "_stop_processes", lambda self: calls.append("stop"))
+    for name in ("_launch_sam3d_worker", "_wait_for_sam3d_ready", "_launch_sam3_worker", "_wait_for_sam3_ready", "_wait_for_sam3d_completion", "_wait_for_asset_sync", "_sam_stop_script"):
+        def unexpected(*args, name=name):
+            pytest.fail(f"proxy mode called {name}")
+        monkeypatch.setattr(launcher, name, unexpected)
+    launcher._started = True
+
+    assert launcher.run() == launcher.options.local_artifacts / "composited" / "composited.mp4"
+    assert "frame-spool" in calls and "analysis-spool" in calls
+    assert "_wait_for_remote_metrics" in calls
+    assert "validate" in calls and "stop" in calls
+    assert "SAM3 worker" not in calls and "SAM3D worker" not in calls
+
+
+def test_asset_proxy_keeps_bevfusion_lifecycle(tmp_path):
+    from dataclasses import replace
+
+    launcher = _launcher(tmp_path)
+    launcher.sam = SamLaunchOptions(asset_proxy=True)
+    launcher.options = replace(launcher.options, bbox_source="bevfusion", source_mode="nuscenes_mcap")
+    commands = [" ".join(command) for command in launcher.planned_commands()]
+    bevfusion = next(c for c in commands if "docker run" in c)
+    adapter = next(c for c in commands if "nohup" in c and "ros_frame_adapter" in c)
+    assert commands.index(bevfusion) < commands.index(adapter)
+    assert "--bbox-source bevfusion" in adapter
+    assert any("docker rm -f remote-teleop-bevfusion" in c for c in commands)
+
+
+def test_asset_proxy_cli_forwarding(tmp_path, monkeypatch):
+    from scripts.deployment import run_remote_teleop_sam_simulation as module
+
+    seen = []
+    monkeypatch.setattr(module.SamRemoteTeleopSimulationLauncher, "run", lambda self: seen.append(self.sam.asset_proxy))
+    assert module.main(["--asset-proxy", "--dry-run"]) == 0
+    assert seen == [True]

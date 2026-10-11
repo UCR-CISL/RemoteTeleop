@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Protocol
+from typing import TYPE_CHECKING, Mapping, Protocol
 
 import cv2
 import numpy as np
 
+if TYPE_CHECKING:
+    from src.viz.vehicle_proxy import VehicleProxyRenderer
+
+from src.common.vehicle_categories import vehicle_proxy_kind
 from src.localization.gaussian_map import GaussianMap
 from src.realtime.protocol import AssetEvent, AssetState, BoxPrompt, EgoPoseSample, FrameDetections
 from src.viz.localization_visualizer import (
@@ -126,6 +130,7 @@ class PoseOnlyCompositedCameraBackend:
         alpha_threshold: float = 0.01,
         depth_tolerance_m: float = 0.03,
         ground_z: float | None = 0.0,
+        vehicle_proxies: "VehicleProxyRenderer | None" = None,
     ) -> None:
         if proxy_thickness <= 0:
             raise ValueError("proxy_thickness must be positive")
@@ -141,6 +146,7 @@ class PoseOnlyCompositedCameraBackend:
         self._retired_generations: set[str] = set()
         self._assets: dict[str, _MeshAsset] = {}
         self._mesh_statuses: list[MeshAssetStatus] = []
+        self._vehicle_proxies = vehicle_proxies
 
     def handle_asset_event(self, event: AssetEvent) -> None:
         """Load a verified local mesh once; failures deliberately retain bboxes."""
@@ -216,6 +222,20 @@ class PoseOnlyCompositedCameraBackend:
         rgb = np.clip(background.rgb.copy(), 0.0, 1.0)
         track_states: dict[str, str] = {}
         for box in boxes:
+            kind = vehicle_proxy_kind(box.text_label)
+            if self._vehicle_proxies is not None and kind is not None:
+                overlay = self._vehicle_proxies.render(
+                    kind, box.dimensions_lwh,
+                    _flat_ground_box_pose(box, ground_z=self._ground_z),
+                    world_T_camera, self.camera.camera_intrinsic, self.camera.image_size,
+                )
+                rgb = _composite_mesh(
+                    rgb, background.depth, background.alpha, overlay,
+                    alpha_threshold=self._alpha_threshold,
+                    depth_tolerance_m=self._depth_tolerance_m,
+                )
+                track_states[box.track_id] = "mesh"
+                continue
             asset = self._assets.get(box.track_id)
             if (
                 asset is not None
@@ -412,19 +432,36 @@ class PyTorch3DObjectMeshRenderer:
         # GLB nodes may carry transforms; bake them before constructing the
         # PyTorch3D mesh so the aligned asset stays in its canonical object frame.
         geometry = scene.to_geometry()
+        return self.load_geometry(geometry)
+
+    def load_geometry(self, geometry, *, preserve_topology: bool = False) -> object:
+        """Upload colored geometry; articulated proxies retain vertex indices."""
+        import torch
+        from pytorch3d.renderer import TexturesVertex
+        from pytorch3d.structures import Meshes
+
         vertices = np.asarray(geometry.vertices, dtype=np.float32)
         faces = np.asarray(geometry.faces, dtype=np.int64)
         colors = np.full((len(vertices), 3), 0.7, dtype=np.float32)
         vertex_colors = getattr(geometry.visual, "vertex_colors", None)
         if vertex_colors is not None and len(vertex_colors) == len(vertices):
             colors = np.asarray(vertex_colors[:, :3], dtype=np.float32) / 255.0
-        vertices, faces, colors = _decimate_mesh_for_render(
-            vertices, faces, colors, max_faces=self._max_faces
-        )
+        if not preserve_topology:
+            vertices, faces, colors = _decimate_mesh_for_render(
+                vertices, faces, colors, max_faces=self._max_faces
+            )
         return Meshes(
             verts=[torch.as_tensor(vertices, device=self._device)],
             faces=[torch.as_tensor(faces, device=self._device)],
             textures=TexturesVertex([torch.as_tensor(colors, device=self._device)]),
+        )
+
+    def with_vertices(self, mesh, vertices):
+        """Instance new local vertices without changing cached topology/colors."""
+        import torch
+
+        return mesh.update_padded(
+            torch.as_tensor(vertices, dtype=torch.float32, device=self._device)[None]
         )
 
     def render(

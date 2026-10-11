@@ -368,7 +368,8 @@ def test_direct_mcap_replay_reads_generated_cdr_records(tmp_path):
     assert analysis.get(scene, 0).timestamp_us == 0
 
 
-def test_bevfusion_latest_only_reprojects_lidar_boxes_and_drops_gt():
+@pytest.mark.parametrize("label", ["car", "truck", "bus", "trailer", "construction_vehicle", "motorcycle", "bicycle", "vehicle.emergency.ambulance", "pedestrian", "traffic_cone"])
+def test_bevfusion_latest_only_reprojects_lidar_boxes_and_drops_gt(label):
     class Client:
         def __init__(self):
             self.requests = []
@@ -395,13 +396,17 @@ def test_bevfusion_latest_only_reprojects_lidar_boxes_and_drops_gt():
         request_id=request.request_id, scene_generation=request.scene_generation,
         sequence=request.sequence, frame_id=request.frame_id, timestamp_us=request.timestamp_us,
         config_id=request.config_id,
-        boxes=(BevFusionBox((0, 0, 10), (4, 2, 2), 0, 0.9, class_name="car"),),
+        boxes=(BevFusionBox((0, 0, 10), (4, 2, 2), 0, 0.9, class_name=label),),
     )
     next_payload = dict(payload, timestamp_us=100_000, frame_id="1", source_sequence=1)
     boxes = detector.boxes_for(next_payload, (100, 100))
-    assert [box.track_id for box in boxes] == ["bevfusion:car:0"]
-    assert boxes[0].detection_confidence == 0.9
-    assert boxes[0].text_label == "car"
+    if label in {"pedestrian", "traffic_cone"}:
+        assert boxes == ()
+    else:
+        track_label = label.replace(".", "_")
+        assert [box.track_id for box in boxes] == [f"bevfusion:{track_label}:0"]
+        assert boxes[0].detection_confidence == 0.9
+        assert boxes[0].text_label == label
 
 
 def test_bevfusion_latest_only_replaces_an_older_pending_request():

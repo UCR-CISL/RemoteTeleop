@@ -33,6 +33,7 @@ class SamLaunchOptions:
     precision: str | None = None
     sam3_precision: str = "fp16"
     sam3d_precision: str = "nf4"
+    asset_proxy: bool = False
 
     def __post_init__(self) -> None:
         if self.stable_seconds < 0 or self.sam_timeout_seconds <= 0:
@@ -75,24 +76,25 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
                 self._checked(self._ssh(self.vehicle, self._bevfusion_preflight_script()), "BEVFusion preflight")
                 self._launch_bevfusion()
                 self._wait_for_bevfusion_ready()
-            self._launch_sam3d_worker()
-            self._wait_for_sam3d_ready()
-            self._launch_sam3_worker()
-            self._wait_for_sam3_ready()
-            # Do not let the remote request snapshots until both vehicle
-            # models are resident.  This is also the desired deployment
-            # ordering: camera/pose traffic begins only after warm startup.
+            if not self.sam.asset_proxy:
+                # Start camera/pose traffic only after both models are resident.
+                self._launch_sam3d_worker()
+                self._wait_for_sam3d_ready()
+                self._launch_sam3_worker()
+                self._wait_for_sam3_ready()
             self._launch_remote()
             self._launch_vehicle_adapter()
             self.sleep(self.options.settle_seconds)
             self._require_alive(self.vehicle, self._vehicle_output_root() / "adapter.pid", "vehicle adapter")
-            self._require_alive(self.vehicle, self._vehicle_output_root() / "sam3.pid", "SAM3 worker")
-            self._require_alive(self.vehicle, self._vehicle_output_root() / "sam3d.pid", "SAM3D worker")
+            if not self.sam.asset_proxy:
+                self._require_alive(self.vehicle, self._vehicle_output_root() / "sam3.pid", "SAM3 worker")
+                self._require_alive(self.vehicle, self._vehicle_output_root() / "sam3d.pid", "SAM3D worker")
             self._require_alive(self.remote, self._remote_output_root() / "compositor.pid", "remote compositor")
             self._play_mcap()
             self._wait_for_remote_metrics()
-            self._wait_for_sam3d_completion()
-            self._wait_for_asset_sync()
+            if not self.sam.asset_proxy:
+                self._wait_for_sam3d_completion()
+                self._wait_for_asset_sync()
         finally:
             if self._started:
                 self._stop_processes()
@@ -111,16 +113,24 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
                 self._ssh(self.vehicle, self._bevfusion_start_script()),
                 self._ssh(self.vehicle, self._bevfusion_ready_script()),
             ))
+        if not self.sam.asset_proxy:
+            commands.extend((
+                self._ssh(self.vehicle, self._sam3d_start_script()),
+                self._ssh(self.vehicle, self._sam_ready_script("sam3d")),
+                self._ssh(self.vehicle, self._sam3_start_script()),
+                self._ssh(self.vehicle, self._sam_ready_script("sam3")),
+            ))
         commands.extend((
-            self._ssh(self.vehicle, self._sam3d_start_script()),
-            self._ssh(self.vehicle, self._sam_ready_script("sam3d")),
-            self._ssh(self.vehicle, self._sam3_start_script()),
-            self._ssh(self.vehicle, self._sam_ready_script("sam3")),
             self._ssh(self.remote, self._remote_start_script()),
             self._ssh(self.vehicle, self._vehicle_adapter_script()),
             self._ssh(self.remote, self._metrics_count_script()),
-            self._ssh(self.vehicle, self._sam_stop_script("sam3")),
-            self._ssh(self.vehicle, self._sam_stop_script("sam3d")),
+        ))
+        if not self.sam.asset_proxy:
+            commands.extend((
+                self._ssh(self.vehicle, self._sam_stop_script("sam3")),
+                self._ssh(self.vehicle, self._sam_stop_script("sam3d")),
+            ))
+        commands.extend((
             self._ssh(self.remote, self._stop_remote_script()),
             self._ssh(self.vehicle, self._stop_vehicle_script()),
         ))
@@ -133,6 +143,12 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
             self._scp_from(self.vehicle, self._vehicle_output_root()),
         ))
         return tuple(commands)
+
+    def _remote_asset_arguments(self) -> list[str]:
+        return [] if self.sam.asset_proxy else super()._remote_asset_arguments()
+
+    def _remote_compositor_arguments(self) -> list[str]:
+        return ["--asset-proxy"] if self.sam.asset_proxy else []
 
     def _play_mcap(self) -> None:
         """Replay the recorded image and detection streams once, in source order.
@@ -178,7 +194,9 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
         command = self._vehicle_python_command() + [
             "-m", "src.deployment.ros_frame_adapter",
             "--frames-endpoint", f"tcp://0.0.0.0:{self.vehicle.port}",
-            "--assets-endpoint", f"tcp://0.0.0.0:{self.vehicle.asset_port}",
+            *([] if self.sam.asset_proxy else [
+                "--assets-endpoint", f"tcp://0.0.0.0:{self.vehicle.asset_port}",
+            ]),
             "--analysis-endpoint", f"tcp://0.0.0.0:{analysis_port}",
             "--queue-depth", "2048", "--high-water-mark", "2048",
             "--expected-samples", str(self.options.expected_samples),
@@ -186,7 +204,9 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
             "--metrics-path", str(self.options.output_root / self.vehicle.name / "ros_ego_pose_adapter.jsonl"),
             "--spool-root", str(self.options.output_root / self.vehicle.name / "frame-spool"),
             "--analysis-spool-root", str(self.options.output_root / self.vehicle.name / "analysis-spool"),
-            "--asset-store-root", str(self.options.output_root / self.vehicle.name / "asset-store"),
+            *([] if self.sam.asset_proxy else [
+                "--asset-store-root", str(self.options.output_root / self.vehicle.name / "asset-store"),
+            ]),
             "--mcap", str(self.vehicle.repo_path / self.options.mcap_path),
             "--mcap-rate", "1.0",
         ]
@@ -348,11 +368,15 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
                 )
                 if self.options.cooperscene_localization_transform is not None else ()
             ),
-            "command -v nvidia-smi >/dev/null",
-            python + " -c " + shlex.quote(
-                "import mcap, torch, zmq, cv2; assert torch.cuda.is_available(); "
-                "import src.realtime.mask_process, src.realtime.sam3d_worker"
-            ),
+            *((python + " -c " + shlex.quote(
+                "import mcap, numpy, zmq, cv2; import src.deployment.ros_frame_adapter"
+            ),) if self.sam.asset_proxy else (
+                "command -v nvidia-smi >/dev/null",
+                python + " -c " + shlex.quote(
+                    "import mcap, torch, zmq, cv2; assert torch.cuda.is_available(); "
+                    "import src.realtime.mask_process, src.realtime.sam3d_worker"
+                ),
+            )),
         ))
 
     def _wait_for_sam3d_completion(self) -> None:
@@ -390,6 +414,8 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
 
     def _validate_retrieved_metrics(self) -> None:
         super()._validate_retrieved_metrics()
+        if self.sam.asset_proxy:
+            return
         sam3d_metrics = (
             self.options.local_artifacts
             / self.vehicle.name
@@ -407,7 +433,7 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
             raise LaunchError("SAM3D did not durably complete the full scene")
 
     def _stop_processes(self) -> None:
-        for name in ("sam3", "sam3d"):
+        for name in (() if self.sam.asset_proxy else ("sam3", "sam3d")):
             self.runner.run(self._ssh(self.vehicle, self._sam_stop_script(name)))
             pid_path = self._vehicle_output_root() / f"{name}.pid"
             if not self._wait_for_exit(self.vehicle, pid_path, timeout_seconds=10.0):
@@ -470,6 +496,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--precision", choices=("default", "fp16", "nf4"),
         help="legacy override: use one precision for both SAM workers",
     )
+    parser.add_argument("--asset-proxy", action="store_true",
+                        help="render bbox-sized procedural cars without SAM workers")
     parser.add_argument("--sam3-precision", choices=("default", "fp16", "nf4"), default="fp16")
     parser.add_argument("--sam3d-precision", choices=("default", "fp16", "nf4"), default="nf4")
     parser.add_argument("--scene-generation", default="cooperscene:train:1:1")
@@ -521,6 +549,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 precision=args.precision,
                 sam3_precision=args.sam3_precision,
                 sam3d_precision=args.sam3d_precision,
+                asset_proxy=args.asset_proxy,
             ),
             dry_run=args.dry_run,
         )
