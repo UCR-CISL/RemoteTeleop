@@ -76,3 +76,20 @@ def test_kalman_tracker_preserves_heading_in_a_non_z_up_map():
     recovered = np.linalg.inv(world_T_lidar) @ tracked.world_T_object
     recovered_yaw = math.atan2(recovered[1, 0], recovered[0, 0])
     assert math.degrees(recovered_yaw) == pytest.approx(87.0)
+
+
+def test_detection_cannot_resurrect_an_expired_identity():
+    tracker = BevFusionKalmanTracker(maximum_coast_seconds=0.5)
+    tracker.update((_detection(0.0),), timestamp_us=0)
+    original_id = tracker.boxes_at(0)[0].track_id
+    assert tracker.boxes_at(600_000) == ()
+    tracker.update((_detection(0.0),), timestamp_us=600_000)
+    assert tracker.boxes_at(600_000)[0].track_id != original_id
+
+
+def test_detection_at_coast_boundary_keeps_identity():
+    tracker = BevFusionKalmanTracker(maximum_coast_seconds=0.5)
+    tracker.update((_detection(0.0),), timestamp_us=0)
+    original_id = tracker.boxes_at(0)[0].track_id
+    tracker.update((_detection(0.0),), timestamp_us=500_000)
+    assert tracker.boxes_at(500_000)[0].track_id == original_id

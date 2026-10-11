@@ -158,6 +158,13 @@ class BevFusionKalmanTracker:
         if self._timestamp_us is not None and timestamp_us < self._timestamp_us:
             raise ValueError("tracker timestamps must be monotonic")
         self._timestamp_us = timestamp_us
+        # Expiry is decided before association: a new detection must not revive
+        # an identity whose observation gap already exceeded the coast limit.
+        self._tracks = [
+            track
+            for track in self._tracks
+            if timestamp_us - track.last_observed_us <= self.maximum_coast_us
+        ]
         for track in self._tracks:
             track.predict_to(timestamp_us)
 
