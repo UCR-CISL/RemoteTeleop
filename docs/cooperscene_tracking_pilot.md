@@ -101,7 +101,12 @@ tracks expire before association. Sparse detections now correctly create a new
 ID after expiry; the old implementation's apparent continuity could revive an
 expired ID. The live adapter has one in-flight and one replaceable pending
 request, so it can drop intermediate detector frames. The offline pilot waits
-for every frame and persists raw detections separately from tracks.
+for every frame and persists raw detections separately from tracks. The clipped
+crop trial measured end-to-end client latency of 120.3 ms mean, 113.8 ms median,
+134.3 ms p95 and 367.9 ms maximum. These include 100 ms client polling and
+transport; they are not isolated GPU inference times. The mean exceeds the
+roughly 100 ms capture interval, so live adapter frame dropping remains a
+throughput concern. Offline metrics use original capture timestamps.
 
 ## Hosts and deployment
 
