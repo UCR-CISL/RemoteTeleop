@@ -18,11 +18,11 @@ def main():
     parser.add_argument("--output",type=Path,required=True)
     parser.add_argument("--front-camera-only",action="store_true")
     args = parser.parse_args()
-    args.output.mkdir(parents=True,exist_ok=False)
     assignments = [json.loads(x) for x in args.assignments.read_text().splitlines()]
     frames = [json.loads(x) for x in args.frames.read_text().splitlines()]
     if len(assignments)!=len(frames):
         raise ValueError("Assignments and frames have different coverage")
+    args.output.mkdir(parents=True,exist_ok=False)
     renderer = TrackingOverlayRenderer()
     for kind in ("detections","tracks"):
         def images():

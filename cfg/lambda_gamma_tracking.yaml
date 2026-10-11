@@ -1,0 +1,15 @@
+# Isolated offline recording evaluation. Hosts and directories verified 2026-10-11.
+gamma:
+  role: remote-ops
+  host_address: 100.70.20.114
+  port: 18767
+  user: justin
+  repo_path: /home/justin/Documents/CISL-Projects/RemoteTeleop-tracking-20261011
+lambda:
+  role: vehicle
+  host_address: 100.97.168.98
+  port: 18768
+  asset_port: 18769
+  analysis_port: 18771
+  user: justin
+  repo_path: /home/justin/Documents/CISL-Projects/RemoteTeleop-tracking-20261011

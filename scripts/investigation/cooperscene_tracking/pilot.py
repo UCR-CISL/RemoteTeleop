@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import sys
 import time
@@ -91,7 +92,9 @@ class TrackingPilot:
                                                archived_summary_sha256=hashlib.sha256(summary_path.read_bytes()).hexdigest()))
         (self.root/"manifest.json").write_text(json.dumps(manifest, indent=2)+"\n")
 
-    def infer(self, endpoint, output, timeout_seconds, selected_sequence=None):
+    def infer(self, endpoint, output, timeout_seconds, selected_sequence=None, intensity_clip=None):
+        if intensity_clip is not None and (not np.isfinite(intensity_clip) or intensity_clip <= 0):
+            raise ValueError("intensity clip must be finite and positive")
         output.mkdir(parents=True, exist_ok=False)
         manifest = json.loads((self.root/"manifest.json").read_text())
         if selected_sequence:
@@ -111,6 +114,9 @@ class TrackingPilot:
                             image = payload["image"]
                             row["image_width"], row["image_height"] = image.shape[1], image.shape[0]
                             points = np.ascontiguousarray(payload["lidar"],dtype="<f4")
+                            if intensity_clip is not None:
+                                points[:,3] = np.clip(points[:,3],0,intensity_clip)
+                            row["lidar_intensity_clip"] = intensity_clip
                             request = BevFusionRequest(f"{row['sequence_id']}:{index}", row["sequence_id"], index,
                                 row["frame_id"], row["timestamp_us"], "retained-xyz-pilot",
                                 tuple(np.asarray(row["camera_intrinsic"]).ravel()),tuple(np.asarray(row["world_T_camera"]).ravel()),
@@ -155,14 +161,20 @@ def main():
     parser.add_argument("--endpoint",default="tcp://127.0.0.1:18766")
     parser.add_argument("--timeout-seconds",type=float,default=120)
     parser.add_argument("--sequence", help="Infer only this prepared sequence; start with take01-vehicle1")
+    parser.add_argument("--intensity-clip",type=float,help="Offline input experiment; clamp only intensity, preserving XYZ and cached inputs")
     args = parser.parse_args()
     pilot = TrackingPilot(args.inputs)
     if args.mode == "prepare":
         if args.count<=0: parser.error("count must be positive")
-        pilot.prepare(args.data_root,args.search_root,args.count,[(1,1),(3,1),(4,2)])
+        selections = [(1,1)]
+        if args.sequence:
+            match = re.fullmatch(r"take(\d+)-vehicle([123])",args.sequence)
+            if not match: parser.error("sequence must be takeNN-vehicleN")
+            selections = [(int(match[1]),int(match[2]))]
+        pilot.prepare(args.data_root,args.search_root,args.count,selections)
     else:
         if args.output is None: parser.error("infer requires --output")
-        pilot.infer(args.endpoint,args.output,args.timeout_seconds,args.sequence)
+        pilot.infer(args.endpoint,args.output,args.timeout_seconds,args.sequence,args.intensity_clip)
 
 
 if __name__ == "__main__":

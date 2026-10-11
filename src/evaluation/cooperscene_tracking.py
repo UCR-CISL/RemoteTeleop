@@ -189,8 +189,11 @@ class FrontCameraCoverageEvaluator:
     annotation completeness. Filtering is symmetric for prediction and GT.
     """
 
-    def __init__(self, *, center_threshold_m: float = 2.0, minimum_area_px: float = 16.0) -> None:
+    def __init__(self, *, center_threshold_m: float = 2.0, minimum_area_px: float = 16.0, precision_target: float | None = None) -> None:
+        if precision_target is not None and not 0 < precision_target <= 1:
+            raise ValueError("precision_target must be in (0, 1]")
         self.minimum_area_px = minimum_area_px
+        self.precision_target = precision_target
         self.detection = GeometricTrackingEvaluator(center_threshold_m=center_threshold_m, identity_metrics=False)
         self.tracking = GeometricTrackingEvaluator(center_threshold_m=center_threshold_m)
         self._coverage: dict[tuple[str, str], dict[str, Any]] = {}
@@ -244,13 +247,20 @@ class FrontCameraCoverageEvaluator:
         eligible = [item for item in coverage if item["eligible"]]
         observations = sum(item["visible_frames"] for item in coverage)
         switches = sum(item["id_switches"] for item in coverage)
+        detection_summary, tracking_summary = self.detection.summary(), self.tracking.summary()
+        precision_pass = None if self.precision_target is None else all(
+            result["precision"] is not None and result["precision"] >= self.precision_target
+            for result in (detection_summary, tracking_summary))
         return dict(visibility_policy=dict(type="geometric projected cuboid intersection", minimum_area_px=self.minimum_area_px,
-                    actual_occlusion_tested=False, symmetric_prediction_filter=True), detections=self.detection.summary(),
-                    tracks=self.tracking.summary(), per_gt_id=coverage,
+                    near_plane_policy="reject entire box if any corner has camera depth <= 0.1 m; no near-plane clipping",
+                    actual_occlusion_tested=False, symmetric_prediction_filter=True), detections=detection_summary,
+                    tracks=tracking_summary, per_gt_id=coverage,
                     acceptance=dict(minimum_visible_frames=5, minimum_per_id_detection_recall=.9, minimum_per_id_track_recall=.9,
                         eligible_gt_ids=len(eligible), never_detected_gt_ids=[item["gt_id"] for item in coverage if not item["ever_detected"]],
                         per_id_recall_pass=bool(eligible) and all(item["detection_recall"] >= .9 and item["track_recall"] >= .9 for item in eligible),
                         zero_never_detected_pass=bool(coverage) and all(item["ever_detected"] for item in coverage),
                         id_switches_per_100_visible_observations=100 * switches / observations if observations else None,
                         id_switch_rate_pass=bool(observations) and 100 * switches / observations <= 1,
+                        optional_detection_and_track_precision_target=self.precision_target,
+                        optional_precision_target_pass=precision_pass,
                         zero_id_switches=switches == 0))

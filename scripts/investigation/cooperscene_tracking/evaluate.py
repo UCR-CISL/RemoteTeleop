@@ -16,13 +16,14 @@ def main() -> None:
     parser.add_argument("--center-threshold-m", type=float, default=2.0)
     parser.add_argument("--split-discontinuous-gt", action="store_true", help="add separate identity sensitivity metrics; preserve canonical metrics")
     parser.add_argument("--front-camera-only", action="store_true", help="also report symmetric geometric front-camera visibility and per-GT-ID coverage")
+    parser.add_argument("--precision-target", type=float, help="optional declared minimum for both front-camera detection and tracking precision (e.g. 0.9)")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=False)
     detection = GeometricTrackingEvaluator(center_threshold_m=args.center_threshold_m, identity_metrics=False)
     tracking = GeometricTrackingEvaluator(center_threshold_m=args.center_threshold_m)
     continuity = GroundTruthContinuity()
     sensitivity = GeometricTrackingEvaluator(center_threshold_m=args.center_threshold_m)
-    front = FrontCameraCoverageEvaluator(center_threshold_m=args.center_threshold_m)
+    front = FrontCameraCoverageEvaluator(center_threshold_m=args.center_threshold_m, precision_target=args.precision_target)
     with args.frames.open() as source, (args.output_dir / "assignments.jsonl").open("w") as output:
         for line in source:
             frame = json.loads(line)

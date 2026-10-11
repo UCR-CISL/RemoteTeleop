@@ -72,14 +72,19 @@ every flag and the full policy.
 `--front-camera-only` adds front-camera metrics alongside all supplied LiDAR
 range boxes. It requires each row's `world_T_camera`, `camera_intrinsic`,
 `image_width`, and `image_height`. Both GT and predictions must have projected
-cuboid image intersection area at least 16 pixels²; near-plane clipping uses
-the shared projection helper. This means geometric image visibility, not
+cuboid image intersection area at least 16 pixels². The shared projection
+helper rejects the entire box if any corner has camera depth ≤0.1 m; it does
+not clip boxes at the near plane. This means geometric image visibility, not
 actual visibility through occlusion. Per GT ID the report includes visible,
 detected, traced frames, recall, ever-detected status, longest track miss run,
 and ID switches. Acceptance requires at least 90% detection and track recall
 for every ID with at least five visible frames, zero never-detected IDs among
 all visible IDs, and at most one switch per 100 visible GT observations.
 Zero switches is separately reported. An empty eligible set does not pass.
+An optional `--precision-target 0.9` adds a declared minimum for both detection
+and track precision, so broad false-positive output cannot satisfy this target
+merely by covering GT IDs. Coverage, identity and precision checks remain
+separately reported; omitted precision targets are explicitly null.
 
 The active sidecar uses a nuScenes checkpoint with one front image and one
 current LiDAR frame, while upstream evaluation loads multiple camera views and
@@ -98,6 +103,21 @@ nuScenes sweep has median 15, 99th percentile 100, maximum 255. This is a
 measured input distribution difference, not evidence for a particular
 normalization. Calibration, single-frame/single-view input differences, and
 confidence settings require controlled comparisons on identical cached inputs.
+
+`refilter.py frames.jsonl --raw-directory RAW --classes car truck bus trailer
+construction_vehicle --score-threshold 0.2 --output-dir NEW` reuses cached model
+outputs for a declared motor-vehicle ontology trial. Native YAML `vehicles`
+does not supply detailed categories; the trial groups GT's generic category
+as `vehicle`, preserves `annotation_class_name`, and retains detector class
+names and IDs separately. Only the listed motor-vehicle classes enter the
+tracker with grouped label `vehicle`; pedestrian, bicycle, cone, and barrier
+outputs are excluded. Original GT geometry and timestamps are unchanged.
+Exact request/frame/timestamp/ordinal provenance, calibration, and image sizes
+must match all cached frames before an output directory is created. Use the
+same command with `--classes car` as the controlled car-only tracker baseline.
+This evaluation grouping does not change deployment class defaults. Renderers
+should choose primitive asset type from retained native detector categories,
+since `vehicle` is an evaluation ontology label.
 
 The Foxglove reader exposes the global annotation union as `frame.vehicles`;
 `metadata['boxes']` contains camera-projected boxes only. The native selected

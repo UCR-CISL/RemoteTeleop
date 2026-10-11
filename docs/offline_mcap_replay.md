@@ -34,3 +34,9 @@ queries preserve the incoming pose and emit per-track placement diagnostics.
 
 Validation used simulated launchers/readers and local tests only; no replay or
 real vehicle process was launched during integration.
+
+For the later deterministic detector/tracker evaluation on Lambda and Gamma,
+see [CooperScene tracking pilot](cooperscene_tracking_pilot.md). It uses native
+capture timestamps, the retained raw-GNSS/INS XYZ policy, recorded detector
+outputs, and explicit front-camera coverage checks. It does not launch vehicle
+control or change the localization policy of older MCAP replay manifests.

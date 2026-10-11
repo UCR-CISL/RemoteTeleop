@@ -110,3 +110,21 @@ def test_front_camera_coverage_filters_symmetrically_and_exposes_never_detected(
     assert summary["acceptance"]["never_detected_gt_ids"] == ["unseen"]
     assert summary["per_gt_id"][1]["longest_track_miss_frames"] == 5
     assert summary["acceptance"]["per_id_recall_pass"] is False
+
+
+def test_front_camera_near_plane_rejection_and_precision_target():
+    evaluator = FrontCameraCoverageEvaluator(precision_target=.9)
+    visible, crossing = box("a"), box("crossing")
+    visible["world_T_object"][2][3] = 10
+    crossing["world_T_object"][2][3] = .5
+    for index in range(5):
+        predictions = [dict(visible, track_id="p"), dict(visible, track_id="duplicate")]
+        evaluator.update(dict(sequence_id="take1", frame_id=str(index), timestamp_us=index*100000,
+            image_width=100, image_height=100, world_T_camera=np.eye(4).tolist(),
+            camera_intrinsic=[[100,0,50],[0,100,50],[0,0,1]],
+            gt=[visible, crossing], detections=predictions, tracks=predictions))
+    summary = evaluator.summary()
+    assert len(summary["per_gt_id"]) == 1
+    assert summary["acceptance"]["per_id_recall_pass"]
+    assert not summary["acceptance"]["optional_precision_target_pass"]
+    assert summary["detections"]["precision"] == .5
