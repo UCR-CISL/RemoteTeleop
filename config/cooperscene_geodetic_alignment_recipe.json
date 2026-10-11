@@ -1,0 +1,235 @@
+{
+  "status": "offline map-assisted candidate; production and original poses unchanged",
+  "scope": "Vehicle1 only; G and vehicles2/3 remain fixed; one mounting for every take; take3-only additive position bias",
+  "composition": "map_T_lidar(t,take)=B_take @ G @ Pose(R_raw(t) @ F1, p_geo(t) - (R_raw(t) @ F1) @ [0,0,0.03]) @ inverse(E_new)",
+  "equivalent_to_current": "map_T_lidar=B_take @ G @ original_GeodeticPoses.lidar_pose(t,.03) @ delta_mounting",
+  "F1": [
+    [
+      1,
+      0,
+      0
+    ],
+    [
+      0,
+      -1,
+      0
+    ],
+    [
+      0,
+      0,
+      -1
+    ]
+  ],
+  "G_frozen": [
+    [
+      0.9999808796096317,
+      0.00041155533163640185,
+      0.006170173203086273,
+      -0.06128823098009741
+    ],
+    [
+      -0.000408382222107578,
+      0.9999997837330874,
+      -0.0005155169629498539,
+      0.34372792607766633
+    ],
+    [
+      -0.006170384032436616,
+      0.0005129873170208171,
+      0.9999808314187348,
+      -0.47532484748270204
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "E_recorded": [
+    [
+      0.9974515387154811,
+      -0.05565956699756662,
+      0.04463676193187437,
+      -0.16084832853911865
+    ],
+    [
+      0.05747802231001582,
+      0.9975230848870941,
+      -0.040545925426170165,
+      -0.008311742014897983
+    ],
+    [
+      -0.042269431808917825,
+      0.04300822850314377,
+      0.9981801377584973,
+      -0.07055620755716357
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "E_new": [
+    [
+      0.9999682884066193,
+      0.006062983890247596,
+      0.005163565384911285,
+      -0.16084832853911873
+    ],
+    [
+      -0.005993555716038971,
+      0.999892831449186,
+      -0.013356755085315725,
+      -0.008311742014897984
+    ],
+    [
+      -0.005243993804000202,
+      0.013325383404501678,
+      0.9998974620860417,
+      -0.07055620755716355
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "E_new_rpy_xyz_deg": [
+    0.7635213250923223,
+    0.30046008985495076,
+    -0.3434122247640985
+  ],
+  "E_new_translation_m": [
+    -0.16084832853911873,
+    -0.008311742014897984,
+    -0.07055620755716355
+  ],
+  "delta_mounting": [
+    [
+      0.9973129297186285,
+      -0.06222808571069815,
+      0.03865987021223444,
+      0.001778259268893489
+    ],
+    [
+      0.06331480444713468,
+      0.9976132460501448,
+      -0.02755080476345554,
+      0.008220362084761281
+    ],
+    [
+      -0.036853164774085415,
+      0.0299245159371871,
+      0.9988725482222738,
+      -0.005758593820537733
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "take3_B_map_left": [
+    [
+      1.0,
+      0.0,
+      0.0,
+      -2.4938020022591796
+    ],
+    [
+      0.0,
+      1.0,
+      0.0,
+      -0.2310012251080739
+    ],
+    [
+      0.0,
+      0.0,
+      1.0,
+      0.9958883309818966
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "other_takes_B_map_left": [
+    [
+      1.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      1.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "take3_bias_map_xyz_m": [
+    -2.4938020022591796,
+    -0.2310012251080739,
+    0.9958883309818966
+  ],
+  "take3_bias_geodetic_map_ENU_xyz_m": [
+    -2.499804996453357,
+    -0.23151663457726468,
+    0.9806011359773561
+  ],
+  "calibration_source": "../validation/corrections.json:rotation_only.folds.3 (training RTK-fixed takes1,2,4,5)",
+  "position_source": "transforms.json:3.translation (first40%take3 timeline,even10m initialsource cells)",
+  "mounting_validation": "existing leave-one-take-out fits validate estimator; this final single mounting uses fourfixedtakes and their descriptive scores are not independent calibration tests",
+  "position_validation": "take3 was excluded from mounting fit; position bias evaluated on final50%time and odd10m sourcecells; stricter disjointtarget-north/south experiment in spatial-summary.json",
+  "limitations": "GSplat thickness/surface noise limits residual floor; fixed pose bias only applies to this recorded take3; it is not an all-RTK-float constant or a physical mounting translation",
+  "evaluation_labels": {
+    "recorded": "recorded mounting",
+    "mounting": "single RTK-fixed-take mounting",
+    "translation": "single mounting + take3-only constant position correction"
+  },
+  "take3_B_geodetic_map_ENU": [
+    [
+      0.9999999999999999,
+      1.9058241313221758e-20,
+      0.0,
+      -2.499804996453357
+    ],
+    [
+      -2.795208725939191e-20,
+      0.9999999999999999,
+      0.0,
+      -0.23151663457726473
+    ],
+    [
+      0.0,
+      0.0,
+      0.9999999999999999,
+      0.9806011359773567
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ]
+}
