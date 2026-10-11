@@ -718,3 +718,30 @@ GT108 detection/tracking at488140, and GT114 tracking at488160. Predictions fall
 outside the symmetric geometric camera filter although GT passes. In particular,
 GT114's6/7 camera track coverage does not mean its track was absent in LiDAR.
 These boundary effects are reported separately; primary matching is unchanged.
+
+
+### Exact camera timestamps and separate validity sensitivity
+
+The original take2 source export marks frame488157 (pilot ordinal290) with
+image_ns=0 and copies the previous PNG. Native and released488156/488157 images
+share SHA087eabd2181e581706c85aa182644b2347bc067c7e118bfdaf7b295c810643fe.
+Earlier source-consistency checks reproduced this timestamp exactly but did not
+establish capture validity. Future prepared inputs retain exact integer
+image_timestamp_ns. The optional evaluation flag
+`--front-camera-only --require-valid-image-timestamp` rejects absent/malformed
+metadata and skips nonpositive camera timestamps for front scoring only. It
+preserves identity continuity, reports skipped frame/GT provenance, and applies
+no skew gate or inferred capture time. Positive timestamp alone does not certify
+calibration, optical visibility or freshness.
+
+The primary300-frame benchmark remains unchanged. A separately labelled source-
+timestamp sensitivity evaluates299 camera frames/446 geometric GT observations;
+all300 global LiDAR metrics and split-ID sensitivity metrics are exactly unchanged.
+Detection precision/recall becomes72.97%/74.44%; guard tracks62.40%/85.20%,6switches,
+7fragmentations. The later low-continuation exploratory candidate gives62.96%/
+92.60%,4switches,3fragmentations. All11 IDs remain ever detected and all variants
+still fail the full coverage/precision criteria. No source, detector request,
+tracker input, localization or GT geometry was changed. Evidence and reproduction
+scripts are in `artifacts/tracking-take2-camera-timestamp-sensitivity-20261011/`;
+exact source proof is in
+`artifacts/tracking-take2-camera-correspondence-audit-20261011/`.

@@ -232,3 +232,49 @@ def test_pilot_past_sweeps_use_sensor_poses_and_limit_development_frames(tmp_pat
     assert json.loads((output / 'manifest.json').read_text())['sequences'][0]['count'] == 2
     with np.load(root / '0.npz') as original:
         assert original['lidar'][0,3] == 1000
+
+
+@pytest.mark.parametrize("image_ns", [0, 1759091622952911123])
+def test_prepare_records_exact_raw_camera_nanoseconds(tmp_path, monkeypatch, image_ns):
+    import cv2
+    import scripts.investigation.cooperscene_tracking.pilot as pilot
+    from pathlib import Path
+
+    georeference = tmp_path / 'georeference.json'
+    georeference.write_text('{}')
+    monkeypatch.setattr(pilot, 'GEOREFERENCE', georeference)
+
+    data = tmp_path / 'data'
+    (data / 'test/1/1').mkdir(parents=True)
+    search = tmp_path / 'search/take01/take01-vehicle1'
+    search.mkdir(parents=True)
+    candidate = dict(frame=dict(frame_index=0, frame_id='123'),
+                     registration=dict(map_T_source=np.eye(4).tolist()), error=dict(xyz_m=0))
+    (search / 'summary.json').write_text(json.dumps(dict(methods=dict(xyz=dict(earliest_qualifying=candidate)))))
+    image_path = tmp_path / 'camera.png'
+    cv2.imwrite(str(image_path), np.zeros((10, 20, 3), dtype=np.uint8))
+    frame = SimpleNamespace(frame_id='123', camera_path=image_path, vehicle_boxes=[],
+                            require_lidar_points=lambda: np.zeros((1,4), dtype=np.float32))
+    class Dataset:
+        def __init__(self, *args, **kwargs):
+            pass
+        def sequence(self, *args):
+            return [frame]
+    monkeypatch.setattr(pilot, 'CooperSceneSequenceDataset', Dataset)
+    monkeypatch.setattr(pilot, 'FrozenProfile', lambda: SimpleNamespace(path=image_path,
+        map_transform=np.eye(4), map_T_lidar=lambda *args, **kwargs: np.eye(4)))
+    monkeypatch.setattr(pilot, 'GeodeticPoses', lambda *args: SimpleNamespace(lidar_pose=lambda *args: np.eye(4)))
+    original_read = Path.read_text
+    lidar_ns = 1759091622952911000
+    def read(path, *args, **kwargs):
+        if path.name == 'metadata.json' and str(path).startswith('/mnt/bcc-data/'):
+            return json.dumps({'123': dict(image_ns=image_ns, lidar_ns=lidar_ns)})
+        return original_read(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'read_text', read)
+    output = tmp_path / 'prepared'
+    TrackingPilot(output).prepare(data, tmp_path / 'search', 1, [(1,1)])
+    row = json.loads((output / 'take01-vehicle1/inputs.jsonl').read_text())
+    assert row['image_timestamp_ns'] == image_ns
+    assert type(row['image_timestamp_ns']) is int
+    assert row['timestamp_us'] == lidar_ns // 1000
+    assert row['image_minus_lidar_ms'] == (image_ns - lidar_ns) / 1e6

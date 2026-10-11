@@ -128,3 +128,99 @@ def test_front_camera_near_plane_rejection_and_precision_target():
     assert summary["acceptance"]["per_id_recall_pass"]
     assert not summary["acceptance"]["optional_precision_target_pass"]
     assert summary["detections"]["precision"] == .5
+
+
+def _camera_frame(index, *, image_timestamp_ns=1, prediction_id="p"):
+    visible = box("a")
+    visible["world_T_object"][2][3] = 10
+    return dict(sequence_id="take1", frame_id=str(index), timestamp_us=index * 100000,
+                image_timestamp_ns=image_timestamp_ns, image_width=100, image_height=100,
+                world_T_camera=np.eye(4).tolist(), camera_intrinsic=[[100,0,50],[0,100,50],[0,0,1]],
+                gt=[visible], detections=[] if prediction_id is None else [dict(visible, track_id=prediction_id)],
+                tracks=[] if prediction_id is None else [dict(visible, track_id=prediction_id)])
+
+
+def test_strict_camera_timestamp_skip_preserves_identity_and_coverage():
+    evaluator = FrontCameraCoverageEvaluator(require_valid_image_timestamp=True)
+    evaluator.update(_camera_frame(0, image_timestamp_ns=1_000_000_001))
+    skipped = evaluator.update(_camera_frame(1, image_timestamp_ns=0, prediction_id=None))
+    assert skipped["camera_evaluated"] is False
+    assert skipped["visible_gt_ids"] == []
+    assert skipped["skipped_gt_ids"] == ["a"]
+    assert skipped["tracks"] == dict(matches=[], missed_gt_indices=[], false_positive_indices=[], id_switches=[])
+    after = evaluator.update(_camera_frame(2, image_timestamp_ns=1_200_000_003, prediction_id="new"))
+    assert after["tracks"]["id_switches"] == [dict(gt_id="a", previous_pred_id="p", pred_id="new")]
+    summary = evaluator.summary()
+    assert summary["tracks"]["frames"] == 2
+    assert summary["tracks"]["fragmentation"] == 0
+    assert summary["per_gt_id"][0]["visible_frames"] == 2
+    assert summary["per_gt_id"][0]["longest_track_miss_frames"] == 0
+    validity = summary["image_timestamp_validity"]
+    assert (validity["input_frames"], validity["evaluated_frames"], validity["skipped_frames"]) == (3, 2, 1)
+    assert validity["skipped_supplied_gt_ids"] == [dict(sequence_id="take1", gt_id="a", skipped_frames=1)]
+    with pytest.raises(ValueError, match="strictly increase"):
+        evaluator.update(_camera_frame(1, image_timestamp_ns=0))
+
+
+@pytest.mark.parametrize("timestamp", [None, 1.0, "1", True])
+def test_strict_camera_requires_exact_source_timestamp_metadata(timestamp):
+    evaluator = FrontCameraCoverageEvaluator(require_valid_image_timestamp=True)
+    frame = _camera_frame(0, image_timestamp_ns=timestamp)
+    if timestamp is None:
+        del frame["image_timestamp_ns"]
+    frame["image_minus_lidar_ms"] = 0.0  # Cannot substitute or infer an exact source timestamp.
+    with pytest.raises(ValueError, match="exact integer image_timestamp_ns"):
+        evaluator.update(frame)
+    assert evaluator.summary()["image_timestamp_validity"]["input_frames"] == 0
+
+
+def test_default_camera_policy_still_evaluates_unknown_and_invalid_captures():
+    default = FrontCameraCoverageEvaluator()
+    explicit = FrontCameraCoverageEvaluator(require_valid_image_timestamp=False)
+    for index, stamp in enumerate((1, 0, None)):
+        frame = _camera_frame(index, image_timestamp_ns=stamp)
+        if stamp is None:
+            del frame["image_timestamp_ns"]
+        assert default.update(frame) == explicit.update(frame)
+    assert default.summary() == explicit.summary()
+    assert default.summary()["tracks"]["frames"] == 3
+    assert "image_timestamp_validity" not in default.summary()
+
+
+def test_camera_timestamp_cli_sensitivity_preserves_global_lidar_metrics(tmp_path):
+    import json
+    import subprocess
+    import sys
+
+    frames = [_camera_frame(0), _camera_frame(1, image_timestamp_ns=0, prediction_id=None), _camera_frame(2)]
+    source = tmp_path / "frames.jsonl"
+    source.write_text("".join(json.dumps(frame) + "\n" for frame in frames))
+    summaries, assignments = [], []
+    for strict in (False, True):
+        output = tmp_path / str(strict)
+        command = [sys.executable, "-m", "scripts.investigation.cooperscene_tracking.evaluate", str(source),
+                   "--output-dir", str(output), "--front-camera-only", "--split-discontinuous-gt"]
+        if strict:
+            command.append("--require-valid-image-timestamp")
+        subprocess.run(command, check=True, capture_output=True, text=True)
+        summaries.append(json.loads((output / "metrics.json").read_text()))
+        assignments.append([json.loads(line) for line in (output / "assignments.jsonl").read_text().splitlines()])
+    for key in ("detections", "tracks", "tracks_split_gt_sensitivity"):
+        assert summaries[0][key] == summaries[1][key]
+        assert all(a[key] == b[key] for a, b in zip(*assignments, strict=True))
+    assert summaries[0]["tracks"]["frames"] == 3
+    assert summaries[0]["front_camera"]["tracks"]["fn"] == 1
+    assert summaries[1]["front_camera"]["tracks"]["fn"] == 0
+    assert summaries[1]["front_camera"]["tracks"]["fragmentation"] == 0
+    assert assignments[1][1]["front_camera"]["camera_evaluated"] is False
+
+
+def test_skipped_camera_capture_neither_adds_nor_resets_valid_miss_run():
+    evaluator = FrontCameraCoverageEvaluator(require_valid_image_timestamp=True)
+    for index, (stamp, identity) in enumerate(((1, "p"), (2, None), (0, None), (4, None), (5, "p"))):
+        evaluator.update(_camera_frame(index, image_timestamp_ns=stamp, prediction_id=identity))
+    summary = evaluator.summary()
+    assert summary["tracks"]["fn"] == 2
+    assert summary["tracks"]["fragmentation"] == 1
+    assert summary["tracks"]["id_switches"] == 0
+    assert summary["per_gt_id"][0]["longest_track_miss_frames"] == 2

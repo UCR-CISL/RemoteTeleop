@@ -189,7 +189,8 @@ class FrontCameraCoverageEvaluator:
     annotation completeness. Filtering is symmetric for prediction and GT.
     """
 
-    def __init__(self, *, center_threshold_m: float = 2.0, minimum_area_px: float = 16.0, precision_target: float | None = None) -> None:
+    def __init__(self, *, center_threshold_m: float = 2.0, minimum_area_px: float = 16.0, precision_target: float | None = None,
+                 require_valid_image_timestamp: bool = False) -> None:
         if precision_target is not None and not 0 < precision_target <= 1:
             raise ValueError("precision_target must be in (0, 1]")
         self.minimum_area_px = minimum_area_px
@@ -197,8 +198,37 @@ class FrontCameraCoverageEvaluator:
         self.detection = GeometricTrackingEvaluator(center_threshold_m=center_threshold_m, identity_metrics=False)
         self.tracking = GeometricTrackingEvaluator(center_threshold_m=center_threshold_m)
         self._coverage: dict[tuple[str, str], dict[str, Any]] = {}
+        self.require_valid_image_timestamp = require_valid_image_timestamp
+        self._input_frames = 0
+        self._last_frame_time: dict[str, int] = {}
+        self._skipped_frames: list[dict[str, Any]] = []
+        self._skipped_gt: Counter[tuple[str, str]] = Counter()
 
     def update(self, frame: Mapping[str, Any]) -> dict[str, Any]:
+        if self.require_valid_image_timestamp:
+            image_timestamp = frame.get("image_timestamp_ns")
+            if isinstance(image_timestamp, bool) or not isinstance(image_timestamp, int):
+                raise ValueError("strict camera evaluation requires exact integer image_timestamp_ns metadata")
+            sequence, timestamp = frame["sequence_id"], frame["timestamp_us"]
+            if not sequence or isinstance(timestamp, bool) or not isinstance(timestamp, int) or timestamp < 0:
+                raise ValueError("sequence and nonnegative integer timestamp are required")
+            if sequence in self._last_frame_time and timestamp <= self._last_frame_time[sequence]:
+                raise ValueError("evaluation timestamps must strictly increase within each sequence")
+            self._last_frame_time[sequence] = timestamp
+            self._input_frames += 1
+            if image_timestamp <= 0:
+                ids = [str(box["track_id"]) for box in frame["gt"]]
+                reason = "nonpositive_image_timestamp_ns"
+                self._skipped_frames.append(dict(sequence_id=sequence, frame_id=frame["frame_id"],
+                    timestamp_us=timestamp, image_timestamp_ns=image_timestamp, reason=reason,
+                    supplied_gt_ids=ids))
+                self._skipped_gt.update((sequence, identity) for identity in ids)
+                # Do not update matching/coverage state: an invalid capture is
+                # neither an annotated miss nor a break in identity continuity.
+                empty = dict(matches=[], missed_gt_indices=[], false_positive_indices=[], id_switches=[])
+                return dict(detections=dict(empty), tracks=dict(empty), visible_gt_ids=[],
+                    visible_gt=0, visible_detections=0, visible_tracks=0,
+                    camera_evaluated=False, skipped_reason=reason, skipped_gt_ids=ids)
         from src.reconstruction.models import VehicleDimensions
         from src.reconstruction.projection import project_vehicle_box
 
@@ -233,8 +263,11 @@ class FrontCameraCoverageEvaluator:
             coverage["id_switches"] += switched[identity]
             coverage["_miss_run"] = 0 if identity in traced else coverage["_miss_run"] + 1
             coverage["longest_track_miss_frames"] = max(coverage["longest_track_miss_frames"], coverage["_miss_run"])
-        return dict(detections=detection, tracks=tracking, visible_gt_ids=[box["track_id"] for box in gt],
-                    visible_gt=len(gt), visible_detections=len(detections), visible_tracks=len(tracks))
+        result = dict(detections=detection, tracks=tracking, visible_gt_ids=[box["track_id"] for box in gt],
+                      visible_gt=len(gt), visible_detections=len(detections), visible_tracks=len(tracks))
+        if self.require_valid_image_timestamp:
+            result.update(camera_evaluated=True, skipped_reason=None)
+        return result
 
     def summary(self) -> dict[str, Any]:
         coverage = []
@@ -251,7 +284,7 @@ class FrontCameraCoverageEvaluator:
         precision_pass = None if self.precision_target is None else all(
             result["precision"] is not None and result["precision"] >= self.precision_target
             for result in (detection_summary, tracking_summary))
-        return dict(visibility_policy=dict(type="geometric projected cuboid intersection", minimum_area_px=self.minimum_area_px,
+        result = dict(visibility_policy=dict(type="geometric projected cuboid intersection", minimum_area_px=self.minimum_area_px,
                     near_plane_policy="reject entire box if any corner has camera depth <= 0.1 m; no near-plane clipping",
                     actual_occlusion_tested=False, symmetric_prediction_filter=True), detections=detection_summary,
                     tracks=tracking_summary, per_gt_id=coverage,
@@ -264,3 +297,13 @@ class FrontCameraCoverageEvaluator:
                         optional_detection_and_track_precision_target=self.precision_target,
                         optional_precision_target_pass=precision_pass,
                         zero_id_switches=switches == 0))
+        if self.require_valid_image_timestamp:
+            result["image_timestamp_validity"] = dict(
+                policy="opt-in sensitivity: evaluate front camera only when exact integer image_timestamp_ns > 0; absent/malformed metadata is an error; no skew gate or inferred timestamp",
+                canonical_metrics_replaced=False, lidar_metrics_affected=False,
+                continuity="skip capture without adding misses, fragmentation or resetting previous matched identities",
+                input_frames=self._input_frames, evaluated_frames=self.detection.frames,
+                skipped_frames=len(self._skipped_frames), skipped_frame_provenance=self._skipped_frames,
+                skipped_supplied_gt_ids=[dict(sequence_id=key[0], gt_id=key[1], skipped_frames=count)
+                                         for key, count in sorted(self._skipped_gt.items())])
+        return result

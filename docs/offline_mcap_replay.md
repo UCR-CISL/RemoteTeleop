@@ -57,3 +57,11 @@ policy for comparisons; an old cached transform alone does not reproduce it.
 Keep render ground placement omitted unless explicitly requested, and keep GT
 out of detector/tracker inputs. The optional two-hit tracker confirmation trial
 remains separate; production tracker defaults were not changed.
+
+
+Tracking input preparation now retains exact `image_timestamp_ns`. For a separate
+camera-only timestamp sensitivity, evaluate with `--front-camera-only
+--require-valid-image-timestamp`: zero/negative timestamps skip camera scoring,
+missing metadata is an error, and all LiDAR scoring and tracker inputs remain
+unchanged. This does not certify optical visibility or replace the fixed primary
+benchmark. Do not reconstruct missing capture timestamps from floating-point skew.

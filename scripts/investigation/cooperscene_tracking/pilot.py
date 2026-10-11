@@ -147,7 +147,8 @@ class TrackingPilot:
                 path = folder/f"{index:06d}.npz"
                 np.savez_compressed(path, image=image, lidar=points)
                 rows.append(dict(sequence_id=name, frame_id=frame.frame_id, frame_index=index,
-                                 timestamp_us=stamp//1000, image_minus_lidar_ms=(int(meta["image_ns"])-stamp)/1e6,
+                                 timestamp_us=stamp//1000, image_timestamp_ns=int(meta["image_ns"]),
+                                 image_minus_lidar_ms=(int(meta["image_ns"])-stamp)/1e6,
                                  payload=str(path.relative_to(self.root)), image_width=image.shape[1], image_height=image.shape[0],
                                  camera_intrinsic=camera_intrinsic(agent).tolist(),
                                  world_T_lidar=estimated.tolist(), world_T_camera=compose_map_T_camera(estimated,camera_T_lidar(agent)).tolist(),
