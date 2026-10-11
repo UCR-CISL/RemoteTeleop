@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Mapping, Protocol
 
@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
 from src.common.vehicle_categories import vehicle_proxy_kind
 from src.localization.gaussian_map import GaussianMap
+from src.localization.ground_plane import GroundPlane
+from src.localization.ground_surface import GroundSurface
 from src.realtime.protocol import AssetEvent, AssetState, BoxPrompt, EgoPoseSample, FrameDetections
 from src.viz.localization_visualizer import (
     GaussianRenderBuffers,
@@ -98,6 +100,7 @@ class PoseOnlyCompositedFrame:
     world_T_camera: np.ndarray
     rgb: np.ndarray
     track_states: Mapping[str, str]
+    ground_placements: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -131,6 +134,7 @@ class PoseOnlyCompositedCameraBackend:
         depth_tolerance_m: float = 0.03,
         ground_z: float | None = 0.0,
         vehicle_proxies: "VehicleProxyRenderer | None" = None,
+        ground_plane: GroundPlane | GroundSurface | None = None,
     ) -> None:
         if proxy_thickness <= 0:
             raise ValueError("proxy_thickness must be positive")
@@ -141,6 +145,9 @@ class PoseOnlyCompositedCameraBackend:
         self._proxy_thickness = proxy_thickness
         self._alpha_threshold = float(alpha_threshold)
         self._depth_tolerance_m = float(depth_tolerance_m)
+        if ground_plane is not None and ground_z is not None:
+            raise ValueError("ground_plane requires ground_z=None")
+        self._ground_plane = ground_plane
         self._ground_z = None if ground_z is None else float(ground_z)
         self._scene_generation: str | None = None
         self._retired_generations: set[str] = set()
@@ -220,17 +227,27 @@ class PoseOnlyCompositedCameraBackend:
         if background.rgb.shape[:2] != self.camera.image_size[::-1]:
             raise ValueError("Gaussian renderer returned an unexpected image size")
         rgb = np.clip(background.rgb.copy(), 0.0, 1.0)
+        object_depth = np.full(background.depth.shape, np.inf, dtype=np.float32)
         track_states: dict[str, str] = {}
+        ground_placements: dict[str, dict] = {}
         for box in boxes:
+            placed_pose = _flat_ground_box_pose(
+                box, ground_z=self._ground_z, ground_plane=self._ground_plane,
+            )
+            status = ("explicit_plane" if self._ground_plane is not None else
+                      "fixed_ground_z" if self._ground_z is not None else "preserve_input_pose")
+            ground_placements[box.track_id] = dict(getattr(
+                self._ground_plane, "last_placement", {"status": status},
+            ))
             kind = vehicle_proxy_kind(box.text_label)
             if self._vehicle_proxies is not None and kind is not None:
                 overlay = self._vehicle_proxies.render(
                     kind, box.dimensions_lwh,
-                    _flat_ground_box_pose(box, ground_z=self._ground_z),
+                    placed_pose,
                     world_T_camera, self.camera.camera_intrinsic, self.camera.image_size,
                 )
                 rgb = _composite_mesh(
-                    rgb, background.depth, background.alpha, overlay,
+                    rgb, background.depth, background.alpha, overlay, object_depth=object_depth,
                     alpha_threshold=self._alpha_threshold,
                     depth_tolerance_m=self._depth_tolerance_m,
                 )
@@ -251,13 +268,13 @@ class PoseOnlyCompositedCameraBackend:
                 try:
                     overlay = self._mesh_renderer.render(
                         asset.handle,
-                        _flat_ground_box_pose(box, ground_z=self._ground_z),
+                        placed_pose,
                         world_T_camera,
                         self.camera.camera_intrinsic,
                         self.camera.image_size,
                     )
                     rgb = _composite_mesh(
-                        rgb, background.depth, background.alpha, overlay,
+                        rgb, background.depth, background.alpha, overlay, object_depth=object_depth,
                         alpha_threshold=self._alpha_threshold,
                         depth_tolerance_m=self._depth_tolerance_m,
                     )
@@ -281,6 +298,7 @@ class PoseOnlyCompositedCameraBackend:
                 self._alpha_threshold,
                 self._depth_tolerance_m,
                 ground_z=self._ground_z,
+                ground_plane=self._ground_plane, object_depth=object_depth, placed_pose=placed_pose,
             )
             track_states[box.track_id] = "proxy"
         return PoseOnlyCompositedFrame(
@@ -290,6 +308,7 @@ class PoseOnlyCompositedCameraBackend:
             world_T_camera=world_T_camera,
             rgb=rgb,
             track_states=track_states,
+            ground_placements=ground_placements,
         )
 
     def _activate_generation(self, generation: str) -> None:
@@ -675,6 +694,7 @@ class CompositedCameraBackend:
             world_T_camera, intrinsic, image_size
         )
         rgb = np.clip(background.rgb.copy(), 0.0, 1.0)
+        object_depth = np.full(background.depth.shape, np.inf, dtype=np.float32)
         actual_size = (rgb.shape[1], rgb.shape[0])
         if actual_size != image_size:
             scale_x = actual_size[0] / image_size[0]
@@ -698,7 +718,7 @@ class CompositedCameraBackend:
                         image_size,
                     )
                     rgb = _composite_mesh(
-                        rgb, background.depth, background.alpha, overlay,
+                        rgb, background.depth, background.alpha, overlay, object_depth=object_depth,
                         alpha_threshold=self._alpha_threshold,
                         depth_tolerance_m=self._depth_tolerance_m,
                     )
@@ -718,7 +738,7 @@ class CompositedCameraBackend:
                 self._proxy_thickness,
                 self._alpha_threshold,
                 self._depth_tolerance_m,
-                ground_z=self._ground_z,
+                ground_z=self._ground_z, object_depth=object_depth,
             )
         return CompositedCameraFrame(frame.frame_id, frame.timestamp_us, rgb, states)
 
@@ -745,9 +765,13 @@ def _draw_box_proxy(
     depth_tolerance_m: float,
     *,
     ground_z: float | None = 0.0,
+    ground_plane: GroundPlane | GroundSurface | None = None,
+    object_depth: np.ndarray | None = None,
+    placed_pose: np.ndarray | None = None,
 ) -> None:
     local = _box_local_corners(box.dimensions_lwh)
-    world_T_object = _flat_ground_box_pose(box, ground_z=ground_z)
+    world_T_object = (placed_pose if placed_pose is not None else
+                      _flat_ground_box_pose(box, ground_z=ground_z, ground_plane=ground_plane))
     world = local @ world_T_object[:3, :3].T + world_T_object[:3, 3]
     camera_T_world = np.linalg.inv(world_T_camera)
     camera = world @ camera_T_world[:3, :3].T + camera_T_world[:3, 3]
@@ -759,16 +783,21 @@ def _draw_box_proxy(
         _draw_depth_tested_edge(
             rgb, scene_depth, scene_alpha, pixels[start], pixels[end],
             camera[start, 2], camera[end, 2], color, thickness,
-            alpha_threshold, depth_tolerance_m,
+            alpha_threshold, depth_tolerance_m, shared_depth=object_depth,
         )
 
 
 def _flat_ground_box_pose(
-    box: BoxPrompt, *, ground_z: float | None = 0.0
+    box: BoxPrompt, *, ground_z: float | None = 0.0,
+    ground_plane: GroundPlane | GroundSurface | None = None,
 ) -> np.ndarray:
     """Anchor an oriented GT box to the flat GSplat ground without changing x/y."""
 
     world_T_object = _matrix4(box.world_T_object).copy()
+    if ground_plane is not None:
+        if ground_z is not None:
+            raise ValueError("ground_plane requires ground_z=None")
+        return ground_plane.place_box(world_T_object, box.dimensions_lwh)
     if ground_z is None:
         return world_T_object
     local = _box_local_corners(box.dimensions_lwh)
@@ -794,7 +823,7 @@ _BOX_EDGES = (
 
 def _draw_depth_tested_edge(
     rgb, scene_depth, scene_alpha, start, end, start_depth, end_depth,
-    color, thickness, alpha_threshold, depth_tolerance_m,
+    color, thickness, alpha_threshold, depth_tolerance_m, *, shared_depth=None,
 ) -> None:
     length = int(np.ceil(np.max(np.abs(end - start)))) + 1
     if length <= 1:
@@ -819,12 +848,16 @@ def _draw_depth_tested_edge(
                 & (scene_alpha[y, x] > alpha_threshold)
             )
             visible = ~gaussian_valid | (object_depth <= scene_depth[y, x] + depth_tolerance_m)
+            if shared_depth is not None:
+                visible &= object_depth < shared_depth[y, x]
+                np.minimum.at(shared_depth, (y[visible], x[visible]), object_depth[visible])
             rgb[y[visible], x[visible]] = color
 
 
 def _composite_mesh(
     background_rgb, scene_depth, scene_alpha, mesh: MeshRenderBuffers, *,
     alpha_threshold: float, depth_tolerance_m: float,
+    object_depth: np.ndarray | None = None,
 ) -> np.ndarray:
     if mesh.rgb.shape != background_rgb.shape:
         raise ValueError("mesh and Gaussian RGB sizes differ")
@@ -835,6 +868,11 @@ def _composite_mesh(
         (mesh.alpha > 0.0) & np.isfinite(mesh.depth) & (mesh.depth > 0.0)
         & (~gaussian_valid | (mesh.depth <= scene_depth + depth_tolerance_m))
     )
+    if object_depth is not None:
+        # Gaussian tolerance compensates for noisy splat depths; applying it to
+        # vehicles would allow a farther surface to overwrite a nearer one.
+        mesh_valid &= mesh.depth < object_depth
+        object_depth[mesh_valid] = mesh.depth[mesh_valid]
     alpha = np.where(mesh_valid, np.clip(mesh.alpha, 0.0, 1.0), 0.0)[..., None]
     return mesh.rgb * alpha + background_rgb * (1.0 - alpha)
 

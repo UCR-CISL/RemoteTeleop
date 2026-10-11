@@ -475,3 +475,113 @@ def test_vehicle_proxy_errors_are_explicit():
     renderer.fail_render = True
     with pytest.raises(RuntimeError, match="render failed"):
         backend.render_pose(_pose(), (replace(_box(), text_label="car"),))
+
+
+@pytest.mark.parametrize('backend_kind', ['frame', 'pose', 'vehicle_proxy'])
+@pytest.mark.parametrize('reverse', [False, True])
+def test_overlapping_meshes_share_per_pixel_depth_in_either_track_order(tmp_path, backend_kind, reverse):
+    """Intersecting depth fields defeat whole-object sorting; 1cm defeats tolerance reuse."""
+    from dataclasses import replace
+
+    class OverlapRenderer(FakeMeshRenderer):
+        def render(self, handle, pose, camera, intrinsic, image_size):
+            width, height = image_size
+            red = pose[0, 3] < 0
+            rgb = np.empty((height, width, 3), dtype=np.float32)
+            rgb[:] = [1, 0, 0] if red else [0, 0, 1]
+            depth = np.full((height, width), 4.01 if red else 4.0, dtype=np.float32)
+            depth[:, :width // 2] = 4.0 if red else 4.01
+            return MeshRenderBuffers(rgb, depth, np.ones_like(depth))
+
+    renderer = OverlapRenderer()
+    gaussian = FakeGaussianRenderer(depth=10)
+    if backend_kind == 'frame':
+        backend = CompositedCameraBackend(gaussian, renderer)
+    else:
+        backend = PoseOnlyCompositedCameraBackend(
+            gaussian, RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)), renderer,
+            ground_z=None, vehicle_proxies=FakeVehicleProxies(renderer) if backend_kind == 'vehicle_proxy' else None,
+        )
+    boxes = []
+    for track, x in [('red', -1), ('blue', 1)]:
+        pose = np.eye(4)
+        pose[:3, 3] = [x, 0, 4]
+        boxes.append(replace(_box(track), world_T_object=tuple(pose.reshape(-1)), text_label='car'))
+        if backend_kind != 'vehicle_proxy':
+            path = tmp_path / f'{track}.glb'
+            path.write_bytes(b'glTF')
+            backend.handle_asset_event(AssetEvent(request_id=track, scene_generation='scene-1', track_id=track,
+                                                state=AssetState.READY, aligned_mesh_path=path, source_sequence=0))
+    if reverse:
+        boxes.reverse()
+    result = backend.render_frame(_frame(boxes=boxes)) if backend_kind == 'frame' else backend.render_pose(_pose(sequence=1), tuple(boxes))
+    np.testing.assert_array_equal(result.rgb[:, :16], np.broadcast_to([1, 0, 0], (24, 16, 3)))
+    np.testing.assert_array_equal(result.rgb[:, 16:], np.broadcast_to([0, 0, 1], (24, 16, 3)))
+    # A later frame starts with a fresh object depth buffer.
+    empty = backend.render_frame(_frame(boxes=())) if backend_kind == 'frame' else backend.render_pose(_pose(sequence=2), ())
+    assert not np.any(empty.rgb)
+
+
+def test_far_wireframe_edge_cannot_overwrite_nearer_mesh():
+    from src.viz.composited_camera import _draw_depth_tested_edge
+
+    rgb = np.zeros((8, 8, 3), dtype=np.float32)
+    rgb[:] = [1, 0, 0]
+    object_depth = np.full((8, 8), 4.0)
+    _draw_depth_tested_edge(rgb, np.full((8, 8), 10), np.ones((8, 8)),
+                           np.array([1, 4]), np.array([6, 4]), 4.01, 4.01,
+                           np.array([0, 1, 0]), 1, .01, .03, shared_depth=object_depth)
+    np.testing.assert_array_equal(rgb, np.broadcast_to([1, 0, 0], rgb.shape))
+    _draw_depth_tested_edge(rgb, np.full((8, 8), 10), np.ones((8, 8)),
+                           np.array([1, 4]), np.array([6, 4]), 3.0, 3.0,
+                           np.array([0, 1, 0]), 1, .01, .03, shared_depth=object_depth)
+    np.testing.assert_array_equal(rgb[4, 1:7], np.broadcast_to([0, 1, 0], (6, 3)))
+    np.testing.assert_allclose(object_depth[4, 1:7], np.full(6, 3.0))
+
+
+def test_bounded_surface_reports_each_track_and_preserves_unsupported_pose():
+    from dataclasses import replace
+    from src.localization.ground_surface import load_ground_placement
+
+    surface = load_ground_placement(dict(type='road_surface', origin=[0, 0, 0],
+        basis=np.eye(3).tolist(), samples=[[x, y, 0] for x in (-2, 0, 2) for y in (-2, 0, 2)]))
+    renderer = FakeMeshRenderer()
+    backend = PoseOnlyCompositedCameraBackend(
+        FakeGaussianRenderer(), RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)), renderer,
+        ground_z=None, ground_plane=surface, vehicle_proxies=FakeVehicleProxies(renderer),
+    )
+    supported = replace(_box('supported', z=4), text_label='car')
+    unsupported_pose = np.eye(4)
+    unsupported_pose[:3, 3] = [50, 0, 8]
+    unsupported = replace(_box('unsupported'), world_T_object=tuple(unsupported_pose.reshape(-1)), text_label='car')
+    frame = backend.render_pose(_pose(sequence=0), (supported, unsupported))
+    assert frame.ground_placements['supported']['status'] == 'local_map_road'
+    assert frame.ground_placements['unsupported']['status'] == 'unsupported_preserve_input_pose'
+    assert frame.ground_placements['supported']['support_count'] == 9
+    np.testing.assert_allclose(renderer.poses[0][1][:3, 3], [0, 0, 1])
+    np.testing.assert_allclose(renderer.poses[1][1], unsupported_pose)
+    # Per-frame maps cannot retain absent tracks or mutate earlier diagnostics.
+    assert backend.render_pose(_pose(sequence=1), ()).ground_placements == {}
+    assert frame.ground_placements['supported']['status'] == 'local_map_road'
+    with pytest.raises(ValueError, match='mismatched scene generation'):
+        backend.render_pose(_pose(sequence=2, generation='new-scene'), (supported,))
+    replacement = PoseOnlyCompositedCameraBackend(
+        FakeGaussianRenderer(), RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)),
+        ground_z=None, ground_plane=surface,
+    )
+    assert replacement.render_pose(_pose(generation='new-scene'), ()).ground_placements == {}
+
+
+def test_explicit_plane_retains_height_and_reports_placement_status():
+    from dataclasses import replace
+    from src.localization.ground_surface import load_ground_placement
+
+    plane = load_ground_placement({'normal': [0, 0, 1], 'offset_m': 2.8})
+    renderer = FakeMeshRenderer()
+    backend = PoseOnlyCompositedCameraBackend(
+        FakeGaussianRenderer(), RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)), renderer,
+        ground_z=None, ground_plane=plane, vehicle_proxies=FakeVehicleProxies(renderer),
+    )
+    frame = backend.render_pose(_pose(), (replace(_box(), text_label='car'),))
+    assert frame.ground_placements['car'] == {'status': 'explicit_plane'}
+    assert renderer.poses[0][1][2, 3] == pytest.approx(-1.8)
