@@ -561,3 +561,160 @@ Artifacts:
 Keep the one-sequence pilot until the visibility limitations and remaining
 per-object gaps are resolved or explicitly scoped. Expansion should use a
 declared checkpoint-independent sequence and frozen input/track policies.
+
+### Duplicate-birth guard and declared-test preflight
+
+An optional `--suppress-duplicate-births` cached-trial flag prevents an unmatched
+primary detection from starting a second track when it substantially overlaps
+the current primary detection assigned to an already-confirmed track. It uses
+same-class cuboid IoU >=.3 and length-axis agreement within30 degrees modulo180.
+Overlap is calculated in the matched detection's axes, preserving arbitrary
+world rotations and object heights; nonparallel vertical axes are skipped.
+Association, correction, coast duration, confidence and detector outputs are
+unchanged. Coasting ghosts, newly born/tentative tracks and low-score continuation
+detections cannot serve as suppression references. Tracker defaults stay disabled.
+
+The first60 development frames are unchanged: there are no qualifying duplicate
+births. The full501 comparison is exploratory because its earlier failure audit
+motivated this mechanism. The optional guard with immediate confirmation yields
+track precision95.3%, recall95.9%,5switches,6fragmentations and geometricIDF1 .930.
+Default precision/recall was92.9%/95.9%,11switches and IDF1 .918. False-positive
+front tracks fall122→79. Independent audit finds14 suppressed birth pairs, all
+nearest the same supplied GT object, with zero distinct-GT suppression flags.
+Exactly six old switches from the GT38/65/142 duplicate episodes disappear;
+there are no new front switches and no gained/lost matched GT observations in
+either front FOV or the full ±54m scope. Every non-track field and detector
+metric is exact. A fresh default replay remains byte-identical across all501
+frames. Independent convex-polyhedron volume checks match the overlap helper
+across100 rotated cuboid pairs to4e-16 IoU error.
+
+Adding two-hit confirmation to the guard yields96.6% precision,93.4% recall,
+3switches,5fragmentations and IDF1 .929. It loses41 matched front observations.
+Some switch reductions reflect delayed/omitted earlier identities rather than
+repairing detection gaps, so immediate-confirmation guard is the better coverage
+candidate. The stronger per-ID coverage gate still fails. Related84 tests pass
+locally;46 focused tracker/trial tests pass on both updated remote repositories.
+
+Separate confidence-only development trials retain all inputs and use default
+tracking: score.15 gives detection90.8%/98.2% and tracks87.3%/99.6%; score.10 gives
+detection88.6%/98.6% and tracks82.9%/99.6%. Lowering the global threshold adds
+false positives and identity instability; neither is promoted or run on the
+remaining441 frames. Primary score.20 remains fixed.
+
+Evidence is in `artifacts/tracking-take1-native-duplicate-birth-trial-20261011/`:
+frozen policy, overlap verifier, default replay, unchanged-input comparison,
+separate birth diagnostics, causal audit, paired camera/LiDAR PNGs and labelled
+guard track video. Confidence trials are in
+`artifacts/tracking-take1-native-confidence-development-20261011/`.
+
+The one-sequence pipeline now has independent input, tracker and metric replay
+checks sufficient for a narrowly scoped declared-test comparison, with optical
+and conditional-localization limitations retained. Take2/V1 preparation targets
+300 frames from its earliest strictXYZ-qualified start index17/frame487867
+through index316/frame488166, without moving the start to a GT-rich window.
+This includes451 geometric front-GT observations and11 eligible IDs; its first60
+alone would contain only one ID. All881 archived frame records and remaining
+source metadata were checked. The current exact checkpoint-declared train
+annotation file excludes take2 and the test file includes it. Historical training
+file hashes are not embedded in the checkpoint, and take2 contributed to the
+retained V1 mounting calibration, so this is a declared detector-test split,
+not independent localization/calibration GT. Preflight evidence is in
+`artifacts/tracking-heldout-preflight-20261011/`; detector/tracker policies were
+frozen before preparing the new inputs. The completed comparison is below; no
+all-take expansion is launched.
+
+
+### Take2/V1 declared detector-test comparison
+
+The frozen 300-frame comparison completed on Lambda at commit aa0dc01, using
+four-feature native BEVFusion, raw XYZI with server-only intensity /65535,
+score .20, no temporal sweeps, and identical archived XYZ inputs for all trials.
+An independent source audit verifies all 300 raw payload hashes, recipe poses,
+GT transformations, camera composition and timestamps. There are 298 accepted
+XYZ poses and two flagged propagated poses; maximum reference error is .09046m.
+No consecutive native GT-ID discontinuity was found within this window. IDs are
+take-scoped and evaluated for V1 alone; shared cross-agent IDs are not merged.
+
+Matching remains class-aware inclusive 2m XYZ center distance, maximum
+cardinality/minimum distance Hungarian, symmetric reference-LiDAR XY ±54m scope,
+and projected-cuboid front FOV area >=16 native pixels² with all corners >.1m.
+451 front observations span 11 eligible GT IDs. Every ID is detected at least
+once, but the stronger per-ID >=90% detection and tracking coverage criteria
+fail. Geometric FOV is not certified optical visibility; occlusion and native
+camera calibration limits remain explicit. GT is evaluation-only for detection
+and tracking; upstream archived localization used a GT vehicle mask, as already
+noted. Take2 is excluded from the checkpoint's currently available declared
+training annotation file, but checkpoint historical training hashes are absent
+and retained V1 mounting calibration includes take2.
+
+| Frozen variant | Track precision | Track recall | ID switches | Fragmentation | Geometric IDF1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Default immediate birth | 59.4% | 85.4% | 14 | 7 | .542 |
+| Optional duplicate-birth guard | 62.7% | 85.4% | 6 | 7 | .607 |
+| Two-hit confirmation | 64.3% | 79.8% | 9 | 4 | .580 |
+| Guard plus two-hit confirmation | 66.9% | 79.8% | 3 | 4 | .645 |
+
+Detections are identical in all four trials: 337TP, 123FP, 114FN, precision73.3%
+and recall74.7%. Matched center RMSE is .829m, dimension MAE L/W/H is
+.087/.034/.051m, and length-axis yaw error is5.32 degrees modulo180. These are
+conditional retained-reference errors, not independent physical GT accuracy.
+The guard retains aggregate track TP385/FN66 while reducing FP263→229.
+Confirmation loses25 matched front observations and is not selected as a
+coverage repair. Neither default nor guard meets the precision90% target or
+switch-rate target; only guard plus confirmation meets the switch-rate target,
+while still failing coverage and precision. Defaults remain unchanged; no heldout
+threshold or parameter retuning was performed.
+
+For the guard, GT84 is detected7/70 and tracked21/70 eligible frames; GT92 is
+50/79 and68/79. Detection coverage also falls below90% for GT48(18/21) and
+GT96(43/52); tracking coverage fails for GT114(6/7). These failures must be
+inspected before any broader evaluation. Evidence, frozen scripts, all raw
+predictions, metrics and labelled camera/LiDAR videos are under
+`artifacts/tracking-take2-native-heldout-pilot-20261011/`. Separate real-map
+primitive depth panels are under
+`artifacts/tracking-take2-native-heldout-gamma-primitives-20261011/`; all object
+heights are preserved, ground placement is None, and no SAM assets are used.
+
+Warm client latency is111.43ms mean/117.61ms p95 over299 requests; first request
+including startup is7.13s. Warm server processing mean is101.07ms. Serial offline
+replay preserves captures and is not proof of realtime10Hz throughput. This
+small declared-test comparison exposes a detector/coverage gap despite the
+tracker duplicate improvement; all-take expansion remains deferred.
+
+
+Independent metric replay reproduces every match and scalar with a separately
+implemented geometric projection, Hungarian matching, continuity counts and
+geometric IDF1 calculation. It verifies source/wire payload hashes, native
+four-feature class mapping and all300 error-free requests. The guard suppresses
+seven same-nearest-GT birth pairs, with no other GT within2m of either proposal.
+It removes eight old front ID switches without new switches or any gained/lost
+matched GT-frame observations, globally or in front FOV. Thus its duplicate
+repair transfers to this declared test window, although overall targets fail.
+
+The two worst IDs84/92 lie about47/46m away and have sparse current LiDAR support
+(median5/0 points, maxima15/1). Their projected boxes sit above the cars in the
+native camera panels, so actual optical visibility/correspondence cannot be
+certified. Lower-score proposals account for54/63 misses on84 and21/29 on92;
+the remainder have no retained post-head proposal within2m. Lowering confidence
+is therefore not established as a safe repair. A center-ray GT-vehicle proxy
+marks109 observations obstructed (detector recall39.4%, track61.5%) and342
+without tested intersections (86.0%,93.0%). This proxy omits non-GT occluders and
+does not resolve camera calibration or optical visibility; primary metrics stay
+unchanged. Native image/LiDAR failure panels are in the separate failure audit.
+
+All three diagnostic videos were decoded as300 frames at1872×796. Twelve fixed
+uniform-sample Gamma panels use actual CUDA Gaussian scene depth and shared
+PyTorch3D primitive depth. Among sampled asset instances,41 are partially
+occluded, one visible and one fully occluded. At frame299 the predicted track
+84 has311 projected mesh pixels:75 blocked by scene depth and236 by nearer
+assets, leaving zero visible pixels. Object poses and heights were unchanged;
+this demonstrates the shared depth buffer, not correctness of map geometry or
+optical visibility of every GT target.
+
+
+The failure audit also identifies six front-camera scope losses with valid
+all-LiDAR matches: GT37 tracking at488095, GT96 detection/tracking at488115,
+GT108 detection/tracking at488140, and GT114 tracking at488160. Predictions fall
+outside the symmetric geometric camera filter although GT passes. In particular,
+GT114's6/7 camera track coverage does not mean its track was absent in LiDAR.
+These boundary effects are reported separately; primary matching is unchanged.
