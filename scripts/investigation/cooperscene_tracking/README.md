@@ -115,6 +115,12 @@ outputs are excluded. Original GT geometry and timestamps are unchanged.
 Exact request/frame/timestamp/ordinal provenance, calibration, and image sizes
 must match all cached frames before an output directory is created. Use the
 same command with `--classes car` as the controlled car-only tracker baseline.
+Optional `--minimum-confirmation-hits 2` requires consecutive distinct captures
+before emitting a new track. Optional `--continuation-score-threshold .1` keeps
+primary detections and births at `--score-threshold .2`, then associates weaker
+raw boxes only to unmatched confirmed tracks. Weaker boxes cannot create or
+confirm tracks. Both are controlled trials; baseline defaults remain unchanged.
+Native detector classes also remain on track snapshots for primitive rendering.
 This evaluation grouping does not change deployment class defaults. Renderers
 should choose primitive asset type from retained native detector categories,
 since `vehicle` is an evaluation ontology label.

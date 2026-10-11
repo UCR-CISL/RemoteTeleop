@@ -38,6 +38,7 @@ def test_grouping_preserves_detector_labels_geometry_and_excludes_nonvehicles(tm
     result = list(map(json.loads, (output / "frames.jsonl").read_text().splitlines()))
     assert len(result[0]["detections"]) == len(result[1]["detections"]) == 1
     assert result[1]["detections"][0]["detector_class_name"] == "truck"
+    assert result[1]["tracks"][0]["detector_class_name"] == "truck"
     assert result[0]["tracks"][0]["track_id"] == result[1]["tracks"][0]["track_id"]
     detection = result[0]["detections"][0]
     assert detection["dimensions_lwh"] == [4, 2, 2]
@@ -71,3 +72,29 @@ def test_exact_provenance_required_before_output_directory_created(tmp_path):
     assert not output.exists()
     with pytest.raises(ValueError, match="motor vehicle"):
         CachedVehicleClassTrial(classes=["pedestrian"])
+
+
+def test_low_score_continuation_preserves_primary_detections_and_never_consumes_gt(tmp_path):
+    source, raw, original = fixture_inputs(tmp_path)
+    path = raw / '1.json'
+    record = json.loads(path.read_text())
+    record['predictions'][0]['score'] = .15
+    path.write_text(json.dumps(record))
+    baseline = tmp_path / 'baseline'
+    adapted = tmp_path / 'adapted'
+    CachedVehicleClassTrial(classes=['car', 'truck']).run(source, raw, baseline)
+    trial = CachedVehicleClassTrial(classes=['car', 'truck'], continuation_score_threshold=.1)
+    trial.run(source, raw, adapted)
+    before = list(map(json.loads, (baseline / 'frames.jsonl').read_text().splitlines()))
+    after = list(map(json.loads, (adapted / 'frames.jsonl').read_text().splitlines()))
+    assert [row['detections'] for row in before] == [row['detections'] for row in after]
+    assert after[1]['detections'] == []
+    assert after[0]['tracks'][0]['track_id'] == after[1]['tracks'][0]['track_id']
+    assert after[1]['tracks'][0]['score'] == .15
+    assert after[1]['tracks'][0]['detector_class_name'] == 'truck'
+    for frame in original:
+        frame['gt'] = []
+    source.write_text(''.join(json.dumps(frame) + '\n' for frame in original))
+    trial.run(source, raw, tmp_path / 'without_gt_low')
+    other = list(map(json.loads, (tmp_path / 'without_gt_low/frames.jsonl').read_text().splitlines()))
+    assert [row['tracks'] for row in after] == [row['tracks'] for row in other]

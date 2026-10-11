@@ -18,6 +18,7 @@ class WorldDetection:
     dimensions_lwh: tuple[float, float, float]
     label: str
     score: float
+    detector_class_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class TrackedWorldBox:
     dimensions_lwh: tuple[float, float, float]
     label: str
     score: float
+    detector_class_name: str | None = None
 
 
 class _KalmanTrack:
@@ -39,10 +41,12 @@ class _KalmanTrack:
     # all filter covariance must remain independent of a presumed world Z-up.
     _measurement_noise = np.eye(3, dtype=np.float64)
 
-    def __init__(self, track_id: str, detection: WorldDetection, timestamp_us: int) -> None:
+    def __init__(self, track_id: str, detection: WorldDetection, timestamp_us: int,
+                 minimum_confirmation_hits: int) -> None:
         center = np.asarray(detection.world_T_object, dtype=np.float64)[:3, 3]
         self.track_id = track_id
         self.label = detection.label
+        self.detector_class_name = detection.detector_class_name
         self.state = np.concatenate((center, np.zeros(3, dtype=np.float64)))
         self.covariance = np.diag((4.0, 4.0, 4.0, 100.0, 100.0, 100.0))
         self.dimensions = np.asarray(detection.dimensions_lwh, dtype=np.float64)
@@ -52,6 +56,9 @@ class _KalmanTrack:
         self.score = detection.score
         self.timestamp_us = timestamp_us
         self.last_observed_us = timestamp_us
+        self.minimum_confirmation_hits = minimum_confirmation_hits
+        self.hit_streak = 1
+        self.confirmed = minimum_confirmation_hits == 1
 
     def predict_to(self, timestamp_us: int) -> None:
         if timestamp_us < self.timestamp_us:
@@ -124,7 +131,12 @@ class _KalmanTrack:
             left[:, -1] *= -1
             self.rotation = left @ right
         self.score = detection.score
+        if timestamp_us > self.last_observed_us:
+            self.hit_streak += 1
         self.last_observed_us = timestamp_us
+        if detection.detector_class_name is not None:
+            self.detector_class_name = detection.detector_class_name
+        self.confirmed |= self.hit_streak >= self.minimum_confirmation_hits
 
     def snapshot(self, timestamp_us: int) -> TrackedWorldBox:
         dt = max(0.0, (timestamp_us - self.timestamp_us) / 1_000_000.0)
@@ -138,16 +150,31 @@ class _KalmanTrack:
             dimensions_lwh=tuple(float(value) for value in self.dimensions),
             label=self.label,
             score=self.score,
+            detector_class_name=self.detector_class_name,
         )
 
 
 class BevFusionKalmanTracker:
     """Class-aware Hungarian assignment over world-frame Kalman estimates."""
 
-    def __init__(self, *, maximum_coast_seconds: float = 0.5) -> None:
+    def __init__(self, *, maximum_coast_seconds: float = 0.5,
+                 minimum_confirmation_hits: int = 1,
+                 birth_score_threshold: float = 0.0,
+                 continuation_score_threshold: float = 0.0) -> None:
         if maximum_coast_seconds <= 0:
             raise ValueError("maximum_coast_seconds must be positive")
+        if (isinstance(minimum_confirmation_hits, bool)
+                or not isinstance(minimum_confirmation_hits, int)
+                or minimum_confirmation_hits < 1):
+            raise ValueError("minimum_confirmation_hits must be a positive integer")
+        if (not math.isfinite(birth_score_threshold)
+                or not math.isfinite(continuation_score_threshold)
+                or not 0 <= continuation_score_threshold <= birth_score_threshold <= 1):
+            raise ValueError("score thresholds must satisfy 0 <= continuation <= birth <= 1")
         self.maximum_coast_us = int(maximum_coast_seconds * 1_000_000)
+        self.minimum_confirmation_hits = minimum_confirmation_hits
+        self.birth_score_threshold = float(birth_score_threshold)
+        self.continuation_score_threshold = float(continuation_score_threshold)
         self._tracks: list[_KalmanTrack] = []
         self._next_track_id = 0
         self._timestamp_us: int | None = None
@@ -168,40 +195,56 @@ class BevFusionKalmanTracker:
         for track in self._tracks:
             track.predict_to(timestamp_us)
 
-        costs = np.full((len(self._tracks), len(detections)), math.inf)
-        for track_index, track in enumerate(self._tracks):
-            for detection_index, detection in enumerate(detections):
-                if detection.label == track.label:
-                    costs[track_index, detection_index] = track.association_cost(
-                        detection, timestamp_us
-                    )
-
-        assignments: list[tuple[int, int]] = []
-        if costs.size:
-            finite_costs = np.where(np.isfinite(costs), costs, 1e9)
-            rows, columns = linear_sum_assignment(finite_costs)
-            assignments = [
-                (int(row), int(column))
-                for row, column in zip(rows, columns, strict=True)
-                if math.isfinite(costs[row, column])
-            ]
+        high = [i for i, detection in enumerate(detections)
+                if detection.score >= self.birth_score_threshold]
+        low = [i for i, detection in enumerate(detections)
+               if self.continuation_score_threshold <= detection.score < self.birth_score_threshold]
+        assignments = self._associate(range(len(self._tracks)), high, detections, timestamp_us)
+        high_assigned_tracks = {row for row, _ in assignments}
+        continuing = [i for i, track in enumerate(self._tracks)
+                      if track.confirmed and i not in high_assigned_tracks]
+        assignments += self._associate(continuing, low, detections, timestamp_us)
         assigned_detections = {column for _, column in assignments}
         for track_index, detection_index in assignments:
             self._tracks[track_index].correct(detections[detection_index], timestamp_us)
+        assigned_tracks = {row for row, _ in assignments}
+        for track_index, track in enumerate(self._tracks):
+            if not track.confirmed and track_index not in assigned_tracks:
+                track.hit_streak = 0
 
-        for detection_index, detection in enumerate(detections):
+        for detection_index in high:
             if detection_index in assigned_detections:
                 continue
+            detection = detections[detection_index]
             label = detection.label.replace(".", "_").replace("/", "_")
             track_id = f"bevfusion:{label}:{self._next_track_id}"
             self._next_track_id += 1
-            self._tracks.append(_KalmanTrack(track_id, detection, timestamp_us))
+            self._tracks.append(_KalmanTrack(
+                track_id, detection, timestamp_us, self.minimum_confirmation_hits,
+            ))
 
         self._tracks = [
             track
             for track in self._tracks
             if timestamp_us - track.last_observed_us <= self.maximum_coast_us
         ]
+
+    def _associate(self, track_indices: Sequence[int], detection_indices: Sequence[int],
+                   detections: Sequence[WorldDetection], timestamp_us: int) -> list[tuple[int, int]]:
+        """Use the same class and geometric gates in both confidence stages."""
+        costs = np.full((len(track_indices), len(detection_indices)), math.inf)
+        for row, track_index in enumerate(track_indices):
+            track = self._tracks[track_index]
+            for column, detection_index in enumerate(detection_indices):
+                detection = detections[detection_index]
+                if detection.label == track.label:
+                    costs[row, column] = track.association_cost(detection, timestamp_us)
+        if not costs.size:
+            return []
+        rows, columns = linear_sum_assignment(np.where(np.isfinite(costs), costs, 1e9))
+        return [(track_indices[row], detection_indices[column])
+                for row, column in zip(rows, columns, strict=True)
+                if math.isfinite(costs[row, column])]
 
     def boxes_at(self, timestamp_us: int) -> tuple[TrackedWorldBox, ...]:
         if self._timestamp_us is None:
@@ -211,5 +254,5 @@ class BevFusionKalmanTracker:
         return tuple(
             track.snapshot(timestamp_us)
             for track in self._tracks
-            if timestamp_us - track.last_observed_us <= self.maximum_coast_us
+            if track.confirmed and timestamp_us - track.last_observed_us <= self.maximum_coast_us
         )

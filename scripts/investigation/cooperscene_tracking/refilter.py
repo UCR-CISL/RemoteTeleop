@@ -17,13 +17,19 @@ class CachedVehicleClassTrial:
 
     motor_vehicle_classes = {"car", "truck", "bus", "trailer", "construction_vehicle"}
 
-    def __init__(self, *, classes, score_threshold=.2):
+    def __init__(self, *, classes, score_threshold=.2, continuation_score_threshold=None, minimum_confirmation_hits=1):
         self.classes = set(classes)
         if not self.classes or not self.classes <= self.motor_vehicle_classes:
             raise ValueError("classes must be a nonempty subset of declared motor vehicle classes")
         if not math.isfinite(score_threshold) or not 0 <= score_threshold <= 1:
             raise ValueError("score_threshold must be in [0, 1]")
         self.threshold = score_threshold
+        self.continuation_threshold = score_threshold if continuation_score_threshold is None else continuation_score_threshold
+        if not math.isfinite(self.continuation_threshold) or not 0 <= self.continuation_threshold <= self.threshold:
+            raise ValueError("continuation_score_threshold must be finite and between zero and score_threshold")
+        if isinstance(minimum_confirmation_hits, bool) or not isinstance(minimum_confirmation_hits, int) or minimum_confirmation_hits < 1:
+            raise ValueError("minimum_confirmation_hits must be a positive integer")
+        self.minimum_confirmation_hits = minimum_confirmation_hits
 
     def run(self, frames_path: Path, raw_directory: Path, output_dir: Path) -> dict:
         raw = {}
@@ -62,11 +68,13 @@ class CachedVehicleClassTrial:
             for original, record in paired:
                 frame = dict(original)
                 sequence = frame["sequence_id"]
-                tracker = trackers.setdefault(sequence, BevFusionKalmanTracker())
+                tracker = trackers.setdefault(sequence, BevFusionKalmanTracker(
+                    birth_score_threshold=self.threshold, continuation_score_threshold=self.continuation_threshold,
+                    minimum_confirmation_hits=self.minimum_confirmation_hits))
                 world = np.asarray(frame["world_T_lidar"]).reshape(4, 4)
                 detections, world_detections = [], []
                 for raw_index, box in enumerate(record["predictions"]):
-                    if box["class_name"] not in self.classes or box["score"] < self.threshold:
+                    if box["class_name"] not in self.classes or box["score"] < self.continuation_threshold:
                         continue
                     tensor = np.asarray(box["box_tensor"], dtype=float)
                     x_size, y_size, height = tensor[3:6]
@@ -81,20 +89,23 @@ class CachedVehicleClassTrial:
                     transform[:3, :3] = ((c, -s, 0), (s, c, 0), (0, 0, 1))
                     transform[:3, 3] = box["gravity_center"]
                     pose, dimensions = world @ transform, (float(length), float(width), float(height))
-                    detections.append(dict(track_id=f"raw:{record['sequence']}:{raw_index}", world_T_object=pose.tolist(),
-                        dimensions_lwh=dimensions, label="vehicle", detector_class_name=box["class_name"],
-                        detector_class_id=box["class_id"], score=box["score"]))
-                    world_detections.append(WorldDetection(pose, dimensions, "vehicle", box["score"]))
+                    if box["score"] >= self.threshold:
+                        detections.append(dict(track_id=f"raw:{record['sequence']}:{raw_index}", world_T_object=pose.tolist(),
+                            dimensions_lwh=dimensions, label="vehicle", detector_class_name=box["class_name"],
+                            detector_class_id=box["class_id"], score=box["score"]))
+                    world_detections.append(WorldDetection(pose, dimensions, "vehicle", box["score"], detector_class_name=box["class_name"]))
                 # Only raw detector boxes and original timestamps enter tracking.
                 tracker.update(world_detections, timestamp_us=frame["timestamp_us"])
                 frame["detections"] = detections
                 frame["tracks"] = [dict(track_id=box.track_id, world_T_object=box.world_T_object.tolist(),
-                    dimensions_lwh=box.dimensions_lwh, label="vehicle", score=box.score)
+                    dimensions_lwh=box.dimensions_lwh, label="vehicle", score=box.score, detector_class_name=box.detector_class_name)
                     for box in tracker.boxes_at(frame["timestamp_us"])]
                 frame["gt"] = [dict(box, label="vehicle", annotation_class_name=box.get("label", "car")) for box in original["gt"]]
                 output.write(json.dumps(frame) + "\n")
         manifest = dict(input_frames=str(frames_path.resolve()), raw_directory=str(raw_directory.resolve()),
             frames=len(frames), sequence_frame_counts=counts, score_threshold=self.threshold,
+            continuation_score_threshold=self.continuation_threshold, minimum_confirmation_hits=self.minimum_confirmation_hits,
+            confidence_policy="primary detections and births use score_threshold; lower-score boxes can only associate unmatched confirmed tracks",
             detector_classes=sorted(self.classes), evaluated_class="vehicle",
             gt_label_policy="native YAML vehicles has no detailed category; preserve annotation_class_name and group only evaluation label",
             detector_label_policy="preserve detector_class_name/class_id; group declared motor vehicle classes for tracking and evaluation",
@@ -111,9 +122,12 @@ def main():
     parser.add_argument("--raw-directory", type=Path, required=True)
     parser.add_argument("--classes", nargs="+", default=["car"])
     parser.add_argument("--score-threshold", type=float, default=.2)
+    parser.add_argument("--continuation-score-threshold", type=float, help="optional lower threshold for confirmed-track continuation only")
+    parser.add_argument("--minimum-confirmation-hits", type=int, default=1)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
-    print(json.dumps(CachedVehicleClassTrial(classes=args.classes, score_threshold=args.score_threshold).run(
+    print(json.dumps(CachedVehicleClassTrial(classes=args.classes, score_threshold=args.score_threshold,
+        continuation_score_threshold=args.continuation_score_threshold, minimum_confirmation_hits=args.minimum_confirmation_hits).run(
         args.frames, args.raw_directory, args.output_dir), indent=2))
 
 
