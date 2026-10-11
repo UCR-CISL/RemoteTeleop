@@ -74,6 +74,17 @@ def test_exact_provenance_required_before_output_directory_created(tmp_path):
         CachedVehicleClassTrial(classes=["pedestrian"])
 
 
+def test_replaying_grouped_frames_preserves_original_annotation_class(tmp_path):
+    source, raw, _ = fixture_inputs(tmp_path)
+    trial = CachedVehicleClassTrial(classes=["car", "truck"])
+    first, second = tmp_path / "first", tmp_path / "second"
+    trial.run(source, raw, first)
+    trial.run(first / "frames.jsonl", raw, second)
+    assert (first / "frames.jsonl").read_bytes() == (second / "frames.jsonl").read_bytes()
+    rows = [json.loads(line) for line in (second / "frames.jsonl").read_text().splitlines()]
+    assert all(row["gt"][0]["annotation_class_name"] == "car" for row in rows)
+
+
 def test_low_score_continuation_preserves_primary_detections_and_never_consumes_gt(tmp_path):
     source, raw, original = fixture_inputs(tmp_path)
     path = raw / '1.json'

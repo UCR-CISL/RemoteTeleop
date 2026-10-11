@@ -111,7 +111,7 @@ class CachedVehicleClassTrial:
                 frame["tracks"] = [dict(track_id=box.track_id, world_T_object=box.world_T_object.tolist(),
                     dimensions_lwh=box.dimensions_lwh, label="vehicle", score=box.score, detector_class_name=box.detector_class_name)
                     for box in tracker.boxes_at(frame["timestamp_us"])]
-                frame["gt"] = [dict(box, label="vehicle", annotation_class_name=box.get("label", "car")) for box in original["gt"]]
+                frame["gt"] = [dict(box, label="vehicle", annotation_class_name=box.get("annotation_class_name", box.get("label", "car"))) for box in original["gt"]]
                 output.write(json.dumps(frame) + "\n")
         manifest = dict(input_frames=str(frames_path.resolve()), raw_directory=str(raw_directory.resolve()),
             frames=len(frames), sequence_frame_counts=counts, score_threshold=self.threshold,
