@@ -2,8 +2,10 @@
 
 Only take 1 / vehicle 1 was evaluated: native frames **481260–481760**, 501
 consecutive frames (50.00 s between first and last captures). The first 60
-frames were development inputs; frames 60–500 were held out from parameter
-selection. Other sequences remain on hold. Initial input preparation also cached take 3/V1 and take 4/V2;
+frames were development inputs; frames 60–500 were held out from the initial
+nuScenes input-parameter selection. Subsequent native/checkpoint and tracker
+comparisons are explicitly exploratory or training-overlapping below. Other
+sequences remain on hold. Initial input preparation also cached take 3/V1 and take 4/V2;
 those caches were not inferred after the user requested one sequence first.
 
 ## Acceptance and protocol
@@ -23,8 +25,9 @@ plane. It does not test occlusion. Matching uses class-aware, maximum-cardinalit
 then minimum-distance Hungarian assignment with an inclusive **2 m XYZ center
 gate**. Predictions and GT receive the same visibility filter. Reported
 geometric IDF1 is a supported center-distance alternative, not official HOTA or
-IoU MOTChallenge. Coverage is 283 projected GT observations, 11 annotation IDs,
-nine IDs meeting the five-frame minimum. See the evaluation tool
+IoU MOTChallenge. Initial development coverage is 283 projected GT observations,
+11 annotation IDs, nine IDs meeting the five-frame minimum; full-sequence coverage
+is 1,664 observations, 29 IDs and 28 eligible IDs. See the evaluation tool
 [protocol](../scripts/investigation/cooperscene_tracking/README.md).
 
 ## Initial 60-frame development localization and GT
@@ -367,3 +370,194 @@ but is not evaluation-only throughout upstream localization preparation. The
 holdout validates tracking within this sequence, not independent localization
 calibration. Published/raw-pickle extrinsic agreement establishes provenance,
 not physical calibration accuracy; the 3 cm antenna lever arm remains assumed.
+
+## Follow-up development input and provenance audits
+
+The model-input ablation uses only original development frames 0–59 with the
+same archived XYZ poses, GT, timestamps and image/LiDAR source arrays. Primary
+score .2, motor grouping and the default tracker are fixed. It isolates the
+paired input changes without retuning on held-out frames.
+
+| Input recipe | Detection precision / recall | Track precision / recall |
+|---|---:|---:|
+| Crop .36, clip255, single scan (reference) | 83.8% / 89.4% | 75.5% / 97.9% |
+| Crop .48, clip255, single scan | 86.6% / 80.2% | 76.5% / 90.8% |
+| Crop .36, unclipped, single scan | 44.6% / 10.2% | 44.8% / 24.4% |
+| Crop .36, clip255, past-only sweeps within .5 s | 88.6% / 66.1% | 78.6% / 79.2% |
+
+Intensity clipping accounts for most of the development improvement; the crop
+adds recall with some precision cost. The installed nuScenes config expects
+nine past sweeps plus a current scan, with XYZI/time-lag features. The explicit
+sweep trial uses available native 10 Hz scans, positive lag in seconds and
+archived XYZ ego-motion compensation. It supplies roughly five past scans
+within .5 s, not exact nuScenes sampling, and does not compensate moving objects.
+Its coverage is worse; it is not promoted or run on held-out frames. Single-scan
+wire messages and tracker defaults remain unchanged. New outputs and exact
+reference-field checks are in
+`artifacts/tracking-take1-development-ablation-20261011/`.
+
+The box-convention audit verifies every raw gravity center equals bottom center
+plus half-height and verifies semantic length/width yaw conversion preserves
+cuboid corners. Matched front-FOV detections have a signed native-LiDAR Z residual
+averaging +.709 m. Subtracting half-height would artificially reduce this error,
+but independent SUSTech cube construction and annotation export code confirm
+geometric GT centers. No bottom-as-center shift or localization height correction
+is justified. Source center conventions are verified; physical vertical accuracy
+remains unresolved. See `artifacts/tracking-take1-box-convention-audit-20261011/`.
+
+The full native/refined annotation join finds 8,186 same-frame/ID counterparts
+among 8,195 native observations. All seven inspected low-coverage IDs match
+refined geometry exactly. Literal source `Car` labels carry a hardcoded-export
+initialization caveat and do not independently prove detailed physical categories.
+The shared +37-second timestamp shift is an intentional operation in the source
+snapshot; this proves pairing preservation, not the physical clock convention.
+No distortion coefficients, calibration capture dimensions or rectification
+report were found. See `artifacts/tracking-take1-optical-model-audit-20261011/`.
+
+An identity-event audit finds seven of eight control front-FOV switches follow
+4–18-frame match gaps; the remaining event loses the previous track on adjacent
+frames. Low-score continuation also introduces ambiguous switches while old
+tracks remain nearby. This does not justify a larger global coast interval.
+After its first request, the corrected detector's client latency averages
+108.12 ms, median109.00 ms, p95 116.79 ms over500frames; the first request waited
+7.25 s despite a103.46 ms server report. Sequential offline inference retains
+allcaptures; latency alone does not demonstrate10Hz throughput. Exact events
+and startup/steady timing are in
+`artifacts/tracking-take1-full-identity-audit-20261011/`.
+
+### Native CooperScene checkpoint preparation
+
+The [official model repository](https://huggingface.co/cisl-hf/CooperScene)
+provides a single-agent LiDAR-camera checkpoint, pinned at revision
+`2e7c7080a5061e28a9f3a32fbda075c7359eb815`, SHA256
+`f06cdc3c78610b882663adbe68b6621a2a1c6fd0bff119e985f7219be335ed8d`.
+Its input contract is four point features, generic vehicle output, crop .3 to
+256×512, and published converter intensity division by65535. It must not reuse
+the nuScenes five-feature/sweep/clip255 adapter. Native single-agent architecture
+and CUDA sources are byte-identical to the installed upstream implementation;
+only loading and cooperative extensions differ. The prepared runtime preserves
+the embedded checkpoint model config and native augmentation, supplies in-memory
+four-feature inputs and skips redundant backbone initialization downloads.
+
+The native checkpoint's training metadata points at the released training data;
+take1 results are adaptation/in-training diagnostics, not an unbiased checkpoint
+holdout. Its ±72m output range also exceeds this evaluation's ±54m GT cache scope;
+extra out-of-scope proposals require separate accounting. Preparation evidence,
+embedded config and source-equivalence hashes are in
+`artifacts/tracking-cooperscene-checkpoint-audit-20261011/`.
+
+The native checkpoint has now completed the same60-frame development comparison
+with four-feature inputs and intensity division by65535. Detector front-FOV
+precision/recall is93.8%/96.8%, matched center RMSE .348m (corrected nuScenes
+.827m); track precision/recall89.5%/98.9%, IDF1 .940, zero switches and zero
+fragmentations. All11 geometric front-FOV GT IDs are detected at least once,
+but GT114512 detection recall78.3% and GT58 detection/track recall77.8%
+still fail the stronger per-ID90% target. This remains an in-training/adaptation
+diagnostic, not independent model generalization or certified RGB visibility.
+
+Both candidate and baseline were explicitly scoped to ±54m in current retained
+reference-LiDAR XY for evaluation; no GT, detections or tracks were excluded in
+this60-frame comparison. The native tracker consumed all original detector
+outputs, independent of evaluation scoping. Exact common poses, GT, timestamps,
+intrinsics and payload paths are verified. The initial native attempt failed
+during warmup because LiDARPoints was still declared5D; its logs remain in
+`artifacts/tracking-take1-native-development-20261011/`. The fixed successful
+run and camera/BEV videos are in
+`artifacts/tracking-take1-native-development-v2-20261011/`.
+
+The runtime config uses an empty lazy NuScenesDataset factory solely because
+the installed init_model queries a dataset palette. It loads no annotations;
+checkpoint metadata continues to declare classvehicle and controls model labels.
+The embedded native model config and camera augmentation remain unchanged.
+
+### Native checkpoint: full single-sequence result
+
+The native checkpoint completed all 501 take1/V1 frames with the same archived
+XYZ localization, timestamps, GT and default tracker. No other sequence has been
+expanded. Independent replay verified all input poses, camera/LiDAR payload
+hashes, four features, normalized intensity, checkpoint/config hashes, class
+mapping and tracker outputs. Both models use the declared symmetric ±54 m
+reference-LiDAR XY evaluation scope, inclusive 2 m XYZ center association and
+geometric front-camera cuboid filtering. The tracker sees unscoped detections.
+
+| Front-camera metric | Corrected nuScenes | Native CooperScene |
+|---|---:|---:|
+| Detection precision / recall | 74.4% / 79.0% | 96.8% / 92.2% |
+| Track precision / recall | 67.2% / 85.3% | 92.9% / 95.9% |
+| ID switches / fragmentation | 8 / 10 | 11 / 6 |
+| Geometric IDF1 | .734 | .918 |
+
+Native detection center RMSE is .406 m, mean dimension absolute errors
+(.114, .057, .062) m for length/width/height, and mean length-axis yaw error
+4.21 degrees. There are 1,664 geometric front-FOV GT observations and 29 IDs;
+**all 29 receive at least one detection**. This meets the user's minimum
+geometric track-coverage condition. The stronger 90% per-ID detection and track
+coverage criterion still fails; GT130 receives only 3/23 detections and 15/23
+track matches. Precision and switch-rate gates pass. These are conditional
+reference-agreement metrics, not independently certified GT or optical accuracy.
+
+The native model trained on take1. Its improvement is an adaptation diagnostic,
+not a model-generalization result. GT69's seven matched detections trace correctly
+to raw proposals, but four contain zero current LiDAR points; all its center rays
+intersect nearer annotated vehicles. Literal camera visibility cannot be inferred
+from a projected box alone. Source lens/rectification metadata remain unavailable.
+GT is excluded from detector/tracker input; the retained upstream localization
+preparation still carries the previously disclosed GT vehicle-mask dependency.
+
+An evaluation-only stratification of all1,664 observations finds462 camera-to-GT
+center rays intersect nearer supplied GT cuboids: detection/track recall is
+78.1%/89.4%. For the remaining1,202 observations without a tested foreground
+intersection, recall is97.7%/98.4%. GT69 andGT130 are entirely in the obstructed
+proxy group. Some per-ID gaps remain in the other group. A center ray does not
+model the whole visible object, unannotated occluders or calibration uncertainty;
+this proxy does not replace the primary metrics or acceptance gates. Exact
+per-observation evidence is in the failure audit's obstruction stratification.
+
+Eleven front-FOV ID switches were reproduced independently. Three duplicate
+proposal episodes create parallel IDs and switch back; other switches follow
+observation gaps or competing/coasted duplicates. All switch frames have accepted
+XYZ error .018–.091 m, with no localization spike. Native GT55's off-camera
+discontinuity affects global-ID sensitivity, but none of the front-FOV switches.
+
+An optional two-hit confirmation trial improves development track precision
+89.5%→93.5% and geometric IDF1 .940→.951 while reducing recall 98.9%→96.8%.
+The policy was frozen before replaying all501 cached native outputs. In the full
+same-sequence comparison, track precision/recall becomes95.3%/93.4%, switches5,
+fragmentations5 and IDF1 .922. Detections and every non-track input are exact.
+This is exploratory: baseline full-sequence failures were already inspected.
+The extra birth delay harms short-lived coverage, so tracker defaults remain
+unchanged and the stronger per-ID gate still fails.
+
+The reproducible raw-XYZI server adapter is
+`docker/bevfusion/cooperscene_native_front.py`. Mount the pinned checkpoint audit
+directory read-only at `/native`, use this adapter as `--config`, the pinned
+`/native/bevfusion_single_lidarcam.pth` checkpoint and score threshold .2.
+**Clients must send raw intensity: do not also pass pilot `--intensity-scale`.**
+The adapter divides intensity by65535 and declares four features. A real GPU
+two-frame parity check gives exactly identical predictions to the earlier
+host-scaled native run. The updated code is deployed to both isolated Lambda
+and Gamma repositories; normalization tests pass on both. Only owned offline
+containers were started and stopped. Original worktrees and queues are preserved.
+
+Native detector client latency after the first request averages 109.16 ms (p95 123.86 ms); its first request waits7.39s for startup. Server processing after the first request averages97.46ms. These are serialized offline detector round trips, excluding tracking/rendering, not a verified real-time10Hz throughput claim. Exact timing is in the full native artifact's `latency.json`.
+
+Artifacts:
+
+- `artifacts/tracking-take1-native-full-20261011/`: exact run script, raw outputs,
+  scoped metrics, per-ID coverage chart and 501-frame detection/track videos.
+- `artifacts/tracking-take1-native-full-identity-audit-20261011/`: independent
+  full-input validation, reproducible tracker replay and ID-switch evidence.
+- `artifacts/tracking-take1-native-full-failure-audit-20261011/`: 60 camera/LiDAR
+  PNGs, confidence, point-support, competing-GT and occlusion-proxy analysis.
+- `artifacts/tracking-take1-native-full-gamma-primitives-20261011/`: 16 labelled
+  real-GPU map/primitive panels. Shared scene/asset depth correctly removes eight
+  fully occluded sampled assets and partly occludes94; all localized heights are
+  preserved, with no rendering ground placement or unsupported asset categories.
+- `artifacts/tracking-take1-native-server-scale-smoke-20261011/`: canonical raw
+  input deployment script, logs and exact two-frame prediction parity proof.
+- `artifacts/tracking-take1-native-confirmation-trial-20261011/`: frozen optional
+  two-hit tracker trial, common-input validation and identical-scope metrics.
+
+Keep the one-sequence pilot until the visibility limitations and remaining
+per-object gaps are resolved or explicitly scoped. Expansion should use a
+declared checkpoint-independent sequence and frozen input/track policies.

@@ -40,3 +40,20 @@ see [CooperScene tracking pilot](cooperscene_tracking_pilot.md). It uses native
 capture timestamps, the retained raw-GNSS/INS XYZ policy, recorded detector
 outputs, and explicit front-camera coverage checks. It does not launch vehicle
 control or change the localization policy of older MCAP replay manifests.
+
+The verified native CooperScene detector adapter is
+`docker/bevfusion/cooperscene_native_front.py`. It requires the pinned model
+config and checkpoint described in the pilot report, mounted read-only at
+`/native`, and uses four-feature raw XYZI with intensity normalized inside the
+server by65535. Do not combine this adapter with client-side intensity scaling,
+nuScenes intensity clipping or past sweeps. A real GPU two-frame check reproduces
+the earlier host-normalized native predictions exactly. Detailed run scripts
+and hashes are in the pilot artifacts; the take1 result overlaps model training.
+
+This detector verification does not validate an arbitrary MCAP manifest's
+localization. The tracking pilot uses the fixed archived per-frame XYZ export,
+including flagged propagation on rejected registration frames. Preserve that
+policy for comparisons; an old cached transform alone does not reproduce it.
+Keep render ground placement omitted unless explicitly requested, and keep GT
+out of detector/tracker inputs. The optional two-hit tracker confirmation trial
+remains separate; production tracker defaults were not changed.
