@@ -1653,3 +1653,56 @@ an optical-coverage claim or a justified detector correction.
 Evidence: `artifacts/tracking-take2-missed-gt-ontology-provenance-20261011/`,
 `artifacts/tracking-take2-missed-gt-lidar-support-20261011/`, and
 `artifacts/tracking-take2-missed-gt-diagnostics-independent-20261011/`.
+
+
+### Four-capture benchmark-extrinsics detector check, 2026-10-12
+
+The baseline LiDAR–camera extrinsic remains in ROS-converted MCAP replay.
+The benchmark-adjusted extrinsic is a separate detector-input probe; the user
+prefers deferring a replay-calibration switch until tracking is improved, unless
+BEVFusion detections become substantially better. No switch follows from this
+four-capture result.
+
+Capture ordinals120/180/240/299 were selected before outcomes. Eight actual native
+inference requests use identical images, XYZI, intrinsics, timestamps, localized
+LiDAR poses, checkpoint and Docker image. Only candidate camera pose changes to
+the mounted benchmark `scene2_agent1` extrinsic. Both variants are evaluated and
+rendered with the original K/T, GT reference, inclusive2m matching and clipped
+projected-bbox area16px²; partly off-screen boxes qualify. No GT enters inference.
+
+| Native evaluation scope | Original TP / FP / FN | Adjusted TP / FP / FN | Original / adjusted center RMSE |
+|---|---:|---:|---:|
+| Projected front camera |6 / 0 / 5|6 / 0 / 5|0.782853 / 0.783740m|
+| Reference LiDAR XY square54m |46 / 3 / 14|46 / 3 / 14|0.650949 / 0.650825m|
+
+Fresh baseline output reproduces all200 raw proposals for each archived capture
+exactly, and historical counts and GT/proposal pairs pass before candidate
+scoring. Candidate native matched GT observations are unchanged, with zero gains
+or losses. The separately labelled refined full-front sensitivity is also
+unchanged at6TP/0FP/19FN. Small mixed center-error changes do not establish a
+benefit. The predeclared front-TP gain requirement fails: no capture expansion,
+threshold/calibration search or production promotion follows from this probe.
+Four gapped frames support detection comparison, not tracking ID metrics.
+
+Actual inference/source/wire/calibration-packing controls and independent complete
+recounts pass. All eight responses were retained before validation; the owned
+container stopped and existing repositories/processes were preserved. The
+backend records one internal initialization warmup and eight requested forwards,
+with no application prime request. Eight paired PNGs show native/refined GT,
+misses and frame-local proposal IDs. Original heights are preserved; no SAM,
+ground placement or optical/depth-occlusion certification is involved.
+
+A subsequent read-only audit of the unchanged300-frame tracking baseline finds
+that its five switches include expiry/rebirth, publication coast expiry, recovery
+onto another track and two evaluation reassociations between live tracks. Weak
+corrections at source258/275 inject large velocity changes. This identifies a
+motion-estimation issue to investigate; it does not justify rerunning rejected
+confirmation, position-only or abstention variants. Tracker defaults remain
+unchanged while a separate confidence-noise prototype is prepared for review.
+
+Evidence: `artifacts/tracking-take2-benchmark-extrinsics-probe-plan-20261012/`,
+`artifacts/tracking-take2-benchmark-extrinsics-native-trial-20261012/nn-execution/`,
+`artifacts/tracking-take2-benchmark-extrinsics-native-evaluation-20261012/`,
+`artifacts/tracking-take2-benchmark-extrinsics-completed-independent-20261012/`,
+`artifacts/tracking-take2-benchmark-extrinsics-native-rendering-20261012/`, and
+`artifacts/tracking-take2-track-id-failure-audit-20261012/`.
