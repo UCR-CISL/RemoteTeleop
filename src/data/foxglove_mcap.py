@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from src.localization.cooperscene_calibration import camera_intrinsic, camera_T_lidar
+from src.localization.cooperscene_calibration import DEFAULT_CALIBRATION, camera_intrinsic, camera_T_lidar
 from src.realtime.protocol import BoxPrompt
 from src.reconstruction.models import VehicleDimensions
 from src.reconstruction.projection import project_vehicle_box
@@ -91,13 +91,16 @@ class FoxgloveMcapReader:
     Use the global annotation union, not the overlapping per-agent display
     layers. NuScenes exports must embed ``teleop`` MCAP metadata and provide
     ``map -> <agent>_cam`` transforms per frame. Ego defaults to the
-    LiDAR frame, matching the existing replay convention.
+    LiDAR frame, matching the existing replay convention. CooperScene camera
+    calibration is not baked into source MCAPs; ``calibration`` names the
+    documented per-agent table used to derive it.
     """
 
     def __init__(self, path: str | Path, *, agent: str = "1", scene_generation: str | None = None,
-                 include_lidar: bool = False) -> None:
+                 include_lidar: bool = False, calibration: str = DEFAULT_CALIBRATION) -> None:
         self.path = Path(path)
         self.agent = str(agent)
+        self.calibration = calibration
         self.scene_generation = scene_generation
         self.include_lidar = include_lidar
         if not self.agent or not self.path.is_file():
@@ -162,7 +165,8 @@ class FoxgloveMcapReader:
             if dynamic_camera:
                 intrinsic = np.asarray(json.loads(options["camera_intrinsic"]), dtype=float).reshape(3, 3)
             else:
-                intrinsic = camera_intrinsic(self.agent)
+                intrinsic = camera_intrinsic(self.agent, self.calibration)
+                lidar_T_camera = np.linalg.inv(camera_T_lidar(self.agent, self.calibration))
             if not np.all(np.isfinite(intrinsic)):
                 raise ValueError("non-finite camera intrinsics")
             image_topic, lidar_topic = f"/{self.agent}_Camera", f"/{self.agent}_LIDAR"
@@ -233,7 +237,7 @@ class FoxgloveMcapReader:
                         raise ValueError("duplicate source frame label")
                     previous_time, previous_frame = timestamp, frame_id
                     lidar_pose = values["lidar_pose"][1]
-                    camera_pose = values["camera_pose"][1] if dynamic_camera else lidar_pose @ np.linalg.inv(camera_T_lidar(self.agent))
+                    camera_pose = values["camera_pose"][1] if dynamic_camera else lidar_pose @ lidar_T_camera
                     ego_pose = lidar_pose
                     vehicles = values["boxes"][1]
                     boxes = []
@@ -253,6 +257,8 @@ class FoxgloveMcapReader:
                         "camera_intrinsic": intrinsic.reshape(-1).tolist(), "world_T_camera": camera_pose.reshape(-1).tolist(),
                         "world_T_ego": ego_pose.reshape(-1).tolist(), "map_T_lidar": lidar_pose.reshape(-1).tolist(),
                         "boxes": boxes, "end_of_scene": sequence == expected - 1}
+                    if not dynamic_camera:
+                        payload.update(camera_calibration=self.calibration, camera_agent=self.agent)
                     for key in ("camera_distortion", "map_T_nuscenes_global", "gaussian_T_nuscenes_global"):
                         if key in options:
                             payload[key] = json.loads(options[key])

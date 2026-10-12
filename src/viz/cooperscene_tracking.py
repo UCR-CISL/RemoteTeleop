@@ -14,11 +14,13 @@ import numpy as np
 class TrackingOverlayRenderer:
     """Render a fixed-scale BEV beside the recorded camera with labelled IDs."""
 
-    GT_COLOR = (80, 220, 80)
-    PRED_COLOR = (255, 220, 40)
-    MISS_COLOR = (0, 220, 255)
-    FP_COLOR = (70, 70, 255)
-    SWITCH_COLOR = (220, 60, 220)
+    # BGR, saturated for contrast against road/sky; camera lines get a dark halo.
+    GT_COLOR = (0, 200, 0)
+    PRED_COLOR = (255, 0, 255)
+    MISS_COLOR = (0, 140, 255)
+    FP_COLOR = (0, 0, 255)
+    SWITCH_COLOR = (255, 255, 0)
+    OUTLINE_COLOR = (10, 10, 10)
     _SIGNS = np.array([
         [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
         [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1],
@@ -63,7 +65,14 @@ class TrackingOverlayRenderer:
         projected = intrinsic @ point
         return np.clip(projected[:2] / projected[2], -1e6, 1e6).astype(int)
 
+    @staticmethod
+    def _camera_stroke(image):
+        """Line width (~3 px at 1920 wide) and dark halo width for camera overlays."""
+        thickness = max(2, round(3 * image.shape[1] / 1920))
+        return thickness, thickness + max(2, round(thickness / 1.5))
+
     def _camera_box(self, image, box, camera_T_world, intrinsic, color, text):
+        thickness, outline = self._camera_stroke(image)
         corners = self._corners(box)
         camera = corners @ camera_T_world[:3, :3].T + camera_T_world[:3, 3]
         for a, b in self._EDGES:
@@ -77,18 +86,26 @@ class TrackingOverlayRenderer:
                     start = intersection
                 else:
                     end = intersection
-            self._line(image, self._pixel(start, intrinsic), self._pixel(end, intrinsic), color)
+            self._line(image, self._pixel(start, intrinsic), self._pixel(end, intrinsic), color,
+                       thickness, outline)
         center = camera.mean(axis=0)
         if center[2] > .1:
             x, y = self._pixel(center, intrinsic)
             if 0 <= x < image.shape[1] and 0 <= y < image.shape[0]:
-                cv2.putText(image, text, (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, .45, color, 1, cv2.LINE_AA)
+                scale, weight = .3 * thickness, max(1, thickness - 1)
+                cv2.putText(image, text, (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, scale,
+                            self.OUTLINE_COLOR, weight + 3, cv2.LINE_AA)
+                cv2.putText(image, text, (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, scale, color,
+                            weight, cv2.LINE_AA)
 
-    @staticmethod
-    def _line(image, start, end, color, thickness=1):
+    @classmethod
+    def _line(cls, image, start, end, color, thickness=1, outline=0):
+        """Draw a clipped line, optionally over a wider dark halo of width ``outline``."""
         inside, a, b = cv2.clipLine((0, 0, image.shape[1], image.shape[0]),
                                   tuple(map(int, start)), tuple(map(int, end)))
         if inside:
+            if outline > thickness:
+                cv2.line(image, a, b, cls.OUTLINE_COLOR, outline, cv2.LINE_AA)
             cv2.line(image, a, b, color, thickness, cv2.LINE_AA)
 
     def _bev_pixels(self, points, center):
@@ -161,8 +178,10 @@ class TrackingOverlayRenderer:
             self._line(bev, self._bev_pixels(a, center), self._bev_pixels(b, center), (230, 230, 230))
             camera_points = np.array([a, b]) @ camera_T_world[:3, :3].T + camera_T_world[:3, 3]
             if (camera_points[:, 2] > .1).all():
+                thickness, outline = self._camera_stroke(camera)
                 self._line(camera, self._pixel(camera_points[0], intrinsic),
-                           self._pixel(camera_points[1], intrinsic), (230, 230, 230))
+                           self._pixel(camera_points[1], intrinsic), (230, 230, 230),
+                           max(1, thickness - 1), outline - 1)
         cv2.putText(bev, 'ENU: East ->   North ^', (10, self.bev_size - 12),
                     cv2.FONT_HERSHEY_SIMPLEX, .5, (200, 200, 200), 1)
         height = self.bev_size

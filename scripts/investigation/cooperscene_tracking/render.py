@@ -2,9 +2,11 @@
 import argparse
 import json
 from pathlib import Path
+import re
 
 import numpy as np
 
+from src.localization.cooperscene_calibration import camera_metadata
 from src.viz.cooperscene_tracking import TrackingOverlayRenderer
 from src.reconstruction.models import VehicleDimensions
 from src.reconstruction.projection import project_vehicle_box
@@ -19,6 +21,9 @@ def main():
     parser.add_argument("--front-camera-only",action="store_true")
     parser.add_argument("--compact-labels",action="store_true",
                         help="Shorten known CooperScene and BEVFusion IDs in overlay labels")
+    parser.add_argument("--camera-calibration",choices=("benchmark","baseline","recorded"),default="benchmark",
+                        help="Camera used to draw overlays; 'recorded' uses the (detector) camera in the inputs. "
+                             "Front-camera filtering always uses the recorded camera to match the assignments.")
     args = parser.parse_args()
     assignments = [json.loads(x) for x in args.assignments.read_text().splitlines()]
     frames = [json.loads(x) for x in args.frames.read_text().splitlines()]
@@ -43,8 +48,12 @@ def main():
                                 minimum_area_px=16) is not None
                         truth, predictions = list(filter(visible,truth)), list(filter(visible,predictions))
                         association = assigned["front_camera"][kind]
-                    image = renderer.render(payload["image"], world_T_camera=frame["world_T_camera"],
-                        intrinsic=frame["camera_intrinsic"],lidar_world=cloud,predictions=predictions,gt=truth,
+                    camera = frame
+                    if args.camera_calibration != "recorded":
+                        agent = re.fullmatch(r"take\d+-vehicle([123])", frame["sequence_id"]).group(1)
+                        camera = camera_metadata(agent, pose, args.camera_calibration)
+                    image = renderer.render(payload["image"], world_T_camera=camera["world_T_camera"],
+                        intrinsic=camera["camera_intrinsic"],lidar_world=cloud,predictions=predictions,gt=truth,
                         assignment=association, title=f"{frame['sequence_id']} frame {frame['frame_id']} {'front FOV' if args.front_camera_only else 'all LiDAR'}",prediction_kind=kind)
                 if index%10==0 or assigned[kind]["id_switches"] or index==len(frames)-1:
                     renderer.save_png(args.output/f"{kind}-{index:04d}.png",image)

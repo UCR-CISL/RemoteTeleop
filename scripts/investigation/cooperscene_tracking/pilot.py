@@ -171,8 +171,9 @@ class TrackingPilot:
                                  timestamp_us=stamp//1000, image_timestamp_ns=int(meta["image_ns"]),
                                  image_minus_lidar_ms=(int(meta["image_ns"])-stamp)/1e6,
                                  payload=str(path.relative_to(self.root)), image_width=image.shape[1], image_height=image.shape[0],
-                                 camera_intrinsic=camera_intrinsic(agent).tolist(),
-                                 world_T_lidar=estimated.tolist(), world_T_camera=compose_map_T_camera(estimated,camera_T_lidar(agent)).tolist(),
+                                 # Detector inputs keep the baseline camera the checkpoint was trained with.
+                                 camera_intrinsic=camera_intrinsic(agent,"baseline").tolist(),
+                                 world_T_lidar=estimated.tolist(), world_T_camera=compose_map_T_camera(estimated,camera_T_lidar(agent,"baseline")).tolist(),
                                  reference_world_T_lidar=reference.tolist(), gt=gt,
                                  localization_xyz_error_m=float(np.linalg.norm(estimated[:3,3]-reference[:3,3]))))
             (folder/"inputs.jsonl").write_text("".join(json.dumps(row)+"\n" for row in rows))
@@ -220,7 +221,7 @@ class TrackingPilot:
                     raise FileNotFoundError(payload)
                 row["payload"] = os.path.relpath(payload, output.resolve())
                 row["world_T_lidar"] = estimated.tolist()
-                row["world_T_camera"] = compose_map_T_camera(estimated, camera_T_lidar(agent)).tolist()
+                row["world_T_camera"] = compose_map_T_camera(estimated, camera_T_lidar(agent, "baseline")).tolist()
                 reference = np.asarray(row["reference_world_T_lidar"])
                 row["localization_xyz_error_m"] = float(np.linalg.norm(estimated[:3,3]-reference[:3,3]))
                 row["localization"] = diagnostics

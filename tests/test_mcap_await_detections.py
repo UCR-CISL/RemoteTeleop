@@ -37,7 +37,7 @@ def test_current_result_publication_real_spool_and_no_double_submission(tmp_path
         frames=[None,None]
         def bind(self,index,metadata,image,points):return metadata,points
     replay=McapFrameReplay(adapter,image_topic='/image',metadata_topic='/metadata',expected_samples=2,
-        xyz_pose_sidecar=BoundSidecar(),await_detections=await_current)
+        xyz_pose_sidecar=BoundSidecar(),await_detections=await_current,camera_calibration=None)
     pose=np.eye(4);pose[2,3]=1.234;K=np.array([[4.,0.,4.],[0.,4.,4.],[0.,0.,1.]])
     for sequence,t in enumerate((1_000_000,1_100_003)):
         header=SimpleNamespace(stamp=SimpleNamespace(sec=t//1_000_000,nanosec=t%1_000_000*1000))

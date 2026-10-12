@@ -44,3 +44,13 @@ def test_camera_near_plane_clipping_and_empty_cloud():
     )
     assert image.shape == (176, 200, 3)
     assert np.any(image[76:, :100])
+
+
+def test_camera_stroke_scales_with_width_and_has_dark_halo():
+    renderer = TrackingOverlayRenderer(bev_size=100)
+    assert renderer._camera_stroke(np.zeros((1200, 1920, 3), np.uint8)) == (3, 5)
+    assert renderer._camera_stroke(np.zeros((2400, 3840, 3), np.uint8))[0] == 6
+    image = np.full((50, 50, 3), 255, np.uint8)
+    renderer._line(image, (5, 25), (45, 25), renderer.GT_COLOR, 3, 7)
+    assert np.all(image[25, 25] == renderer.GT_COLOR)
+    assert np.all(image[21, 25] == renderer.OUTLINE_COLOR) and np.all(image[15, 25] == 255)

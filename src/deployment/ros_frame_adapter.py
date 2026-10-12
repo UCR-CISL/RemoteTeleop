@@ -23,6 +23,7 @@ import numpy as np
 import zmq
 
 from src.common.vehicle_categories import vehicle_proxy_kind
+from src.localization.cooperscene_calibration import DEFAULT_CALIBRATION, camera_metadata
 from src.realtime.process_support import JsonlMetrics
 from src.realtime.protocol import BoxPrompt, EgoPoseSample, FrameDetections, FrameEnd, FrameObjectDetections, FrameSnapshot
 from src.realtime.bevfusion_tracker import BevFusionKalmanTracker, WorldDetection
@@ -55,15 +56,23 @@ class LatestBevFusionBoxes:
     One request is allowed in flight.  When inference is slower than playback,
     later complete sensor triplets replace the single pending request instead
     of stalling the durable 10 Hz stream.
+
+    ``request_calibration`` selects the CooperScene camera calibration sent to
+    the detector, independently of the rendering calibration in the metadata:
+    the CooperScene checkpoint was trained with the ``baseline`` lidar2cam.
+    It applies only to metadata tagged with ``camera_calibration``/``camera_agent``
+    (CooperScene); ``None`` sends the metadata camera unchanged.
     """
 
     def __init__(self, client: BevFusionClient, *, score_threshold: float, minimum_area_px: float = 64.0,
                  continuation_score_threshold: float | None = None, minimum_confirmation_hits: int = 1,
                  suppress_duplicate_births: bool = False,
-                 maximum_reacquisition_seconds: float = 0.0) -> None:
+                 maximum_reacquisition_seconds: float = 0.0,
+                 request_calibration: str | None = "baseline") -> None:
         if not 0.0 <= score_threshold <= 1.0:
             raise ValueError("bevfusion score threshold must be between zero and one")
         self.client = client
+        self.request_calibration = request_calibration
         self.score_threshold = score_threshold
         self.minimum_area_px = minimum_area_px
         self._metadata: dict[int, Mapping[str, Any]] = {}
@@ -154,12 +163,16 @@ class LatestBevFusionBoxes:
         if metadata is None or image is None or points is None:
             return
         from src.realtime.bevfusion import BevFusionRequest
+        camera = metadata
+        if self.request_calibration is not None and "camera_calibration" in metadata:
+            camera = camera_metadata(metadata["camera_agent"], _rigid_matrix(
+                metadata.get("map_T_lidar", metadata["world_T_ego"]), "map_T_lidar"), self.request_calibration)
         request = BevFusionRequest(
             request_id=f"{metadata['scene_generation']}:{metadata['source_sequence']}",
             scene_generation=str(metadata["scene_generation"]), sequence=int(metadata["source_sequence"]),
             frame_id=str(metadata["frame_id"]), timestamp_us=timestamp, config_id="nuscenes",
-            camera_intrinsic=tuple(float(value) for value in metadata["camera_intrinsic"]),
-            world_T_camera=tuple(float(value) for value in metadata["world_T_camera"]),
+            camera_intrinsic=tuple(float(value) for value in camera["camera_intrinsic"]),
+            world_T_camera=tuple(float(value) for value in camera["world_T_camera"]),
             world_T_lidar=tuple(float(value) for value in metadata.get(
                 "map_T_lidar", metadata["world_T_ego"]
             )),
@@ -431,6 +444,7 @@ class McapFrameReplay:
         start_sequence: int = 0,
         xyz_pose_sidecar: Any = None,
         await_detections: bool = False,
+        camera_calibration: str | None = DEFAULT_CALIBRATION,
     ) -> None:
         if isinstance(start_sequence, bool) or not isinstance(start_sequence, int) or start_sequence < 0:
             raise ValueError("start_sequence must be a non-negative integer")
@@ -470,6 +484,10 @@ class McapFrameReplay:
         self.monotonic = monotonic
         self.reader_factory = reader_factory or _mcap_reader
         self.agent = agent
+        # CooperScene camera used for replay projection/rendering (Foxglove and
+        # XYZ-sidecar sources); None keeps the sidecar-bound camera. Detector
+        # inputs are chosen separately by LatestBevFusionBoxes.
+        self.camera_calibration = camera_calibration
 
     def _wait_until(self, target: float) -> None:
         """Service pending detector work while preserving the capture deadline."""
@@ -558,6 +576,9 @@ class McapFrameReplay:
 
     def _deliver_xyz(self, index, metadata, image_bgr, lidar_points):
         metadata, points = self.xyz_pose_sidecar.bind(index, metadata, image_bgr, lidar_points)
+        if self.camera_calibration is not None:
+            metadata.update(camera_metadata(self.agent, np.asarray(metadata["map_T_lidar"]).reshape(4, 4),
+                                            self.camera_calibration))
         timestamp_ns = metadata["timestamp_us"] * 1000
         header = SimpleNamespace(stamp=SimpleNamespace(sec=timestamp_ns // 10**9,
             nanosec=timestamp_ns % 10**9), frame_id=metadata["frame_id"])
@@ -633,6 +654,10 @@ class McapFrameReplay:
         frames = FoxgloveMcapReader(
             path, agent=self.agent, scene_generation=self.adapter.scene_generation,
             include_lidar=self.lidar_topic is not None or self.xyz_pose_sidecar is not None,
+            # XYZ sidecars record and validate the baseline camera; the replay
+            # calibration is re-applied after binding (see _deliver_xyz).
+            calibration=("baseline" if self.xyz_pose_sidecar is not None
+                         else self.camera_calibration or DEFAULT_CALIBRATION),
         )
         started = self.monotonic()
         first_timestamp = None
@@ -1373,12 +1398,17 @@ def main() -> None:
     parser.add_argument("--mcap-rate", type=float, default=1.0)
     parser.add_argument("--mcap-agent", default="1", help="Camera/LiDAR agent in Foxglove MCAPs")
     parser.add_argument("--mcap-start-sequence", type=int, default=0)
+    parser.add_argument("--mcap-camera-calibration", choices=("benchmark", "baseline"), default=DEFAULT_CALIBRATION,
+                        help="CooperScene camera calibration for replay projection/rendering")
     parser.add_argument("--localization-transform", type=Path)
     parser.add_argument("--stored-localization-transform", type=Path)
     parser.add_argument("--bbox-source", choices=("gt", "bevfusion"), default="gt")
     parser.add_argument("--bevfusion-endpoint")
     parser.add_argument("--bevfusion-score-threshold", type=float, default=0.2)
     parser.add_argument("--bevfusion-minimum-area-px", type=float, default=64.0)
+    parser.add_argument("--bevfusion-camera-calibration", choices=("baseline", "benchmark", "metadata"),
+                        default="baseline", help="CooperScene camera sent to BEVFusion (checkpoint trained "
+                        "with baseline); 'metadata' sends the replay camera unchanged")
     parser.add_argument("--bevfusion-continuation-score-threshold", type=float,
                         help="Minimum score for confirmed-track updates; defaults to the birth score")
     parser.add_argument("--bevfusion-minimum-confirmation-hits", type=int, default=1)
@@ -1495,6 +1525,8 @@ def main() -> None:
             minimum_confirmation_hits=args.bevfusion_minimum_confirmation_hits,
             suppress_duplicate_births=args.bevfusion_duplicate_birth_guard,
             maximum_reacquisition_seconds=args.bevfusion_maximum_reacquisition_seconds,
+            request_calibration=(None if args.bevfusion_camera_calibration == "metadata"
+                                 else args.bevfusion_camera_calibration),
         )
     localization_metrics = None
     localization_reference = None
@@ -1576,6 +1608,7 @@ def main() -> None:
                 start_sequence=args.mcap_start_sequence,
                 xyz_pose_sidecar=xyz_pose_sidecar,
                 await_detections=args.mcap_await_detections,
+                camera_calibration=args.mcap_camera_calibration,
             ).replay(args.mcap)
         while rclpy is None or rclpy.ok():
             if bevfusion is not None:

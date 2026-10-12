@@ -115,7 +115,7 @@ def test_xyz_metadata_export_accepts_and_propagates_without_reading_rejected_pro
     for index, row in enumerate(rows):
         pose = np.asarray(row['world_T_lidar'])
         np.testing.assert_array_equal(pose[:3,3], [10*index, 1 if index<3 else 2, 0])
-        np.testing.assert_array_equal(row['world_T_camera'], compose_map_T_camera(pose,camera_T_lidar(1)))
+        np.testing.assert_array_equal(row['world_T_camera'], compose_map_T_camera(pose,camera_T_lidar(1, 'baseline')))
         assert row['localization_xyz_error_m'] == (1 if index<3 else 2)
         for key in ('gt','reference_world_T_lidar','timestamp_us','frame_id','frame_index'):
             assert row[key] == original[index][key]
