@@ -1,7 +1,185 @@
 # CooperScene tracking pilot
 
-Current coverage is19 completed cases/6716 captures, with20 qualified sequences
-pending and241 remaining tail frames. All three Take14 agent windows now use
+## Paused handoff — 2026-10-12
+
+The user requested a pause. All owned inference containers and evaluation queues
+are stopped. Completed coverage is **23 cases / 7,417 captures**, with **16
+qualified sequences still pending**. The goal is incomplete; the stronger
+precision and per-ID coverage conditions remain unmet. No completed-case tails
+remain. The original three nonqualified cases are Take4/V3 and Take9/V1 (no
+registration-accepted frame), and Take7/V3 (best accepted XYZ0.116m).
+
+The authoritative current partial-camera snapshot is
+`artifacts/tracking-native-probe-summary-current23-7417-clipped-20261012/`;
+its pooled detection TP/FP/FN is26637/3671/6049 (87.89% precision,81.49% recall),
+and tracking28821/6053/3865 (82.64%/88.18%) over32686 GT observations.
+IDF1 is per case, never pooled. HistoricalFalse controls remain separately
+available at `artifacts/tracking-native-probe-summary-current23-7417-20261012/`.
+The all42 source/qualification/coverage ledger is
+`artifacts/tracking-sequence-coverage-ledger-current23-7417-20261012/`.
+
+### Current results and evaluation meaning
+
+The table uses clippedTrue and the explicit2s identity-reacquisition option.
+Matching is class-aware inclusive3D center2m, maximum-cardinality/minimum-distance
+Hungarian. Both GT and predictions use near-plane clipping at0.1m and at least
+16px² image intersection; partly offscreen boxes qualify. Native-reference
+LiDAR |x|,|y|≤54m bounds remain fixed. Errors are RMSE on matched pairs only.
+This is geometric camera eligibility, not certified optical visibility. IDF1
+is the supported geometric alternative described below, not official HOTA.
+
+XYZ errors measure agreement with the retained raw GNSS/INS ENU recipe, which
+also supplies initialization/fusion priors. They do not prove independent GT
+accuracy. V1 mounting composition applies across takes; its extra position
+correction applies only to Take3/V1. Never apply G directly to released ICP
+poses. Good position error alone does not certify orientation or object Up.
+
+| Case | Frames | Detection P/R % | Track P/R % | Ever D/T/GT | IDF1 | SW/frag | Detection XY/Up RMSE m | XYZ max m / ≥0.1 frames |
+|---|---:|---|---|---|---:|---|---|---|
+| take01-vehicle1 | 501 | 97.5/93.9 | 95.7/97.6 | 31/31/31 | 0.960 | 2/3 | 0.327/0.187 | 0.162 / 29 |
+| take01-vehicle2 | 301 | 96.9/88.4 | 94.0/90.9 | 19/19/20 | 0.916 | 3/1 | 0.399/0.288 | 0.046 / 0 |
+| take01-vehicle3 | 405 | 95.5/90.0 | 91.7/94.3 | 24/24/27 | 0.924 | 3/1 | 0.468/0.471 | 0.426 / 20 |
+| take02-vehicle1 | 864 | 84.7/80.8 | 79.6/93.5 | 40/40/41 | 0.784 | 14/13 | 0.764/0.423 | 0.109 / 3 |
+| take02-vehicle2 | 758 | 90.4/86.7 | 83.8/93.8 | 38/39/39 | 0.832 | 13/14 | 0.658/0.423 | 0.135 / 34 |
+| take02-vehicle3 | 134 | 86.7/80.2 | 79.8/82.9 | 15/15/16 | 0.803 | 6/5 | 0.758/0.607 | 0.066 / 0 |
+| take03-vehicle1 | 501 | 85.3/93.0 | 82.6/97.2 | 35/36/36 | 0.886 | 1/6 | 0.381/0.150 | 0.043 / 0 |
+| take03-vehicle2 | 132 | 97.7/89.7 | 93.3/94.3 | 21/21/22 | 0.938 | 1/1 | 0.442/0.222 | 0.210 / 22 |
+| take03-vehicle3 | 461 | 97.7/93.5 | 97.0/96.2 | 31/31/31 | 0.961 | 1/7 | 0.322/0.687 | 0.076 / 0 |
+| take04-vehicle1 | 70 | 89.2/84.5 | 82.3/88.3 | 14/14/14 | 0.852 | 0/0 | 0.583/0.255 | 0.093 / 0 |
+| take04-vehicle2 | 43 | 97.2/80.9 | 97.8/88.3 | 15/15/16 | 0.928 | 0/0 | 0.621/0.338 | 0.101 / 1 |
+| take05-vehicle1 | 89 | 97.7/86.6 | 94.0/91.7 | 17/17/17 | 0.921 | 1/2 | 0.375/0.195 | 0.099 / 0 |
+| take05-vehicle2 | 181 | 99.1/94.9 | 96.5/95.9 | 15/15/15 | 0.962 | 0/0 | 0.426/0.240 | 0.058 / 0 |
+| take05-vehicle3 | 120 | 98.1/84.7 | 94.7/89.3 | 9/9/9 | 0.898 | 1/1 | 0.696/0.588 | 1.196 / 71 |
+| take08-vehicle1 | 431 | 86.5/70.2 | 85.2/87.2 | 22/22/27 | 0.752 | 24/25 | 0.842/0.327 | 0.058 / 0 |
+| take08-vehicle2 | 430 | 95.6/81.1 | 94.5/83.1 | 21/22/28 | 0.868 | 3/9 | 0.631/0.137 | 0.168 / 60 |
+| take08-vehicle3 | 323 | 76.8/68.6 | 70.1/83.0 | 14/15/15 | 0.717 | 9/34 | 0.911/0.950 | 0.065 / 0 |
+| take13-vehicle1 | 316 | 82.8/63.4 | 73.3/77.3 | 17/18/20 | 0.643 | 12/18 | 0.836/0.441 | 0.069 / 0 |
+| take13-vehicle2 | 372 | 85.8/83.0 | 75.0/91.6 | 18/18/19 | 0.812 | 6/1 | 0.720/0.306 | 0.087 / 0 |
+| take13-vehicle3 | 44 | 74.9/65.7 | 68.7/68.1 | 9/9/9 | 0.642 | 1/5 | 0.947/0.835 | 0.064 / 0 |
+| take14-vehicle1 | 235 | 95.2/81.4 | 89.8/86.2 | 21/21/22 | 0.837 | 4/13 | 0.968/0.177 | 0.115 / 81 |
+| take14-vehicle2 | 401 | 81.3/75.1 | 69.4/76.6 | 24/24/25 | 0.639 | 0/18 | 0.786/0.157 | 0.073 / 0 |
+| take14-vehicle3 | 305 | 42.1/43.8 | 37.1/47.9 | 25/25/26 | 0.345 | 10/27 | 0.936/0.804 | 0.058 / 0 |
+
+### Findings, adopted changes and rejected trials
+
+- Native CooperScene inference uses the `bevfusion_single_lidarcam` checkpoint,
+  corrected sparse-convolution layout and exact574-tensor loading, original
+  frustum/image augmentation, raw XYZI with server-only intensity/65535, and
+  baseline LiDAR-camera extrinsics. Each fresh case binds actual sensor bytes,
+  calibration, clocks, poses, own200 raw proposals/frame and independent scores.
+  The nuScenes40-frame sanity probe gave car ATE0.165m with known calibration;
+  it is not a full paper reproduction. Paper IoU AP is not this center-distance
+  metric. Benchmark-adjusted extrinsics remain deferred; bounded calibration
+  contrasts did not establish a detection benefit.
+- Tracking already exists before rendering. Expiry before association, explicit
+  confirmation/continuation/birth guard and optional2s identity reacquisition
+  were implemented and checked. Reacquisition can improve IDs without changing
+  boxes. The pilot uses birth0.2/continuation0.1, one hit, guard on, coast0.5s;
+  production defaults remain continuation0.2/guard off unless explicitly set.
+  GT is never a detector or tracker input. Several confirmation, coast, motion,
+  covariance, duplicate, multisweep/peer-input, detector-postprocessing and crop
+  trials failed their fixed-input controls; detailed results remain below.
+- The latest prospective2s strong-update-age check found **zero scored TP or FP**
+  older than2s. It therefore did not run/adopt a variant. Some unscored filters
+  are older; changing them could affect later IDs without established benefit.
+  Evidence: `artifacts/tracking-primary-refresh-budget-probe-20261012/`.
+- Take8/V1's GT3/GT49 already have strong raw boxes within2m in every eligible
+  observation, but prediction camera filtering excludes them while GT survives
+  as right-edge slivers. GT11/13/16 share identical geometry at overlapping
+  frames; GT3/49 are nearly coincident. Take2/V2's sparse persistent unmatched
+  tracks likewise have uncertain camera/GT correspondence. No GT union,
+  exclusion, point-count filter or horizontal-only rematching was adopted.
+  These are annotation/projection limitations, not proof of physical absence.
+- Take5/V1 and V2 detect/track all17 and15 eligible IDs at least once. Their
+  matched detection XY/Up RMSE is0.375/0.195m and0.426/0.240m respectively;
+  all XYZ position errors are below0.1m. Take4/V1 also meets minimum14-ID coverage,
+  but GT49 detection1/11 and tracking2/11 fail stronger per-ID conditions.
+- **Take5/V3 is localization-limited**, retained in the pooled results rather
+  than excluded:71/120 positions ≥0.1m (5 accepted,66 propagated), maximum1.196m.
+  It was not one of the three original nonqualified cases; its archived best
+  qualified frame was0.049m. Last acceptance is native108/ordinal47, followed by
+ 7.2s propagation. The held-rotation/reference-motion identity explains1.271m
+  Up drift over76.6m movement. No propagation variant or localization refit ran;
+  following user steering, further investigation is deferred. This case does
+  not justify blaming detector height or grounding to repair pose errors.
+  Evidence: `artifacts/tracking-take5-vehicle3-pose-propagation-diagnostic-20261012/`.
+- Primitive assets replace SAM3/SAM3D. Shared asset and Gaussian scene depth
+  buffering was verified; the50.49m test asset had301 projected pixels, all
+  scene-hidden. Camera-containing car proxies are now transparent for rendering
+  only:20 actual containing proxies suppressed,96 unrelated buffers bitexact.
+  The non-containing near proxy at ordinal460 remains visible. All42 focused
+  proxy/compositor tests passed locally, Lambda and Gamma. Original scored
+  poses/heights stay intact.
+- Explicit frozen map-ground comparisons did **not** establish consistent visual
+  improvement. Grounding remains rendering-only and opt-in; unsupported surface
+  queries retain the incoming pose. XYZ replay preserves localized object height
+  by default. Grounding must not change localization or tracking score inputs.
+- ROS/Foxglove XYZ sidecars validate source identity, RGB/XYZI, K/extrinsics,
+  capture clocks and per-frame poses. Explicit missing-LiDAR NPZ supplements and
+  offline `--mcap-await-detections` support fixed lossless comparisons; default
+  latest-pending asynchronous replay remains unchanged. Actual301-frame MCAP
+  replay reproduced native geometry/IDs; it is not a10Hz real-time claim.
+- Future `pilot.py prepare --payload-compression-level 1` uses faster lossless
+  NPZ storage. Two actual payload controls verified byte-exact default files
+  and identical decoded model arrays at level1; sampled compression fell from
+  about0.32s to0.21s with <0.05% size increase. No inference/tracking gain is
+  claimed. Local and both remote imports passed; no dependencies changed.
+  Evidence: `artifacts/tracking-lossless-payload-compression-probe-20261012/`.
+
+### Exact stop state and resumption
+
+Take6/V1's **284 source captures are prepared, rebased and rechecked**, native
+237–520 / frames527717–528000. XYZ RMSE0.079255m, maximum0.097366m,143 accepted
+and141 propagated, all below0.1m. **Zero Take6 NN forwards, containers or scoring
+outputs were started.** Take6/V2 (415) and V3 (459) preparation is unstarted.
+Master session92362 exited73 at its deliberate pre-inference pause guard;
+master PID925226 and preparation PID925228 are terminal. Preserve the
+`USER_PAUSE` marker. Receipt and state are at
+`artifacts/tracking-take6-fresh1158-serial-20261012/pause-receipt.json` and
+`PAUSED.md`; prepared inputs are under
+`artifacts/tracking-take6-vehicle1-full284-native-20261012/`.
+
+Resume only after explicit user instruction. Start from **existing Take6/V1
+inference**, using its prepared/rechecked inputs; do not restart the master
+preparation or repeat completed NN. Remove the owned pause guard only as part
+of that authorized resumption, then evaluate/review V1 before continuing V2/V3.
+Keep start-frame policy, baseline calibration, learned weights, timestamps,
+thresholds, reference and heights fixed. Continue the remaining16 qualified
+sequences; retain all localization exceptions and flag localization-limited
+cases. Do not reopen height/trajectory/surface experiments or add SAM workers.
+Source mounts `/mnt/bcc-data/data/{Cooperscene,CooperScene}` remain read-only;
+write new artifact directories and launch only offline recording workflows.
+
+Deployment uses **rsync, no push**, to isolated checkout
+`/home/justin/Documents/CISL-Projects/RemoteTeleop-tracking-20261011` on
+`lambda-justin` (100.97.168.98,2×4090) and `gamma-justin`
+(100.70.20.114,RTX5080; not Alien3). Lambda uses `.venv/bin/python` with
+`PYTHONPATH=.tracking-site:.`; Gamma `.venv-render/run-python`.
+Their Git HEAD remains3ff95fbd19ca982d2d2680c539a76ff18bcb65e9; updated files
+are hash-verified. Existing services/queues and unrelated changes are preserved.
+The retained map/recipe/source and recovery provenance are in
+`artifacts/worktree-archive-20261011/RESTORE.md` and the current ledger.
+
+### Commit-history recovery
+
+The user requested squashing **consecutive documentation-only commits** from
+7bbc4b22374f2c1f0e576f16b7dffc0d716cd90b through this handoff. Feature and
+mixed code/documentation commits remain separate, with original feature patches
+and the final repository tree preserved. Original history is retained at
+`backup/tracking-before-squash-20261012` and
+`artifacts/goal-pause-20261012/pre-squash.bundle`; the old/new mapping and
+verification are in `artifacts/goal-pause-20261012/`. No history push is made.
+Unrelated `thirdparty/IsaacTeleop` changes and existing untracked directories
+remain untouched.
+
+The sections below retain the detailed investigation history, rejected controls,
+per-case provenance and labelled-video/PNG locations. The paused snapshot above
+is authoritative when an older section describes a smaller coverage window.
+
+---
+
+Current coverage is23 completed cases/7417 captures, with16 qualified sequences
+pending and no remaining tails in completed cases. All three Take14 agent windows now use
 the fixed earliest-qualified policy. V2's401 and V3's305 XYZ position errors
 are all below0.1m; V1 retains81 exceptions. Detection/tracking coverage targets
 remain unmet. On V3's same651 matched detector observations, nativeXY/Z error
@@ -9,14 +187,14 @@ is0.935/0.245m versus worldENU XY/Up0.936/0.804m: height disagreement includes
 substantial ego/reference rotation effects. Sensor-relative scores are a separate
 diagnostic, not an algorithm gain or a new localization baseline. Original
 scored heights remain unchanged; grounding is explicit and rendering-only.
-The current19-case partial-camera comparison is
-`artifacts/tracking-native-probe-summary-current19-6716-clipped-20261012/`:
-detection precision/recall87.25%/80.93%, tracking81.96%/87.80% across29861
+The current23-case partial-camera comparison is
+`artifacts/tracking-native-probe-summary-current23-7417-clipped-20261012/`:
+detection precision/recall87.89%/81.49%, tracking82.64%/88.18% across32686
 eligible GT observations. Counts are pooled; IDF1 remains per case. The prior
-18-case and19-case/full501/full758 snapshots are preserved unchanged. This uses
+18–20-case snapshots are preserved unchanged. This uses
 near-plane clipping and permits partly offscreen boxes. The historical unclipped
 comparison is preserved at
-`artifacts/tracking-native-probe-summary-current19-6716-20261012/`.
+`artifacts/tracking-native-probe-summary-current23-7417-20261012/`.
 These populations differ; the scoring change is not a model improvement.
 Take3/V1 now covers501 frames: every XYZ reference error is below0.043m,
 detection horizontal/vertical RMSE0.381/0.150m, and35/36 eligible IDs ever
