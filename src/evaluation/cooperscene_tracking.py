@@ -43,10 +43,14 @@ class EvaluationBox:
 class GeometricTrackingEvaluator:
     """Accumulate one or more independent sequences without mixing identities."""
 
-    def __init__(self, *, center_threshold_m: float = 2.0, identity_metrics: bool = True) -> None:
+    def __init__(self, *, center_threshold_m: float = 2.0, identity_metrics: bool = True, bev_only: bool = False) -> None:
         if not math.isfinite(center_threshold_m) or center_threshold_m <= 0:
             raise ValueError("center_threshold_m must be positive and finite")
         self.threshold = center_threshold_m
+        # BEV mode assumes a Z-up world: center distance and heading use only
+        # the horizontal X/Y components, so height and box size never matter.
+        self.bev_only = bev_only
+        self._axes = 2 if bev_only else 3
         self.identity_metrics = identity_metrics
         self.frames = self.tp = self.fp = self.fn = self.switches = self.fragments = 0
         self._gt_counts: Counter[tuple[str, str]] = Counter()
@@ -72,7 +76,7 @@ class GeometricTrackingEvaluator:
         for i, actual in enumerate(truth):
             for j, estimate in enumerate(predicted):
                 if actual.label == estimate.label:
-                    distance = float(np.linalg.norm(actual.world_T_object[:3, 3] - estimate.world_T_object[:3, 3]))
+                    distance = float(np.linalg.norm(actual.world_T_object[:self._axes, 3] - estimate.world_T_object[:self._axes, 3]))
                     if distance <= self.threshold:
                         distances[i, j] = distance
                         self._eligible[((sequence_id, actual.track_id), (sequence_id, estimate.track_id))] += 1
@@ -96,7 +100,7 @@ class GeometricTrackingEvaluator:
                 self.fragments += 1
                 self._interrupted.remove(key)
             self._last_match[key] = estimate.track_id
-            heading = math.degrees(math.acos(float(np.clip(abs(actual.world_T_object[:3, 0] @ estimate.world_T_object[:3, 0]), 0, 1))))
+            heading = math.degrees(math.acos(float(np.clip(abs(self._unit_heading(actual) @ self._unit_heading(estimate)), 0, 1))))
             match = {"gt_id": actual.track_id, "pred_id": estimate.track_id, "gt_index": i, "pred_index": j,
                      "center_error_m": float(distances[i, j]),
                      "dimension_abs_error_lwh_m": np.abs(actual.dimensions_lwh - estimate.dimensions_lwh).tolist(),
@@ -117,9 +121,13 @@ class GeometricTrackingEvaluator:
         return {"matches": matches, "missed_gt_indices": [i for i in range(len(truth)) if i not in matched_gt],
                 "false_positive_indices": [j for j in range(len(predicted)) if j not in matched_pred], "id_switches": switches if self.identity_metrics else []}
 
+    def _unit_heading(self, box: EvaluationBox) -> np.ndarray:
+        axis = box.world_T_object[:self._axes, 0]
+        return axis / max(float(np.linalg.norm(axis)), 1e-12)
+
     def summary(self) -> dict[str, Any]:
         result: dict[str, Any] = {
-            "protocol": {"geometry": "class-aware 3D center distance", "center_threshold_m": self.threshold,
+            "protocol": {"geometry": "class-aware BEV (world X/Y) center distance" if self.bev_only else "class-aware 3D center distance", "center_threshold_m": self.threshold,
                          "gate_inclusive": True, "assignment": "maximum cardinality then minimum distance Hungarian",
                          "heading": "length-axis angular error modulo 180 degrees",
                          "id_switch": "change from previous matched identity including across unmatched/absent gaps",

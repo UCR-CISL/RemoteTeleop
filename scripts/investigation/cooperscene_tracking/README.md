@@ -195,3 +195,38 @@ own `calculate_ap.py` (identical to 4 decimals on the smoke set). Frames keep
 `ego_pose` and `iter_sequences()` yields time-ordered (take, agent)
 sequences for a later world-frame tracking evaluation; note the info pkls carry
 no GT track IDs (native YAML IDs would be needed).
+
+## BEV tracking benchmark (`trackbench.py`)
+
+Replays the cached `batch_detect.py` detections through the production
+`BevFusionKalmanTracker` and scores the tracks horizontally only
+(`src/evaluation/cooperscene_tracking_bench.py`). `build-gt` caches native
+YAML vehicle IDs per frame (world and LiDAR boxes, pkl point counts) under
+`artifacts/trackbench-20261012/gt/`; the YAML boxes reproduce every info-pkl
+box exactly (center error < 1e-13 m, yaw ≤ 0.005 rad). Each (take, agent)
+sequence maps detections to the CARLA world with `pose_to_matrix(ego_pose)`
+and feeds all of them to the tracker (production label `car`, 10 Hz frame
+timestamps). Scoring uses `GeometricTrackingEvaluator(bev_only=True)` (2 m
+world X/Y center gate, no z or size) for MOTA/IDF1/IDSW/fragmentation/P/R/RMSE/
+heading, a TrackEval-equivalent HOTA with similarity `max(0, 1 - d/2 m)`, and
+MT/PT/ML (≥ 80 % / < 20 % of scored frames). Regions are `fov_r50` (primary:
+front camera, benchmark calibration, ≤ 50 m), `all_r50` and `all` (±72 m),
+each with all GT or GT with ≥ 5 LiDAR points. The ego vehicle's own GT box
+(contains the LiDAR origin, ~0 points; present in many pkl frames) and
+non-scored GT are ignore regions: outputs matched to them are dropped and
+unmatched outputs count only inside the region. Sequences run in parallel
+(one config over test+val, all regions: ~12 s on 32 cores).
+
+```bash
+.venv/bin/python -m scripts.investigation.cooperscene_tracking.trackbench build-gt
+.venv/bin/python -m scripts.investigation.cooperscene_tracking.trackbench evaluate \
+  --variants A C --birth 0.2 --continuation 0.1 --coast 0.5 --reacquisition 2 --guard
+.venv/bin/python -m scripts.investigation.cooperscene_tracking.trackbench study
+```
+
+`study` evaluates the production defaults and the prior pilot config, raw
+per-frame detections at the val best-F1 threshold, a staged val-only sweep
+(score thresholds × confirmation hits, then coast × reacquisition × guard,
+then score thresholds again; selection by IDF1 + HOTA on `fov_r50`), the
+selected config on held-out test, and failure-cause counts. Results:
+`artifacts/trackbench-20261012/summary.md` and `study.json`.
