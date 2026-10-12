@@ -89,13 +89,16 @@ class LatestBevFusionBoxes:
     def latest_sequence(self) -> int | None:
         return self._latest_sequence
 
-    def receive_metadata(self, payload: Mapping[str, Any], sequence: int) -> None:
+    def receive_metadata(self, payload: Mapping[str, Any], sequence: int) -> tuple[int, int] | None:
         self._poll()
         value = dict(payload)
         value["source_sequence"] = sequence
         timestamp = _non_negative_int(value.get("timestamp_us"), "timestamp_us")
         self._metadata[timestamp] = value
+        image = self._images.get(timestamp)
+        image_shape = None if image is None else image.shape[:2]
         self._try_submit(timestamp)
+        return image_shape
 
     def receive_image(self, message: Any) -> None:
         timestamp = _timestamp_us(message)
@@ -179,6 +182,31 @@ class LatestBevFusionBoxes:
     def poll(self) -> None:
         """Process ready inference and latest pending work without publishing frames."""
         self._poll()
+
+    def wait_for_sequence(self, sequence: int, *, timeout_seconds: float = 30.0,
+                          monotonic: Any = time.monotonic, sleep: Any = time.sleep) -> None:
+        """Bounded offline wait for this capture; polling never publishes frames."""
+        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
+            raise ValueError("detector sequence must be a nonnegative integer")
+        if not np.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ValueError("detector wait timeout must be finite and positive")
+        deadline = monotonic() + timeout_seconds
+        while True:
+            if self.error_count:
+                raise RuntimeError("BEVFusion failed while awaiting offline capture")
+            if self.latest_sequence == sequence:
+                return
+            if self.latest_sequence is not None and self.latest_sequence > sequence:
+                raise RuntimeError("BEVFusion skipped the awaited capture")
+            self.poll()
+            if self.error_count:
+                raise RuntimeError("BEVFusion failed while awaiting offline capture")
+            if self.latest_sequence == sequence:
+                return
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"BEVFusion capture {sequence} did not complete")
+            sleep(min(remaining, .01))
 
     def _poll(self) -> None:
         result = self.client.poll()
@@ -401,9 +429,28 @@ class McapFrameReplay:
         reader_factory: Any = None,
         agent: str = "1",
         start_sequence: int = 0,
+        xyz_pose_sidecar: Any = None,
+        await_detections: bool = False,
     ) -> None:
         if isinstance(start_sequence, bool) or not isinstance(start_sequence, int) or start_sequence < 0:
             raise ValueError("start_sequence must be a non-negative integer")
+        self.await_detections = await_detections
+        if await_detections and (xyz_pose_sidecar is None or adapter.bevfusion is None
+                                 or adapter.config.bbox_source != "bevfusion"):
+            raise ValueError("await detections requires XYZ sidecar replay with BEVFusion")
+        self.xyz_pose_sidecar = xyz_pose_sidecar
+        if xyz_pose_sidecar is not None:
+            if start_sequence not in (0, xyz_pose_sidecar.start_index):
+                raise ValueError("XYZ sidecar range conflicts with start_sequence")
+            if expected_samples is not None and expected_samples != len(xyz_pose_sidecar.frames):
+                raise ValueError("XYZ sidecar expected_samples/range mismatch")
+            config = adapter.config
+            if (config.gaussian_T_cooperscene is not None or config.gaussian_T_nuscenes_global is not None
+                    or adapter.localization_metrics is not None):
+                raise ValueError("XYZ sidecar cannot combine with static relocalization/metrics")
+            if getattr(adapter.analysis_assembler, "localizer", None) is not None:
+                raise ValueError("XYZ sidecar cannot combine with an online localizer")
+            start_sequence = xyz_pose_sidecar.start_index
         self.start_sequence = start_sequence
         if rate <= 0:
             raise ValueError("MCAP replay rate must be positive")
@@ -439,6 +486,8 @@ class McapFrameReplay:
             remaining = target - self.monotonic()
 
     def replay(self, path: Path) -> None:
+        if self.xyz_pose_sidecar is not None:
+            self.xyz_pose_sidecar.validate_mcap(path, self.agent)
         metadata_count = 0
         image_count = 0
         lidar_count = 0
@@ -452,6 +501,9 @@ class McapFrameReplay:
                 schema.name == "foxglove.CompressedImage" for schema in summary.schemas.values()
             ):
                 self._replay_foxglove(path)
+                return
+            if self.xyz_pose_sidecar is not None:
+                self._replay_xyz_ros(reader, summary)
                 return
             if self.start_sequence:
                 raise ValueError("nonzero start_sequence requires a Foxglove MCAP")
@@ -504,12 +556,83 @@ class McapFrameReplay:
             self.adapter.analysis_assembler.raise_if_failed()
 
 
+    def _deliver_xyz(self, index, metadata, image_bgr, lidar_points):
+        metadata, points = self.xyz_pose_sidecar.bind(index, metadata, image_bgr, lidar_points)
+        timestamp_ns = metadata["timestamp_us"] * 1000
+        header = SimpleNamespace(stamp=SimpleNamespace(sec=timestamp_ns // 10**9,
+            nanosec=timestamp_ns % 10**9), frame_id=metadata["frame_id"])
+        h, w = image_bgr.shape[:2]
+        image = _McapImage(header, h, w, w * 3, "bgr8", image_bgr.tobytes())
+        self.adapter.analysis_assembler.receive_image(image)
+        if self.adapter.bevfusion is not None:
+            self.adapter.bevfusion.receive_image(image)
+            self.adapter.bevfusion.receive_lidar(_McapPointCloud(header, points))
+        self.adapter.receive_metadata(metadata, wait_for_bevfusion=self.await_detections)
+
+    def _replay_xyz_ros(self, reader, summary):
+        """Join exact original indices; supplemental LiDAR is explicit in the sidecar."""
+        sidecar = self.xyz_pose_sidecar
+        topics = [self.image_topic, self.metadata_topic]
+        contained_lidar = self.lidar_topic is not None and summary is not None and any(
+            c.topic == self.lidar_topic for c in summary.channels.values())
+        if contained_lidar:
+            topics.append(self.lidar_topic)
+        pending = {}
+        count = 0
+        started = self.monotonic()
+        first_log_time = None
+        previous_log_time = None
+        for schema, channel, message in reader.iter_messages(topics=topics, log_time_order=False):
+            index = message.sequence
+            if index < sidecar.start_index:
+                continue
+            if index > sidecar.end_index:
+                break
+            _validate_mcap_record(channel.topic, channel, schema, image_topic=self.image_topic,
+                                  metadata_topic=self.metadata_topic, lidar_topic=self.lidar_topic)
+            if previous_log_time is not None and message.log_time < previous_log_time:
+                raise ValueError("XYZ MCAP records are not in nondecreasing log-time order")
+            previous_log_time = message.log_time
+            row = pending.setdefault(index, {})
+            if len(pending) > 8:
+                raise ValueError("unbalanced XYZ source frame streams")
+            key = ("image" if channel.topic == self.image_topic else
+                   "metadata" if channel.topic == self.metadata_topic else "lidar")
+            if key in row:
+                raise ValueError("duplicate XYZ source sensor record")
+            if key == "image":
+                image = _decode_mcap_image(message.data)
+                row[key] = _ros_image_to_bgr(image)
+                row["image_timestamp_us"] = _timestamp_us(image)
+            elif key == "metadata":
+                row[key] = json.loads(_decode_mcap_string(message.data))
+            else:
+                cloud = _decode_mcap_point_cloud2(message.data)
+                row[key] = cloud.points
+                row["lidar_timestamp_us"] = _timestamp_us(cloud)
+            if first_log_time is None:
+                first_log_time = message.log_time
+                # Reading the skipped prefix is outside selected-frame playback.
+                started = self.monotonic()
+            self._wait_until(started + (message.log_time - first_log_time) / 1e9 / self.rate)
+            if "image" in row and "metadata" in row and (not contained_lidar or "lidar" in row):
+                if row["image_timestamp_us"] != row["metadata"]["timestamp_us"] or (contained_lidar and
+                        row["lidar_timestamp_us"] != row["metadata"]["timestamp_us"]):
+                    raise ValueError("XYZ ROS recorded sensor clock mismatch")
+                self._deliver_xyz(index, row["metadata"], row["image"], row.get("lidar"))
+                del pending[index]
+                count += 1
+        sidecar.finish()
+        if pending or (self.expected_samples is not None and count != self.expected_samples):
+            raise RuntimeError("XYZ replay range/count incomplete")
+        self.adapter.analysis_assembler.raise_if_failed()
+
     def _replay_foxglove(self, path: Path) -> None:
         from src.data.foxglove_mcap import FoxgloveMcapReader
 
         frames = FoxgloveMcapReader(
             path, agent=self.agent, scene_generation=self.adapter.scene_generation,
-            include_lidar=self.lidar_topic is not None,
+            include_lidar=self.lidar_topic is not None or self.xyz_pose_sidecar is not None,
         )
         started = self.monotonic()
         first_timestamp = None
@@ -518,12 +641,20 @@ class McapFrameReplay:
         for frame in frames:
             if frame.sequence < self.start_sequence:
                 continue
+            if self.xyz_pose_sidecar is not None and frame.sequence > self.xyz_pose_sidecar.end_index:
+                break
             if first_timestamp is None:
                 first_timestamp = frame.timestamp_ns
                 first_metadata_timestamp_us = int(frame.metadata["timestamp_us"])
                 started = self.monotonic()
             target = started + (frame.timestamp_ns - first_timestamp) / 1e9 / self.rate
             self._wait_until(target)
+            if self.xyz_pose_sidecar is not None:
+                if frame.lidar_points is None:
+                    raise ValueError("XYZ Foxglove replay requires contained LiDAR")
+                self._deliver_xyz(frame.sequence, frame.metadata, frame.image_bgr, frame.lidar_points)
+                count += 1
+                continue
             metadata = dict(frame.metadata)
             metadata["recorded_source_sequence"] = frame.sequence
             metadata["recorded_timestamp_us"] = metadata["timestamp_us"]
@@ -543,6 +674,8 @@ class McapFrameReplay:
                     self.adapter.bevfusion.receive_lidar(_McapPointCloud(header, frame.lidar_points))
             self.adapter.receive_metadata(metadata)
             count += 1
+        if self.xyz_pose_sidecar is not None:
+            self.xyz_pose_sidecar.finish()
         if self.expected_samples is not None and count != self.expected_samples:
             raise RuntimeError(f"expected {self.expected_samples} MCAP frames, got {count}")
         self.adapter.analysis_assembler.raise_if_failed()
@@ -817,7 +950,8 @@ class RosFrameAdapter:
         return self._scene_generation
 
     def receive_metadata(
-        self, message: str | Mapping[str, Any] | Any, *, arrival_ns: int | None = None
+        self, message: str | Mapping[str, Any] | Any, *, arrival_ns: int | None = None,
+        wait_for_bevfusion: bool = False,
     ) -> EgoPoseSample:
         """Publish one sample in ROS callback order.
 
@@ -869,8 +1003,19 @@ class RosFrameAdapter:
                 reference_pose=reference_pose,
                 map_R_dataset=self.localization_reference_transform[:3, :3],
             )
+        image_shape = None
+        # Validate the capture poses before submitting any deterministic offline work.
+        if wait_for_bevfusion:
+            if self.bevfusion is None or self.config.bbox_source != "bevfusion":
+                raise ValueError("offline detector wait requires BEVFusion")
+            _rigid_matrix(payload.get("map_T_lidar", payload.get("world_T_ego")), "map_T_lidar")
+            _rigid_matrix(payload.get("world_T_camera"), "world_T_camera")
+            image_shape = self.bevfusion.receive_metadata(payload, self._next_sequence)
+            if image_shape is None:
+                raise ValueError("offline detector wait requires a joined image")
+            self.bevfusion.wait_for_sequence(self._next_sequence)
         boxes = (
-            self.bevfusion.boxes_for(dict(payload, **common))
+            self.bevfusion.boxes_for(dict(payload, **common), image_shape=image_shape)
             if self.bevfusion is not None else _box_prompts(payload.get("boxes", ()))
         )
         detections = FrameObjectDetections(**common, boxes=boxes)
@@ -889,7 +1034,7 @@ class RosFrameAdapter:
         analysis_payload["boxes"] = [box.to_dict() for box in boxes]
         if self.analysis_assembler is not None:
             self.analysis_assembler.receive_metadata(analysis_payload, self._next_sequence)
-        if self.bevfusion is not None:
+        if self.bevfusion is not None and not wait_for_bevfusion:
             self.bevfusion.receive_metadata(payload, self._next_sequence)
         self.publisher.send(detections)
         self.publisher.send(pose)
@@ -1223,6 +1368,8 @@ def main() -> None:
     parser.add_argument("--image-topic", default="/camera/image_raw")
     parser.add_argument("--lidar-topic", default="/lidar/points")
     parser.add_argument("--mcap", type=Path)
+    parser.add_argument("--mcap-await-detections", action="store_true", help="Offline XYZ replay: wait for each current capture before publishing")
+    parser.add_argument("--xyz-pose-sidecar", type=Path, help="Offline-only verified per-frame XYZ poses and sensor identity")
     parser.add_argument("--mcap-rate", type=float, default=1.0)
     parser.add_argument("--mcap-agent", default="1", help="Camera/LiDAR agent in Foxglove MCAPs")
     parser.add_argument("--mcap-start-sequence", type=int, default=0)
@@ -1231,6 +1378,7 @@ def main() -> None:
     parser.add_argument("--bbox-source", choices=("gt", "bevfusion"), default="gt")
     parser.add_argument("--bevfusion-endpoint")
     parser.add_argument("--bevfusion-score-threshold", type=float, default=0.2)
+    parser.add_argument("--bevfusion-minimum-area-px", type=float, default=64.0)
     parser.add_argument("--bevfusion-continuation-score-threshold", type=float,
                         help="Minimum score for confirmed-track updates; defaults to the birth score")
     parser.add_argument("--bevfusion-minimum-confirmation-hits", type=int, default=1)
@@ -1256,6 +1404,18 @@ def main() -> None:
         "--analysis-spool-root", type=Path, default=Path("artifacts/vehicle_analysis")
     )
     args = parser.parse_args()
+    if not np.isfinite(args.bevfusion_minimum_area_px) or args.bevfusion_minimum_area_px <= 0:
+        parser.error("--bevfusion-minimum-area-px must be finite and positive")
+    if args.mcap_await_detections and (args.mcap is None or args.xyz_pose_sidecar is None or args.bbox_source != "bevfusion"):
+        parser.error("--mcap-await-detections requires MCAP, XYZ sidecar and BEVFusion")
+    if args.xyz_pose_sidecar is not None:
+        if args.mcap is None or any((args.localization_transform, args.stored_localization_transform,
+                args.localization_metrics_path, args.localization_reference_transform)):
+            parser.error("--xyz-pose-sidecar requires offline MCAP without static relocalization/metrics")
+        from src.data.xyz_pose_sidecar import VerifiedXYZPoseSidecar
+        xyz_pose_sidecar = VerifiedXYZPoseSidecar(args.xyz_pose_sidecar)
+    else:
+        xyz_pose_sidecar = None
     if args.queue_depth <= 0:
         parser.error("--queue-depth must be positive")
     if args.high_water_mark <= 0:
@@ -1330,6 +1490,7 @@ def main() -> None:
         bevfusion = LatestBevFusionBoxes(
             _open_bevfusion_client(args.bevfusion_endpoint),
             score_threshold=args.bevfusion_score_threshold,
+            minimum_area_px=args.bevfusion_minimum_area_px,
             continuation_score_threshold=args.bevfusion_continuation_score_threshold,
             minimum_confirmation_hits=args.bevfusion_minimum_confirmation_hits,
             suppress_duplicate_births=args.bevfusion_duplicate_birth_guard,
@@ -1413,6 +1574,8 @@ def main() -> None:
                 rate=args.mcap_rate,
                 agent=args.mcap_agent,
                 start_sequence=args.mcap_start_sequence,
+                xyz_pose_sidecar=xyz_pose_sidecar,
+                await_detections=args.mcap_await_detections,
             ).replay(args.mcap)
         while rclpy is None or rclpy.ok():
             if bevfusion is not None:

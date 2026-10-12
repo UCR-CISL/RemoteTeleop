@@ -134,3 +134,50 @@ These are simulated workload results, not measured GPU latency. At300ms, stale
 observations often exceed the existing0.5s coast limit. No automatic queue, coast,
 replay-rate or detector-threshold changes are applied. See the tracking pilot
 report and `artifacts/tracking-take2-delayed-adapter-trial-20261011/`.
+
+Verified per-frame XYZ replay is opt-in through `--xyz-pose-sidecar path.json`
+with `--mcap`. The version1 sidecar declares take/agent, MCAP name/size/mtime
+(optional streaming SHA256), recipe/map/input provenance, exact BGR image width/height, baseline K, image dimensions and
+camera-from-LiDAR extrinsic, and a contiguous original source-index/frame-ID
+range. Each row supplies a rigid `world_T_lidar`, exact original LiDAR/image
+capture timestamps, recorded replay timestamp, and decoded BGR/XYZI SHA256.
+It contains no GT or reference poses. Camera pose is XYZ LiDAR pose composed
+with the inverse baseline extrinsic; ego remains explicitly the LiDAR alias.
+
+The sidecar range selects the start/end for ROS-CDR and Foxglove recordings;
+no missing-frame, nearest-frame or released-pose fallback is allowed. Recorded
+MCAP times pace playback, while detector/tracker/publications preserve the
+original LiDAR capture clock and scored XYZ heights. Actual decoded K/extrinsic
+and sensor byte hashes must match before delivery. ROS MCAPs lacking LiDAR need
+an explicit per-row `points_npz` path/checksum supplement; this is native source
+LiDAR, not a claim that the recording contained it. Foxglove replay requires
+and validates the contained point cloud. Static relocalization, localization
+metrics and online localizers cannot be combined with sidecar replay.
+
+The sidecar loader is `src/data/xyz_pose_sidecar.py`; a verified GT-free example
+builder is in `artifacts/tracking-take1-vehicle2-xyz-mcap-replay-20261012/`.
+For the evaluated geometric coverage policy, explicitly pass
+`--bevfusion-minimum-area-px 16 --bevfusion-score-threshold 0.2` with
+`--bbox-source bevfusion` and the intended detector endpoint. The scored native
+pilot uses `--bevfusion-continuation-score-threshold 0.1` and
+`--bevfusion-duplicate-birth-guard`, one-hit confirmation and 0/2s identity
+reacquisition. Its “baseline” label means zero reacquisition, not unmodified
+production tracker settings. Omit these controls to use production defaults
+(continuation0.2, guard off); the area default remains64 pixels squared. No rendering grounding is
+implicitly enabled. This opt-in path does not validate arbitrary historical
+MCAP calibration or prove independent absolute localization accuracy.
+
+The ROS sidecar path starts its playback clock at the first selected record,
+after reading the skipped prefix. Prefix I/O cannot force the selected window
+into catch-up playback. This pacing rule has a regression test; capture timestamps
+used for tracker motion remain the original LiDAR timestamps.
+
+For deterministic offline comparison, additionally pass
+`--mcap-await-detections`. This requires MCAP + verified XYZ sidecar +
+`--bbox-source bevfusion`. Each fully joined capture is submitted once; the
+adapter polls until that capture's result arrives before publishing its normal
+snapshot and analysis frame. A detector error or30-second timeout aborts the
+run. Original capture timestamps, poses and heights remain unchanged; delayed
+wall-clock delivery can exceed the recorded cadence. This is an explicit
+lossless comparison policy, not a10Hz or real-time guarantee. Omitting the flag
+retains normal nonblocking latest-pending replay and live callbacks unchanged.

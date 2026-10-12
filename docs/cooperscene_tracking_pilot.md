@@ -9,13 +9,14 @@ is0.935/0.245m versus worldENU XY/Up0.936/0.804m: height disagreement includes
 substantial ego/reference rotation effects. Sensor-relative scores are a separate
 diagnostic, not an algorithm gain or a new localization baseline. Original
 scored heights remain unchanged; grounding is explicit and rendering-only.
-The preserved16-case partial-camera comparison is
-`artifacts/tracking-native-probe-summary-current16-full501-clipped-20261012/`:
-detection precision/recall83.96%/77.65%, tracking78.12%/85.31% across21767
-eligible GT observations. Counts are pooled; IDF1 remains per case. This uses
+The current17-case partial-camera comparison is
+`artifacts/tracking-native-probe-summary-current17-full501-clipped-20261012/`:
+detection precision/recall85.01%/78.54%, tracking79.29%/85.77% across23719
+eligible GT observations. Counts are pooled; IDF1 remains per case. The prior
+16-case snapshot is preserved unchanged. This uses
 near-plane clipping and permits partly offscreen boxes. The historical unclipped
 comparison is preserved at
-`artifacts/tracking-native-probe-summary-current16-full501-20261012/`.
+`artifacts/tracking-native-probe-summary-current17-full501-20261012/`.
 These populations differ; the scoring change is not a model improvement.
 Take3/V1 now covers501 frames: every XYZ reference error is below0.043m,
 detection horizontal/vertical RMSE0.381/0.150m, and35/36 eligible IDs ever
@@ -3607,10 +3608,10 @@ A bounded real-record parser→explicit artifact XYZ join→public adapter test 
 passes, with GT removed and two synthetic vehicle responses used only to check
 persistent-ID publication. It is not inference or tracking accuracy evidence.
 
-Production MCAP replay still lacks a verified per-frame XYZ pose consumer. The
-static transform option cannot reproduce the scored raw-GNSS/INS policy, and
-the ROS branch currently rejects nonzero start sequence. This integration gap
-remains open; native-payload accuracy does not certify actual MCAP replay.
+At that bounded audit, production MCAP replay lacked a verified per-frame XYZ
+pose consumer and rejected a nonzero ROS start. The opt-in implementation and
+actual-record validation below now address this gap; older static-transform
+manifests still do not reproduce the scored raw-GNSS/INS policy.
 
 
 ### Full Take1/V2 fixed-start evaluation
@@ -3646,3 +3647,119 @@ unmatched tracks are in
 `artifacts/tracking-take1-vehicle2-tracking-overlays-20261012/`. They preserve
 original scored poses/heights and show camera plus LiDAR diagnostics; wireframe
 projection does not certify optical visibility or scene-depth occlusion.
+
+
+### Verified XYZ sidecar replay and actual detector transport
+
+Offline MCAP replay now accepts `--xyz-pose-sidecar`, implemented by
+`src/data/xyz_pose_sidecar.py` and the existing `McapFrameReplay`. It selects a
+strict contiguous source-index/frame-ID range for ROS-CDR or Foxglove, replaces
+recorded poses with verified XYZ poses before detector delivery, and preserves
+original LiDAR/image capture timestamps separately from playback pacing.
+Baseline K/extrinsics, image dimensions/dtype and RGB/XYZI hashes are checked;
+GT/reference metadata is excluded. Missing frames and incompatible static
+relocalization/self-scoring combinations fail rather than silently falling back.
+The local Take1/V2 ROS file's native LiDAR supplement is explicitly declared;
+Foxglove replay requires the recorded cloud. Heights remain unchanged.
+
+`artifacts/tracking-take1-vehicle2-xyz-mcap-replay-20261012/` supplies GT-free
+2/20/301-frame sidecars, the source builder and actual-record replay receipts.
+On stable source, actual MCAP parser/public-adapter replay of all301 frames in
+both tracker modes matches saved physical requests and tracker states, including
+IDs, dimensions, scores and poses. Cached responses make this integration
+validation, not new accuracy or throughput evidence.
+
+A separate actual MCAP→public client→private IPC→native GPU detector test runs
+two fresh forwards. Both frames481460/481461 reproduce all200 ordered proposals
+per frame bitexact, including centers, dimensions, yaw and confidence. Strict574
+weights, the sparse-convolution fix, original frustum, baseline calibration and
+single-scan intensity handling are preserved. The successful container exits0;
+a failed diagnostic logger attempt is retained separately (one forward), for
+three total forwards across attempts and zero warmups.
+
+Both camera publications in this short live detector check precede any completed
+response; replies arrive during EOF drain, with no invented future publication.
+This check preceded the selected-clock correction: prefix reading consumed
+playback time and could burst the selected ROS frames. Playback now starts at
+the first selected record, matching the existing Foxglove policy.
+It verifies actual sensor/model transport, but does not establish timely rendered
+tracks or real-time throughput. A longer capture-paced check remains necessary.
+Defaults and primary detection/tracking scores are unchanged. The optional
+`--bevfusion-minimum-area-px 16` reproduces the declared coverage area; default64
+remains unchanged. All79 focused replay/sidecar tests pass locally, on Lambda and
+on Gamma. Code and docs are rsynced to isolated repositories; active queues and
+remote HEADs remain unchanged.
+
+For reproducibility, the native scored pilot and its cached/live IPC fixture use
+birth confidence0.2, continuation0.1, duplicate-birth guard enabled, one-hit
+confirmation and0.5s coast; baseline/reacquisition labels select0/2s identity
+reuse. These are explicit pilot controls, distinct from untouched production
+defaults (continuation0.2, guard off). Scores remain unchanged. The pacing
+correction has80 passing focused tests; a20-frame capture-paced live detector
+check is being prepared without changing model, inputs or tracker parameters.
+
+
+### Actual20-frame capture-paced publication check
+
+`artifacts/tracking-take1-vehicle2-xyz-mcap-paced20-20261012/` reruns the same
+first20 fixed-start captures through the real MCAP parser/public adapter/private
+native detector socket after the selected-clock correction. All20 input callbacks
+are retained; only15 requests are served because the normal latest-only pending
+queue replaces five. Zero warmups and model errors; the owned container and
+scoring finish successfully. All15 served physical requests and own raw200
+normalization controls pass. Eight ordered raw outputs are bitexact; seven have
+small numerical/reordering differences, with GT-free paired-center maximum
+6.21mm. This is descriptive drift, not adoption of a new accuracy tolerance.
+
+| Same20 source captures | Published asynchronous tracks | Cached serial tracks |
+|---|---:|---:|
+| TP/FP/FN |61/2/46|83/1/24|
+| Precision/recall |96.83%/57.01%|98.81%/77.57%|
+| Geometric IDF1 |0.71765|0.86911|
+| Switches/fragmentations |0/4|0/0|
+| Matched XYZ RMSE |0.29505m|0.29280m|
+
+Median callback interval is100.198ms (92.642–106.231ms), with selected-record
+callback lateness14.9–22.3ms. Cold first inference takes341.371ms, versus steady
+median55.121ms. Submit-to-poll median is115.799ms; published source age is
+median200.139ms, maximum500.423ms. Captures0/1/2/3/5 publish empty boxes; replies
+for18/19 arrive only during EOF drain, without invented future publications.
+These are observed bounded cold-start/pilot-policy timings, not a deployment
+throughput guarantee. The mocked analysis sink excludes actual JPEG/spool cost.
+
+This identifies a concrete publication-availability failure independent of
+localization/height: prediction geometry stays close to the serial reference,
+but missing/stale results reduce recall and add fragmentations. The next offline
+improvement is an explicit mode that awaits each joined capture's detector result
+before publishing that capture. Nonblocking production defaults remain separate;
+model, inputs, GT matching and scored heights must remain fixed in comparison.
+
+
+### Offline current-capture publication improvement
+
+The new opt-in `--mcap-await-detections` addresses the measured availability
+loss. It requires verified XYZ MCAP replay with BEVFusion and submits each joined
+capture once before normal snapshot publication. A bounded wait polls for the
+current result; detector errors or a30s timeout abort. Image shape is retained
+before submission consumes the sensor buffer, so current-result projection and
+real analysis-spool delivery remain valid. Default live/nonblocking behavior is
+unchanged. No model, calibration, source pose, height or GT threshold changes.
+
+`artifacts/tracking-take1-vehicle2-xyz-mcap-awaited20-20261012/` reruns exactly
+the same20 captures with this flag and fresh native inference. All20 requests
+are served, with zero replacements, warmups or errors. Every publication carries
+its current result (source age0ms); tracks give83/1/24 TP/FP/FN, precision98.81%,
+recall77.57%, IDF1 0.869110 and zero switches/fragmentations. These match serial
+reference counts/IDs, versus asynchronous61/2/46, recall57.01%, IDF1 0.717647
+and four fragmentations. XYZ RMSE is0.292791m versus serial0.292799m. The gain is
+publication availability, not new detector accuracy; underlying misses persist.
+
+Wall-clock selected-record to final publication is3.143s for1.900s of captures;
+median callback interval145.695ms and blocking129.626ms. Cold inference335.811ms
+and steady median54.960ms are reported separately. It is an offline correctness
+policy, not a10Hz guarantee. All physical requests/own raw normalization pass;
+nine of20 ordered raw outputs are bitexact, with remaining numerical/reordering
+drift reported separately rather than hidden by an adopted tolerance. The owned
+container and scoring exit0; earlier asynchronous and failed-attempt artifacts
+remain unchanged. Independent code/receipt review passes. All88 focused tests
+pass locally; deployment verification uses the same focused suite on both hosts.
