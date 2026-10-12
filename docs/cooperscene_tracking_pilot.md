@@ -1750,3 +1750,97 @@ intermediate sweeps before keyframe records. Keyframe-only indexing now prevents
 that choice; all 40 scene-0103 LiDAR/front-camera links are verified keyframes,
 with sample timestamps equal to LiDAR timestamps. Twenty focused loader/export/
 adapter/MCAP tests pass. Inference and its accuracy remain to be measured.
+
+### nuScenes checkpoint control results, 2026-10-12
+
+The same 40 scene-0103 keyframes were evaluated with the legacy converted
+nuScenes checkpoint and an official MMDetection3D checkpoint for the native
+six-camera BEVFusion configuration. Each condition also evaluates one front
+camera with identical native multi-sweep points. GT, calibration, exposure
+poses, score >=0.2, inclusive 2m XYZ matching and geometric-front policy remain
+fixed; neither height nor heading is fitted to GT.
+
+| Front vehicles | Precision / recall | XYZ RMSE | Directed yaw MAE |
+|---|---:|---:|---:|
+| Legacy converted, six cameras |90.14% / 65.92%|0.8756m|160.40deg under cuboid-equivalent +90deg axes|
+| Official compatible, six cameras |89.14% / 67.41%|0.3667m|4.35deg|
+| Official compatible, one front camera |88.78% / 66.92%|0.3511m|4.59deg|
+
+Official outputs use their native gravity center, LWH and directed yaw without
+axis changes. Their mean front-vehicle LiDAR-Z errors are +0.0327m and +0.0215m,
+compared with approximately +0.8m for the legacy weights. Recall still fails the
+prospective 80% target. All 402 geometric-front GT observations remain included,
+including 59 with zero LiDAR and radar points; physical occlusion is not filtered.
+These are fixed-score one-scene diagnostics, not official nuScenes AP/NDS or
+paper reproduction. The legacy run used Lambda's pinned image; the official run
+used the local runtime, so this is not a replicated weight-only causal estimate.
+
+The first official run is invalid because tolerant initialization skipped 21
+incompatible sparse-convolution kernels. Its outputs are preserved separately
+and excluded from accuracy conclusions. A source-supported kernel-axis
+permutation produces a separate compatible checkpoint; all 582 parameter keys,
+shapes and copied tensor values are verified before the valid 80 forwards. The
+original checkpoint remains unchanged. An independent recount reproduces all
+80 prediction sets, geometric matches, counts and pose errors.
+
+The sidecar now enforces strict checkpoint loading before constructing its
+pipeline or serving detections. CPU checks pass for legacy and compatible
+nuScenes weights, reject incompatible official weights, and verify the retained
+CooperScene checkpoint in its pinned runtime (574 keys). This four-line source
+change was rsynced to Lambda and Gamma without moving their Git HEADs or
+restarting services. CooperScene weights, calibration and XYZ policy are unchanged.
+
+Evidence: `artifacts/tracking-nuscenes-scene0103-native-trial-20261012/`,
+`artifacts/tracking-nuscenes-official-native-checkpoint-20261012/`,
+`artifacts/tracking-nuscenes-scene0103-official-native-retry-20261012/`,
+`artifacts/tracking-nuscenes-scene0103-official-recount-20261012/`,
+`artifacts/tracking-bevfusion-strict-load-cpu-20261012/`,
+`artifacts/tracking-bevfusion-native-strict-load-cpu-20261012/`, and
+`artifacts/tracking-bevfusion-strict-constructor-rsync-20261012/`.
+
+### Take-2 localization recheck and remaining tracking errors
+
+The independent raw-GNSS/INS recipe recheck covers all 300 pilot poses: XYZ
+translation RMSE is 0.031700m, maximum 0.090459m, and all satisfy strict error
+<0.1m. Stored reference matrices and the archived accepted/propagated pose policy
+reproduce exactly. There are 298 accepted poses and two propagated poses. This
+is agreement with the retained ENU recipe, not independent absolute GT accuracy.
+
+For the unchanged 289 matched source front-camera detections, true ENU horizontal
+RMSE is 0.767680m and vertical RMSE is 0.317188m. Horizontal RMSE within 20m is
+0.354m. Published tracks have ENU horizontal RMSE 0.887949m and vertical RMSE
+0.341680m. Replacing estimated sensor poses with recipe poses only in an
+evaluation attribution diagnostic does not improve source horizontal error
+(0.773155m); no prediction or localization pose was replaced in the pipeline.
+Thus localization passes the requested translation check, but horizontal
+detection accuracy across the full front-camera range remains unresolved.
+Ground placement remains explicit and rendering-only, preserving scored poses.
+
+A fixed-pair geometry diagnostic finds matched LWH absolute errors of
+0.085/0.034/0.051m and mean length-axis yaw error 5.08 degrees modulo180.
+Converter, native head and physical cuboid conventions are consistent. Overall
+horizontal-error correlations with shape error and yaw error are weak (0.25 and
+0.22); these conditional matched-pair statistics do not justify a geometry
+correction. See `artifacts/tracking-take2-shape-yaw-error-diagnostic-20261012/`.
+
+Three additional isolated cached tracker trials retain the same 251 responses
+and 300 publication times. All reproduce the baseline before candidate scoring;
+none changes production defaults or qualifies for promotion.
+
+| Native geometric front | TP / FP / FN | IDF1 | Switches / fragmentation | XYZ RMSE |
+|---|---:|---:|---:|---:|
+| Baseline |391 / 238 / 60|0.6481|5 / 10|0.9514m|
+| Soft lateral velocity constraint |383 / 245 / 68|0.6358|2 / 6|1.0809m|
+| Constant acceleration |390 / 243 / 61|0.6439|7 / 8|1.0280m|
+| BEV footprint IoU association |390 / 228 / 61|0.6268|4 / 9|0.9490m|
+
+The IoU trial slightly improves positional error and false positives but loses
+seven previously matched GT observations and lowers IDF1. The other two trials
+worsen position error and coverage. No parameter sweep follows these failures.
+
+Evidence: `artifacts/tracking-take2-xyz-translation-recheck-20261012/`,
+`artifacts/tracking-take2-enu-error-decomposition-20261012/`,
+`artifacts/tracking-take2-horizontal-error-contributors-20261012/`,
+`artifacts/tracking-take2-soft-nonholonomic-probe-20261012/`,
+`artifacts/tracking-take2-constant-acceleration-probe-20261012/`, and
+`artifacts/tracking-take2-bev-iou-association-probe-20261012/`.
