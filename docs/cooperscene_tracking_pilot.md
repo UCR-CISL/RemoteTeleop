@@ -1706,3 +1706,47 @@ Evidence: `artifacts/tracking-take2-benchmark-extrinsics-probe-plan-20261012/`,
 `artifacts/tracking-take2-benchmark-extrinsics-completed-independent-20261012/`,
 `artifacts/tracking-take2-benchmark-extrinsics-native-rendering-20261012/`, and
 `artifacts/tracking-take2-track-id-failure-audit-20261012/`.
+
+### Cached tracker probes and nuScenes control, 2026-10-12
+
+Two additional single-condition probes use the same 251 recorded detector
+responses and 300 publication timestamps. Both reproduce baseline identities,
+scores and dimensions exactly, with pose roundoff below 1e-12. GT enters only
+the downstream evaluator; these are counterfactual sampled tracks, not new
+detector responses or actual adapter publications.
+
+| Native geometric front | TP / FP / FN | IDF1 | Switches / fragmentation | Center RMSE |
+|---|---:|---:|---:|---:|
+| Baseline |391 / 238 / 60|0.6481|5 / 10|0.9514m|
+| Confidence-scaled weak correction noise |400 / 229 / 51|0.6667|5 / 7|0.9668m|
+| Three-hit weak-only tentative births |396 / 288 / 55|0.5903|19 / 8|0.9530m|
+
+The confidence-noise probe gains nine GT observations with none lost, but fails
+the predeclared overall-RMSE gate. The 391 common observations improve from
+0.9514m to 0.9380m RMSE; the nine gained observations have 1.8198m RMSE. This
+breakdown explains the aggregate increase without replacing the acceptance gate.
+The weak-birth probe keeps strong births immediate and requires three consecutive
+served matches before promoting an unmatched weak tracklet. It gains eight GT
+observations and loses three, increases false positives and switches, and is
+rejected. Neither mechanism changes production defaults or justifies a sweep.
+
+Evidence: `artifacts/tracking-take2-confidence-noise-probe-20261012/`,
+`artifacts/tracking-take2-confidence-noise-visual-comparison-20261012/`,
+`artifacts/tracking-take2-confidence-noise-availability-audit-20261012/`, and
+`artifacts/tracking-take2-weak-three-hit-birth-probe-20261012/`.
+
+The next detector control uses one nuScenes scene, scene-0103 (40 keyframes),
+with recorded calibration and separate sensor exposure poses. The intended
+comparison is the upstream nuScenes checkpoint with native six-camera/multi-sweep
+inputs versus one front camera with identical LiDAR sweeps. Detection scoring
+uses explicit nuScenes classes, score >=0.2, class-aware inclusive 2m XYZ center
+association, and separately reports model-range and geometric-front coverage,
+dimensions and heading errors. For the front vehicle classes, precision and
+recall >=80% and matched center RMSE <=1m are prospective sanity targets, not
+official nuScenes benchmark scores or proof of CooperScene calibration accuracy.
+
+Source inspection exposed a loader bug: reverse sample links could select
+intermediate sweeps before keyframe records. Keyframe-only indexing now prevents
+that choice; all 40 scene-0103 LiDAR/front-camera links are verified keyframes,
+with sample timestamps equal to LiDAR timestamps. Twenty focused loader/export/
+adapter/MCAP tests pass. Inference and its accuracy remain to be measured.
