@@ -1,6 +1,6 @@
 # CooperScene tracking pilot
 
-Current coverage is17 completed cases/5221 captures, with22 qualified sequences
+Current coverage is19 completed cases/6127 captures, with20 qualified sequences
 pending and830 remaining tail frames. All three Take14 agent windows now use
 the fixed earliest-qualified policy. V2's401 and V3's305 XYZ position errors
 are all below0.1m; V1 retains81 exceptions. Detection/tracking coverage targets
@@ -9,14 +9,14 @@ is0.935/0.245m versus worldENU XY/Up0.936/0.804m: height disagreement includes
 substantial ego/reference rotation effects. Sensor-relative scores are a separate
 diagnostic, not an algorithm gain or a new localization baseline. Original
 scored heights remain unchanged; grounding is explicit and rendering-only.
-The current17-case partial-camera comparison is
-`artifacts/tracking-native-probe-summary-current17-full501-clipped-20261012/`:
-detection precision/recall85.01%/78.54%, tracking79.29%/85.77% across23719
+The current19-case partial-camera comparison is
+`artifacts/tracking-native-probe-summary-current19-full501-clipped-20261012/`:
+detection precision/recall86.53%/80.28%, tracking81.07%/87.10% across27120
 eligible GT observations. Counts are pooled; IDF1 remains per case. The prior
-16-case snapshot is preserved unchanged. This uses
+18-case snapshot is preserved unchanged. This uses
 near-plane clipping and permits partly offscreen boxes. The historical unclipped
 comparison is preserved at
-`artifacts/tracking-native-probe-summary-current17-full501-20261012/`.
+`artifacts/tracking-native-probe-summary-current19-full501-20261012/`.
 These populations differ; the scoring change is not a model improvement.
 Take3/V1 now covers501 frames: every XYZ reference error is below0.043m,
 detection horizontal/vertical RMSE0.381/0.150m, and35/36 eligible IDs ever
@@ -3803,3 +3803,120 @@ Neither failure is recovered by correcting vertical placement. No tracker
 threshold or grounding change follows this audit. Any subsequent grounding
 must be explicit and rendering-only, preserve scored XYZ poses and heights,
 and demonstrate visual improvement against an original-height comparison.
+
+Independent actual-wire/spool verification is recorded in
+`artifacts/tracking-take1-vehicle2-mcap-awaited301-independent-20261012/`.
+The labelled actual-publication video and four fixed cases are available in
+`artifacts/tracking-take1-vehicle2-mcap-awaited301-compact-overlays-20261012/`:
+`GT66` means `take1:66`, and `P14` means `bevfusion:vehicle:14`. Full IDs remain
+in saved results and the ID mapping. Compact labels are optional; the original
+full-label overlays remain intact. Two focused visualization tests pass locally
+and on Lambda/Gamma after rsync, without restarting services or queues.
+
+The uniform cached image-boundary diagnostic at
+`artifacts/tracking-camera-canvas-boundary-diagnostic-20261012/` compares
+continuous canvas bounds [0,w]×[0,h] with the current pixel-center bounds
+[0,w-1]×[0,h-1], preserving16px area and all geometry/matching rules. It adds
+five detector and four track matches for GT85;148 of the original152-frame
+track gap remain missed. The frozen Take2/V2 control adds one false positive
+and no matches. This is a scoring/projection convention diagnostic, not a model
+gain; current production bounds and authoritative scores remain unchanged.
+
+### Take1/V3: full405 and height-error attribution
+
+`artifacts/tracking-take1-vehicle3-native-pilot-20261012/` evaluates all405
+captures from archived start96/frame481356 through500/481760, using405 fresh
+forwards and81000 raw proposals. Strict574 weights, sparse-convolution fix,
+original frustum, baseline calibration, source heights and pilot tracker settings
+remain fixed. Current partial-camera D TP/FP/FN is1135/53/126 (95.54% precision,
+90.01% recall); T is1189/107/72 (91.74%/94.29%). IDF1 is0.923739, with three
+switches and one fragmentation; registry0/2 geometry and metrics are identical.
+Only24/27 eligible IDs are ever detected/tracked. GT103(1 observation),
+GT189(10) and GT220(2) remain missed; none is excluded to pass coverage.
+
+The independent raw V3 quaternion/antenna/inverse tower3 extrinsic/G check at
+`artifacts/tracking-take1-vehicle3-xyz-independent-20261012/` reproduces all405
+poses and four scoring views. All374 accepted poses are below0.1m (maximum
+0.069682m), but20 propagated tail poses exceed0.1m, reaching0.425500m at2.700s
+since acceptance. All405 remain scored. Overall XYZ RMSE is0.070108m and
+orientation RMS1.722 degrees; no V1 mounting or Take3 correction is applied.
+This verifies retained-reference agreement, not independent physical accuracy.
+
+Matched detection ENU horizontal/Up RMSE is0.467978/0.471195m; track errors
+are0.459595/0.504577m. The cached fixed-pair diagnostic at
+`artifacts/tracking-take1-vehicle3-pose-tail-error-diagnostic-20261012/`
+shows native detector Z RMSE0.207m. On accepted frames, total detector Up RMS
+0.468m has vector components with RMS0.015m translation,0.526m relative
+rotation at the GT center and0.201m sensor geometry. Their vectors reconstruct
+the original errors within2.25e-14m; RMS values are not additive. Thus small
+XYZ translation error does not establish that world height error is entirely
+BEVFusion's intrinsic vertical error. The last20 poses also have large native
+horizontal residuals; correlation with propagation does not prove causality.
+No localization refit, grounding, calibration or tracker change follows this
+diagnostic. Original17 cases and41 other sequence ledger entries are preserved
+in the new18-case snapshots; coverage and accuracy goals remain incomplete.
+
+The compact labelled first20 video and miss/switch/FP cases are in
+`artifacts/tracking-take1-vehicle3-tracking-overlays-20261012/`; the FP case
+retains its failing propagated pose. The13-observation never-ID audit at
+`artifacts/tracking-take1-vehicle3-never-ID-audit-20261012/` finds a strong
+but camera-excluded proposal for GT103, near-zero native LiDAR support and
+weak proposals for GT189, and crop exclusion plus weak/inaccurate proposals
+for GT220. No horizontal-only or tracker association fix recovers these cases.
+Wireframe eligibility remains distinct from certified optical visibility.
+
+The frozen42-forward full-width detector probe at
+`artifacts/tracking-take1-vehicle3-fullwidth-detector-probe-20261012/`
+restores GT220's model-input ROI using the previously tested resize512/1920
+and the same256x512 tensor/frustum, without changing K/extrinsics/poses.
+GT220 remains0/2, with no raw native or world-center proposal within2m.
+V3 first20 front counts remain94/3/10; its all54 control adds one FP. Take2/V2
+first20 front improves32/2/20 to32/0/20, but target recovery fails. The probe
+is rejected: no default change or full405 rerun. Source/checkpoint controls
+pass,42 forwards and8400 raw proposals finish with zero warmups; cached
+baselines are reused. This targeted development trial does not add coverage.
+
+### Take1/V1: full501 meets minimum geometric ID coverage
+
+`artifacts/tracking-take1-vehicle1-full501-native-20261012/` evaluates501
+fresh captures at archived start0/frame481260 through500/481760. All501
+native RGB/XYZI arrays are compared with cached NPZs before reuse; source
+metadata and archived XYZ poses are regenerated, not inherited model results.
+The first container attempt fails before any forward because that cache lacks
+a mount. Its artifacts remain preserved; the read-only mount correction allows
+retry23948 to complete501 forwards/100200 raw proposals, with strict574,
+original frustum, baseline calibration and pilot tracker settings unchanged.
+
+Current clipped detections give2009/51/131 TP/FP/FN (97.52% precision,
+93.88% recall); tracks2088/94/52 (95.69%/97.57%), IDF1 0.959741, two switches
+and three fragmentations. All31 geometric-front IDs are detected and tracked
+at least once, meeting the minimum condition for this case. Stronger per-ID
+90% coverage still fails: GT130 detections3/23, GT69 tracks18/24, GT37 tracks
+34/45 and GT85 tracks30/38. Registry0/2 geometry and aggregate metrics agree.
+Take1 overlaps declared training metadata; no held-out performance claim.
+
+Independent raw V1 quaternion×F1,0.03m antenna, inverse corrected tower1
+extrinsic and G composition agrees with the retained mounting-delta recipe,
+without the Take3 position bias. All501 XYZ RMSE is0.048006m, maximum0.161854m;
+29 errors >=0.1m include11 accepted and18 propagated poses. Those remain
+scored. Orientation RMS is0.290336 degrees. Recorded camera capture times
+follow LiDAR by a median19.432ms; true exposure/object-motion alignment is
+not certified. Evidence and four-view recount are at
+`artifacts/tracking-take1-vehicle1-full501-independent-20261012/`.
+
+Matched detector ENU horizontal/Up RMSE is0.327045/0.186890m; tracks are
+0.371112/0.188539m. The fixed-pair diagnostic at
+`artifacts/tracking-take1-vehicle1-pose-error-diagnostic-20261012/` finds
+native detector XY/Z0.322/0.168m. Up vector components have RMS0.0208m
+translation,0.0783m relative rotation and0.1657m sensor geometry; these are
+not additive and reconstruct original errors within1.96e-14m. The29 failing
+source poses contain53 GT observations, with52 detector matches and53 track
+matches; they do not establish a localization-caused tracking miss. Scene
+exposure differs from the other472 captures. No localization refit or change
+to scored poses/heights follows the check.
+
+Compact labelled first20 video and GT69 miss/ID-switch/unmatched-track PNGs
+are in `artifacts/tracking-take1-vehicle1-full501-tracking-overlays-20261012/`.
+They retain source poses and saved assignments; wireframes do not certify
+optical visibility or depth occlusion. The19-case ledger adds only this full
+sequence, preserving18 previous rows/cases and41 other sequence entries.
