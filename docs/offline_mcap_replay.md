@@ -32,6 +32,15 @@ localized object height. Ground placement modifies rendered boxes, not localized
 sensor poses or trajectory-error measurements. Unsupported bounded ground
 queries preserve the incoming pose and emit per-track placement diagnostics.
 
+A bounded, map-only profile tested on Take2/V1 frames243/299 is available at
+`artifacts/tracking-take2-render-only-grounding-20261012/ground-profile.json`.
+To compare display grounding, explicitly pass that path with `--ground-plane`
+to the compositor. The paired diagnostic supports29 of32 boxes and preserves
+the other three exactly. Local road tilt can change displayed XY and rotation,
+as well as height; tracker and localization poses remain unchanged. The profile
+uses Gaussian-map road support rather than GT, and is not surveyed road truth.
+Omit the flag to keep the original localized object heights.
+
 Validation used simulated launchers/readers and local tests only; no replay or
 real vehicle process was launched during integration.
 
