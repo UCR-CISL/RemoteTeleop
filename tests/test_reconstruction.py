@@ -76,6 +76,45 @@ def test_projection_rejects_box_behind_or_crossing_camera():
     )
 
 
+def test_projection_accepts_partial_image_intersection_and_rejects_offscreen():
+    pose = np.eye(4)
+    pose[:3, 3] = (5.0, 0.0, 10.0)
+    options = dict(world_T_object=pose, world_T_camera=np.eye(4),
+                   intrinsics=np.array([[100., 0, 50.], [0, 100., 40.], [0, 0, 1.]]),
+                   dimensions=VehicleDimensions(4., 2., 2.), image_size=(80, 100),
+                   minimum_area_px=16.)
+    projected = project_vehicle_box(**options)
+    assert projected is not None
+    assert projected.xyxy[2] == 99
+    assert 0 < projected.visible_fraction < 1
+    pose[0, 3] = 100.
+    assert project_vehicle_box(**dict(options, minimum_area_px=0.)) is None
+
+
+def test_projection_area_threshold_and_world_frame_invariance():
+    pose = np.eye(4)
+    pose[2, 3] = 10.
+    options = dict(world_T_object=pose, world_T_camera=np.eye(4),
+                   intrinsics=np.array([[20., 0, 50.], [0, 20., 40.], [0, 0, 1.]]),
+                   dimensions=VehicleDimensions(2., 2., 2.), image_size=(80, 100))
+    expected = project_vehicle_box(**options, minimum_area_px=16.)
+    assert expected is not None
+    assert project_vehicle_box(**options) is None  # Segmentation prompt default:64px².
+    transform = np.array([[0., -1, 0, 3], [1., 0, 0, -7], [0, 0, 1., 2], [0, 0, 0, 1.]])
+    actual = project_vehicle_box(**dict(options, world_T_object=transform @ pose,
+                                       world_T_camera=transform), minimum_area_px=16.)
+    np.testing.assert_allclose(actual.xyxy, expected.xyxy)
+    assert actual.visible_fraction == pytest.approx(expected.visible_fraction)
+
+
+@pytest.mark.parametrize("area", [-1., float("nan"), float("inf")])
+def test_projection_rejects_invalid_area_threshold(area):
+    with pytest.raises(ValueError, match="minimum_area_px"):
+        project_vehicle_box(world_T_object=np.eye(4), world_T_camera=np.eye(4),
+                            intrinsics=np.eye(3), dimensions=VehicleDimensions(4., 2., 2.),
+                            image_size=(80, 100), minimum_area_px=area)
+
+
 def test_sam3d_adapter_loads_backend_once(tmp_path):
     loads = []
 

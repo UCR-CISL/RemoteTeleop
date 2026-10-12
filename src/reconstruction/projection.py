@@ -14,7 +14,7 @@ from .models import VehicleDimensions
 
 @dataclass(frozen=True)
 class ProjectedBox:
-    """An image-space ``(x_min, y_min, x_max, y_max)`` prompt."""
+    """A clipped image-space box; fraction measures clipping, not occlusion."""
 
     xyxy: NDArray[np.float64]
     visible_fraction: float
@@ -49,12 +49,17 @@ def project_vehicle_box(
     minimum_depth: float = 0.1,
     minimum_area_px: float = 64.0,
 ) -> ProjectedBox | None:
-    """Project an object box into a camera whose optical axis is positive Z.
+    """Determine geometric image eligibility using a projected bbox envelope.
 
+    The camera optical axis is positive Z. The eight projected corners define
+    an axis-aligned rectangle, which is clipped to the image. This tests neither
+    occlusion nor the optical visibility of the corresponding physical object.
     Returns ``None`` for boxes that cross the camera plane, do not intersect
     the image, or are too small to produce a useful segmentation prompt.
     """
 
+    if not np.isfinite(minimum_area_px) or minimum_area_px < 0:
+        raise ValueError("minimum_area_px must be finite and non-negative")
     world_T_object = np.asarray(world_T_object, dtype=np.float64)
     world_T_camera = np.asarray(world_T_camera, dtype=np.float64)
     intrinsics = np.asarray(intrinsics, dtype=np.float64)
@@ -88,7 +93,7 @@ def project_vehicle_box(
     clipped_max = np.minimum(raw_max, (float(width - 1), float(height - 1)))
     clipped_size = np.maximum(clipped_max - clipped_min, 0.0)
     clipped_area = float(np.prod(clipped_size))
-    if clipped_area < minimum_area_px:
+    if clipped_area <= 0 or clipped_area < minimum_area_px:
         return None
     visible_fraction = clipped_area / raw_area
     return ProjectedBox(

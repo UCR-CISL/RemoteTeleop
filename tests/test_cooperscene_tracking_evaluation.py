@@ -130,6 +130,12 @@ def test_front_camera_near_plane_rejection_and_precision_target():
     assert summary["detections"]["precision"] == .5
 
 
+@pytest.mark.parametrize("area", [-1., float("nan"), float("inf")])
+def test_front_camera_rejects_invalid_projection_threshold(area):
+    with pytest.raises(ValueError, match="minimum_area_px"):
+        FrontCameraCoverageEvaluator(minimum_area_px=area)
+
+
 def _camera_frame(index, *, image_timestamp_ns=1, prediction_id="p"):
     visible = box("a")
     visible["world_T_object"][2][3] = 10

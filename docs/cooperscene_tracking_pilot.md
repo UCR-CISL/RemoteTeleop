@@ -5,7 +5,10 @@ exports disagree on the same 300 frames. Existing native-export scores are
 preserved, but do not establish complete front-camera GT coverage. A separate
 unfiltered refined-export comparison now finds 17 never-matched geometric-front
 IDs; neither coverage nor precision targets pass. Camera correspondence and
-annotation authority remain unresolved. Other sequences remain on hold.
+annotation authority remain caveats. The working coverage condition uses projected
+bbox intersection, including partly off-screen boxes; physical visibility is not
+an additional gate. Other sequences remain on hold because coverage and precision
+targets fail.
 
 The initial pilot evaluated take 1 / vehicle 1: native frames **481260–481760**, 501
 consecutive frames (50.00 s between first and last captures). The first 60
@@ -26,8 +29,16 @@ visibility requires the camera/occlusion audit below. An optional
 90% precision target prevents passing coverage by emitting excessive boxes.
 Passing the minimum does not establish that the stronger target passes.
 
-Geometric camera visibility requires the projected cuboid to intersect at least
-16 pixels² of the original image, with all corners ahead of the 0.1 m near
+The working criterion follows the earlier bbox-proxy logic: a GT box qualifies
+when its projected bounding rectangle overlaps the camera image by at least
+16 pixels². Full containment is unnecessary. This same shared projector gates
+predictions and GT; its segmentation-prompt default of 64 pixels² is a separate
+consumer policy. Existing calibration/XYZ values remain fixed. Calibration and
+GT-source uncertainties are reported alongside the geometric scores; they do
+not prevent continuing detector/tracker comparisons on this sequence.
+
+Geometric camera visibility requires the projected cuboid bounding rectangle to
+intersect at least 16 pixels² of the original image, with all corners ahead of the 0.1 m near
 plane. It does not test occlusion. Matching uses class-aware, maximum-cardinality
 then minimum-distance Hungarian assignment with an inclusive **2 m XYZ center
 gate**. Predictions and GT receive the same visibility filter. Reported

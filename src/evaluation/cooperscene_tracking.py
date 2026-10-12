@@ -183,16 +183,19 @@ class GroundTruthContinuity:
 
 
 class FrontCameraCoverageEvaluator:
-    """Geometric image visibility and per-annotation identity coverage.
+    """Projected-bbox image eligibility and per-annotation identity coverage.
 
-    Visibility means projected cuboid intersection, not actual occlusion or
-    annotation completeness. Filtering is symmetric for prediction and GT.
+    The shared proxy projector clips the cuboid's 2D bounding rectangle to the
+    image. Legacy ``visible_*`` output names describe this geometric gate, not
+    occlusion. Filtering is symmetric for prediction and GT.
     """
 
     def __init__(self, *, center_threshold_m: float = 2.0, minimum_area_px: float = 16.0, precision_target: float | None = None,
                  require_valid_image_timestamp: bool = False) -> None:
         if precision_target is not None and not 0 < precision_target <= 1:
             raise ValueError("precision_target must be in (0, 1]")
+        if not math.isfinite(minimum_area_px) or minimum_area_px < 0:
+            raise ValueError("minimum_area_px must be finite and non-negative")
         self.minimum_area_px = minimum_area_px
         self.precision_target = precision_target
         self.detection = GeometricTrackingEvaluator(center_threshold_m=center_threshold_m, identity_metrics=False)
@@ -234,13 +237,15 @@ class FrontCameraCoverageEvaluator:
 
         camera = np.asarray(frame["world_T_camera"], dtype=float).reshape(4, 4)
         intrinsic = np.asarray(frame["camera_intrinsic"], dtype=float).reshape(3, 3)
-        def visible(boxes):
+        image_size = (int(frame["image_height"]), int(frame["image_width"]))
+
+        def projected_boxes(boxes):
             return [box for box in boxes if project_vehicle_box(
                 world_T_object=np.asarray(box["world_T_object"], dtype=float).reshape(4, 4),
                 world_T_camera=camera, intrinsics=intrinsic, dimensions=VehicleDimensions(*box["dimensions_lwh"]),
-                image_size=(int(frame["image_height"]), int(frame["image_width"])),
+                image_size=image_size,
                 minimum_area_px=self.minimum_area_px) is not None]
-        gt, detections, tracks = (visible(frame[key]) for key in ("gt", "detections", "tracks"))
+        gt, detections, tracks = (projected_boxes(frame[key]) for key in ("gt", "detections", "tracks"))
         common = dict(sequence_id=frame["sequence_id"], timestamp_us=frame["timestamp_us"], gt=gt)
         detection = self.detection.update(predictions=detections, **common)
         tracking = self.tracking.update(predictions=tracks, **common)
