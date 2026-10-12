@@ -3,7 +3,7 @@ import json
 import cv2
 import numpy as np
 
-from src.data.nuscenes_loader import NuScenesSequenceDataset, VehicleBox
+from src.data.nuscenes_loader import NuScenesSequenceDataset, VehicleBox, _NuScenesMetadata
 
 
 def test_vehicle_box_keeps_legacy_constructor_compatible():
@@ -18,6 +18,36 @@ def test_vehicle_box_keeps_legacy_constructor_compatible():
 
     np.testing.assert_allclose(box.world_T_object, np.eye(4))
     np.testing.assert_allclose(box.dimensions_lwh, [4, 2, 1.5])
+
+
+def test_metadata_indexes_keyframes_instead_of_earlier_sweeps(tmp_path):
+    metadata = tmp_path / "v1.0-mini"
+    metadata.mkdir()
+    tables = {name: [] for name in _NuScenesMetadata._TABLES}
+    tables.update({
+        "sample": [{"token": "sample"}],
+        "sensor": [{"token": "lidar", "channel": "LIDAR_TOP"},
+                   {"token": "camera", "channel": "CAM_FRONT"}],
+        "calibrated_sensor": [{"token": "lidar-cal", "sensor_token": "lidar"},
+                              {"token": "camera-cal", "sensor_token": "camera"}],
+        "sample_data": [
+            {"token": "old-lidar", "sample_token": "sample", "is_key_frame": False,
+             "calibrated_sensor_token": "lidar-cal"},
+            {"token": "old-camera", "sample_token": "sample", "is_key_frame": False,
+             "calibrated_sensor_token": "camera-cal"},
+            {"token": "key-lidar", "sample_token": "sample", "is_key_frame": True,
+             "calibrated_sensor_token": "lidar-cal"},
+            {"token": "key-camera", "sample_token": "sample", "is_key_frame": True,
+             "calibrated_sensor_token": "camera-cal"},
+        ],
+    })
+    for name, records in tables.items():
+        (metadata / f"{name}.json").write_text(json.dumps(records))
+
+    records = _NuScenesMetadata(tmp_path, "v1.0-mini")
+    assert records.get("sample", "sample")["data"] == {
+        "LIDAR_TOP": "key-lidar", "CAM_FRONT": "key-camera",
+    }
 
 
 def test_loader_keeps_scene_separate_and_uses_lidar_coordinates(tmp_path):

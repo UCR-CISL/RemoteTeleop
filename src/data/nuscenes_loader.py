@@ -367,6 +367,10 @@ class _NuScenesMetadata:
 
         sensors = self._tables.get("sensor", {})
         for sample_data in self._tables["sample_data"].values():
+            # Intermediate sweeps also reference a sample, but its annotations
+            # belong to the keyframe. Table order must not select an older scan.
+            if not sample_data.get("is_key_frame", False):
+                continue
             sample_token = sample_data.get("sample_token")
             if not sample_token or sample_token not in samples:
                 continue
