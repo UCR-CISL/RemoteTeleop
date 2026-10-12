@@ -79,7 +79,11 @@ class BevFusionModel:
     def __init__(self, config: Path, checkpoint: Path, device: str, score_threshold: float, raw_predictions_dir: Path | None = None) -> None:
         from mmdet3d.apis import init_model
         from mmengine.dataset import Compose
+        from mmengine.runner import load_checkpoint
         self.model = init_model(str(config), str(checkpoint), device=device)
+        # init_model tolerates missing or incompatible parameters. A sidecar
+        # must fail before serving detections from partially loaded weights.
+        load_checkpoint(self.model, str(checkpoint), map_location="cpu", strict=True)
         self.pipeline = Compose(self.model.cfg.test_dataloader.dataset.pipeline)
         self.device = device
         self.score_threshold = score_threshold
