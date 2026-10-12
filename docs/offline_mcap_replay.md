@@ -69,7 +69,14 @@ benchmark. Do not reconstruct missing capture timestamps from floating-point ske
 The replay adapter now exposes optional tracker controls:
 `--bevfusion-continuation-score-threshold`,
 `--bevfusion-minimum-confirmation-hits` and
-`--bevfusion-duplicate-birth-guard`. By default, continuation uses the primary
+`--bevfusion-duplicate-birth-guard`. Optional identity reacquisition is enabled by
+`--bevfusion-maximum-reacquisition-seconds 2.0`; it is disabled by default. It
+matches a new track to a mutually unambiguous retired identity using class,
+predicted position, heading and dimensions. Expired filters remain expired;
+new filters start fresh and no extra boxes appear during gaps. The Take2/V1
+cached pilot improves identity metrics while preserving all box estimates,
+but does not improve detection accuracy or certify unannotated identity links.
+By default, continuation uses the primary
 `--bevfusion-score-threshold`, confirmation requires one observation, and the
 birth guard is off. The primary threshold gates track creation; a weak server
 proposal cannot create a hidden track. When explicitly enabled, low-score updates

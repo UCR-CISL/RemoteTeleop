@@ -392,3 +392,87 @@ def test_duplicate_guard_ignores_low_stage_reference_and_same_update_births():
     newborns.update((_detection(0.), _detection(.8)), timestamp_us=0)
     assert len(newborns.boxes_at(0)) == 2
     assert newborns.suppressed_birth_pairs == ()
+
+
+@pytest.mark.parametrize("seconds", [-1.0, float('nan'), float('inf')])
+def test_identity_reacquisition_rejects_invalid_window(seconds):
+    with pytest.raises(ValueError, match='maximum_reacquisition_seconds'):
+        BevFusionKalmanTracker(maximum_reacquisition_seconds=seconds)
+
+
+def test_optional_reacquisition_changes_only_identity_of_fresh_filter():
+    original = BevFusionKalmanTracker()
+    opted = BevFusionKalmanTracker(maximum_reacquisition_seconds=2.0)
+    for tracker in (original, opted):
+        tracker.update((_detection(0),), timestamp_us=0)
+        tracker.update((), timestamp_us=600_000)
+        tracker.update((_detection(1),), timestamp_us=700_000)
+    assert original.boxes_at(700_000)[0].track_id == 'bevfusion:car:1'
+    assert opted.boxes_at(700_000)[0].track_id == 'bevfusion:car:0'
+    assert opted._tracks[0].track_id == 'bevfusion:car:1'
+    assert np.array_equal(opted._tracks[0].state, original._tracks[0].state)
+    assert np.array_equal(opted._tracks[0].covariance, original._tracks[0].covariance)
+    assert np.array_equal(opted.boxes_at(800_000)[0].world_T_object,
+                          original.boxes_at(800_000)[0].world_T_object)
+
+
+@pytest.mark.parametrize('ambiguous_old', [True, False])
+def test_reacquisition_requires_mutually_unique_pairs(ambiguous_old):
+    tracker = BevFusionKalmanTracker(maximum_reacquisition_seconds=2.0)
+    first = (_detection(-1), _detection(1)) if ambiguous_old else (_detection(0),)
+    tracker.update(first, timestamp_us=0)
+    tracker.update((), timestamp_us=600_000)
+    new = (_detection(0),) if ambiguous_old else (_detection(-1), _detection(1))
+    tracker.update(new, timestamp_us=700_000)
+    assert all(box.track_id == track.track_id for box, track in
+               zip(tracker.boxes_at(700_000), tracker._tracks))
+    assert len({b.track_id for b in tracker.boxes_at(700_000)}) == len(new)
+
+
+@pytest.mark.parametrize('gap,label,yaw', [(2_000_001, 'car', 0),
+                                           (700_000, 'truck', 0),
+                                           (700_000, 'car', math.pi / 2)])
+def test_reacquisition_rejects_age_class_and_heading(gap, label, yaw):
+    tracker = BevFusionKalmanTracker(maximum_reacquisition_seconds=2.0)
+    tracker.update((_detection(0),), timestamp_us=0)
+    tracker.update((), timestamp_us=600_000)
+    detection = _detection(0, label=label)
+    c, s = math.cos(yaw), math.sin(yaw)
+    detection.world_T_object[:3, :3] = ((c, -s, 0), (s, c, 0), (0, 0, 1))
+    tracker.update((detection,), timestamp_us=gap)
+    assert tracker.boxes_at(gap)[0].track_id == tracker._tracks[0].track_id
+
+
+def test_reacquisition_prunes_retired_states_and_inactive_mappings():
+    tracker = BevFusionKalmanTracker(maximum_reacquisition_seconds=2.0)
+    tracker.update((_detection(0),), timestamp_us=0)
+    tracker.update((), timestamp_us=600_000)
+    assert len(tracker._identity_registry.retired) == 1
+    assert not tracker._identity_registry.identities
+    tracker.update((), timestamp_us=2_000_001)
+    assert not tracker._identity_registry.retired
+
+
+def test_reacquisition_does_not_assign_an_active_identity_twice():
+    tracker = BevFusionKalmanTracker(maximum_reacquisition_seconds=2.0)
+    tracker.update((_detection(0),), timestamp_us=0)
+    tracker.update((), timestamp_us=600_000)
+    tracker.update((_detection(0),), timestamp_us=700_000)
+    tracker.update((_detection(0), _detection(2)), timestamp_us=800_000)
+    boxes = tracker.boxes_at(800_000)
+    assert len({b.track_id for b in boxes}) == len(boxes) == 2
+
+
+def test_reacquisition_is_equivariant_under_rigid_world_rotation():
+    from scipy.spatial.transform import Rotation
+    Q = Rotation.from_euler('xyz', [.4, -.7, .3]).as_matrix()
+    identities = []
+    for rotation in (np.eye(3), Q):
+        tracker = BevFusionKalmanTracker(maximum_reacquisition_seconds=2.0)
+        for stamp, x in ((0, 0), (700_000, 1)):
+            detection = _detection(x)
+            detection.world_T_object[:3, 3] = rotation @ detection.world_T_object[:3, 3]
+            detection.world_T_object[:3, :3] = rotation
+            tracker.update((detection,), timestamp_us=stamp)
+        identities.append(tracker.boxes_at(700_000)[0].track_id)
+    assert identities == ['bevfusion:car:0', 'bevfusion:car:0']

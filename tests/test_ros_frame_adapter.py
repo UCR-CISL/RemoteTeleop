@@ -686,6 +686,20 @@ def test_bevfusion_default_primary_only_ignores_weak_updates_then_expires():
     assert _complete_lifecycle_detection(detector, client, 500_001, 2, .15) == ()
 
 
+@pytest.mark.parametrize("reacquisition_seconds, same_identity", [(0.0, False), (2.0, True)])
+def test_bevfusion_adapter_optional_identity_reacquisition(reacquisition_seconds, same_identity):
+    client = _LifecycleBevFusionClient()
+    detector = LatestBevFusionBoxes(
+        client, score_threshold=.2, minimum_area_px=1,
+        maximum_reacquisition_seconds=reacquisition_seconds,
+    )
+    original = _complete_lifecycle_detection(detector, client, 0, 0, .9)
+    reacquired = _complete_lifecycle_detection(detector, client, 600_001, 1, .9)
+    assert len(original) == len(reacquired) == 1
+    assert (original[0].track_id == reacquired[0].track_id) == same_identity
+    assert reacquired[0].detection_confidence == .9
+
+
 def test_bevfusion_weak_updates_cannot_confirm_tentative_tracks():
     client = _LifecycleBevFusionClient()
     detector = LatestBevFusionBoxes(client, score_threshold=.2, minimum_area_px=1,
@@ -704,6 +718,9 @@ def test_bevfusion_weak_updates_cannot_confirm_tentative_tracks():
     {"continuation_score_threshold": float("nan")},
     {"minimum_confirmation_hits": 0},
     {"minimum_confirmation_hits": True},
+    {"maximum_reacquisition_seconds": -.1},
+    {"maximum_reacquisition_seconds": float("nan")},
+    {"maximum_reacquisition_seconds": float("inf")},
 ])
 def test_bevfusion_adapter_rejects_invalid_tracker_settings(settings):
     with pytest.raises(ValueError):
@@ -712,6 +729,9 @@ def test_bevfusion_adapter_rejects_invalid_tracker_settings(settings):
 
 @pytest.mark.parametrize("arguments, expected", [
     (["--bevfusion-continuation-score-threshold", ".3"], "between zero and the birth score"),
+    (["--bevfusion-maximum-reacquisition-seconds", "-1"], "finite and non-negative"),
+    (["--bevfusion-maximum-reacquisition-seconds", "nan"], "finite and non-negative"),
+    (["--bevfusion-maximum-reacquisition-seconds", "inf"], "finite and non-negative"),
     (["--bevfusion-continuation-score-threshold", "nan"], "between zero and the birth score"),
     (["--bevfusion-minimum-confirmation-hits", "0"], "must be positive"),
 ])

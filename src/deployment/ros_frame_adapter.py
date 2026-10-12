@@ -59,7 +59,8 @@ class LatestBevFusionBoxes:
 
     def __init__(self, client: BevFusionClient, *, score_threshold: float, minimum_area_px: float = 64.0,
                  continuation_score_threshold: float | None = None, minimum_confirmation_hits: int = 1,
-                 suppress_duplicate_births: bool = False) -> None:
+                 suppress_duplicate_births: bool = False,
+                 maximum_reacquisition_seconds: float = 0.0) -> None:
         if not 0.0 <= score_threshold <= 1.0:
             raise ValueError("bevfusion score threshold must be between zero and one")
         self.client = client
@@ -77,6 +78,7 @@ class LatestBevFusionBoxes:
             continuation_score_threshold=score_threshold if continuation_score_threshold is None else continuation_score_threshold,
             minimum_confirmation_hits=minimum_confirmation_hits,
             suppress_duplicate_births=suppress_duplicate_births,
+            maximum_reacquisition_seconds=maximum_reacquisition_seconds,
         )
         self.submitted_count = 0
         self.replaced_pending_count = 0
@@ -1232,6 +1234,8 @@ def main() -> None:
                         help="Minimum score for confirmed-track updates; defaults to the birth score")
     parser.add_argument("--bevfusion-minimum-confirmation-hits", type=int, default=1)
     parser.add_argument("--bevfusion-duplicate-birth-guard", action="store_true")
+    parser.add_argument("--bevfusion-maximum-reacquisition-seconds", type=float, default=0.0,
+                        help="Reuse identities after unambiguous short gaps; zero disables reacquisition")
     parser.add_argument("--frames-endpoint", default="tcp://0.0.0.0:5555")
     parser.add_argument("--queue-depth", type=int, default=2_048)
     parser.add_argument("--high-water-mark", type=int, default=2_048)
@@ -1280,6 +1284,9 @@ def main() -> None:
         parser.error("--bevfusion-continuation-score-threshold must be between zero and the birth score")
     if args.bevfusion_minimum_confirmation_hits < 1:
         parser.error("--bevfusion-minimum-confirmation-hits must be positive")
+    if (not np.isfinite(args.bevfusion_maximum_reacquisition_seconds)
+            or args.bevfusion_maximum_reacquisition_seconds < 0):
+        parser.error("--bevfusion-maximum-reacquisition-seconds must be finite and non-negative")
     if args.bbox_source == "bevfusion" and not args.bevfusion_endpoint:
         parser.error("--bbox-source bevfusion requires --bevfusion-endpoint")
 
@@ -1325,6 +1332,7 @@ def main() -> None:
             continuation_score_threshold=args.bevfusion_continuation_score_threshold,
             minimum_confirmation_hits=args.bevfusion_minimum_confirmation_hits,
             suppress_duplicate_births=args.bevfusion_duplicate_birth_guard,
+            maximum_reacquisition_seconds=args.bevfusion_maximum_reacquisition_seconds,
         )
     localization_metrics = None
     localization_reference = None

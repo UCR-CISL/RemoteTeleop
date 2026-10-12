@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import copy
 import math
 from typing import Sequence
 
@@ -154,6 +155,60 @@ class _KalmanTrack:
         )
 
 
+class _PersistentIdentityRegistry:
+    """Retired identity candidates, separate from live filter state."""
+
+    def __init__(self, maximum_age_us: int) -> None:
+        self.maximum_age_us = maximum_age_us
+        self.identities: dict[str, str] = {}
+        self.retired: dict[str, _KalmanTrack] = {}
+
+    def update(self, previous: Sequence[_KalmanTrack], current: Sequence[_KalmanTrack],
+               timestamp_us: int) -> None:
+        previous_ids = {track.track_id for track in previous}
+        current_ids = {track.track_id for track in current}
+        for track in previous:
+            if track.track_id not in current_ids and track.confirmed:
+                self.retired[self.identities[track.track_id]] = copy.deepcopy(track)
+        self.retired = {identity: track for identity, track in self.retired.items()
+                        if timestamp_us - track.last_observed_us <= self.maximum_age_us}
+        active = {self.identities[track.track_id] for track in current
+                  if track.track_id in self.identities}
+        births = [track for track in current if track.track_id not in previous_ids]
+        pairs = []
+        for track in births:
+            pose = np.eye(4)
+            pose[:3, :3], pose[:3, 3] = track.rotation, track.state[:3]
+            detection = WorldDetection(pose, tuple(track.dimensions), track.label, track.score)
+            for identity, retired in self.retired.items():
+                if identity in active or retired.label != track.label:
+                    continue
+                predicted = copy.deepcopy(retired)
+                predicted.predict_to(timestamp_us)
+                if not math.isfinite(predicted.association_cost(detection, timestamp_us)):
+                    continue
+                if np.linalg.norm(predicted.state[:3] - track.state[:3]) > 3.0:
+                    continue
+                if abs(predicted.rotation[:, 0] @ track.rotation[:, 0]) < math.cos(math.pi / 6):
+                    continue
+                ratio = track.dimensions / predicted.dimensions
+                if np.any(ratio < 0.8) or np.any(ratio > 1.25):
+                    continue
+                pairs.append((track.track_id, identity))
+        for track in births:
+            candidates = [identity for internal, identity in pairs if internal == track.track_id]
+            identity = track.track_id
+            if len(candidates) == 1 and sum(old == candidates[0] for _, old in pairs) == 1:
+                identity = candidates[0]
+                del self.retired[identity]
+            self.identities[track.track_id] = identity
+        self.identities = {internal: identity for internal, identity in self.identities.items()
+                           if internal in current_ids}
+
+    def remap(self, box: TrackedWorldBox) -> TrackedWorldBox:
+        return replace(box, track_id=self.identities[box.track_id])
+
+
 class BevFusionKalmanTracker:
     """Class-aware Hungarian assignment over world-frame Kalman estimates."""
 
@@ -161,7 +216,12 @@ class BevFusionKalmanTracker:
                  minimum_confirmation_hits: int = 1,
                  birth_score_threshold: float = 0.0,
                  continuation_score_threshold: float = 0.0,
-                 suppress_duplicate_births: bool = False) -> None:
+                 suppress_duplicate_births: bool = False,
+                 maximum_reacquisition_seconds: float = 0.0) -> None:
+        if not math.isfinite(maximum_reacquisition_seconds) or maximum_reacquisition_seconds < 0:
+            raise ValueError("maximum_reacquisition_seconds must be finite and non-negative")
+        self._identity_registry = (_PersistentIdentityRegistry(int(maximum_reacquisition_seconds * 1_000_000))
+                                   if maximum_reacquisition_seconds > 0 else None)
         if maximum_coast_seconds <= 0:
             raise ValueError("maximum_coast_seconds must be positive")
         if (isinstance(minimum_confirmation_hits, bool)
@@ -192,10 +252,11 @@ class BevFusionKalmanTracker:
     ) -> None:
         if self._timestamp_us is not None and timestamp_us < self._timestamp_us:
             raise ValueError("tracker timestamps must be monotonic")
+        previous = tuple(self._tracks) if self._identity_registry is not None else ()
         self._timestamp_us = timestamp_us
         self._suppressed_birth_pairs = ()
         # Expiry is decided before association: a new detection must not revive
-        # an identity whose observation gap already exceeded the coast limit.
+        # an expired filter whose observation gap exceeded the coast limit.
         self._tracks = [
             track
             for track in self._tracks
@@ -250,6 +311,8 @@ class BevFusionKalmanTracker:
             for track in self._tracks
             if timestamp_us - track.last_observed_us <= self.maximum_coast_us
         ]
+        if self._identity_registry is not None:
+            self._identity_registry.update(previous, self._tracks, timestamp_us)
 
     @staticmethod
     def _duplicate_birth(candidate: WorldDetection, reference: WorldDetection) -> bool:
@@ -333,7 +396,8 @@ class BevFusionKalmanTracker:
         if timestamp_us < self._timestamp_us:
             raise ValueError("cannot project tracker state into the past")
         return tuple(
-            track.snapshot(timestamp_us)
+            (self._identity_registry.remap(track.snapshot(timestamp_us))
+             if self._identity_registry is not None else track.snapshot(timestamp_us))
             for track in self._tracks
             if track.confirmed and timestamp_us - track.last_observed_us <= self.maximum_coast_us
         )

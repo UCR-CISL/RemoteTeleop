@@ -1844,3 +1844,42 @@ Evidence: `artifacts/tracking-take2-xyz-translation-recheck-20261012/`,
 `artifacts/tracking-take2-soft-nonholonomic-probe-20261012/`,
 `artifacts/tracking-take2-constant-acceleration-probe-20261012/`, and
 `artifacts/tracking-take2-bev-iou-association-probe-20261012/`.
+
+### Optional identity reacquisition
+
+An identity-only registry retains confirmed retired identity candidates for up
+to two seconds after their last observation. It requires the original finite
+association gates, matching class, predicted center distance <=3m, length-axis
+agreement within30 degrees modulo180, dimension ratios within[0.8,1.25], and a
+mutually unique old/new pair. Expired Kalman filters remain expired; new filters
+start fresh, and no boxes are published during gaps. GT is evaluation-only.
+
+| Fixed 300-frame native scope | Baseline / enabled IDF1 | Baseline / enabled switches | Unchanged TP / FP / FN |
+|---|---:|---:|---:|
+| Geometric front camera |0.6481 / 0.7222|5 / 4|391 / 238 / 60|
+| Full tracker state, reference LiDAR XY square54m |0.7578 / 0.8016|12 / 4|3210 / 964 / 615|
+
+All positions, rotations, dimensions, scores, matching indices, misses and false
+positives are unchanged. Front XYZ RMSE remains0.951419m and ENU horizontal RMSE
+0.887949m. The full-state scope above includes off-camera tracks and differs
+from earlier all54 diagnostics based on published camera-prompt subsets.
+Nine annotated reuse links agree at their old-last/new-first GT association;
+one link remains unverified. Existing GT84/92 association ambiguity persists.
+This is an identity improvement, not a detection or coverage improvement.
+
+The production option is disabled by default. Enable it for offline comparisons
+with `--bevfusion-maximum-reacquisition-seconds 2.0`. The production tracker
+matches the frozen prototype bit-for-bit for all300 frames, with both the
+option disabled and enabled. Focused tracker and adapter tests cover expiry,
+fresh filter state, ambiguous candidates, active identities, bounded retention,
+rigid rotations and argument validation.
+
+A separate baseline FP audit finds199 of238 front FP publications on track10
+before GT92's annotations begin; it subsequently matches GT92 for20 frames.
+This suggests early annotation censoring, without proving physical correspondence.
+All199 remain counted as FP. Only6 FP coast without a latest-response update,
+whereas16 TP also coast; no coast-only suppression is justified.
+
+Evidence: `artifacts/tracking-take2-identity-reacquisition-probe-20261012/`,
+`artifacts/tracking-take2-identity-reacquisition-production-parity-20261012/`, and
+`artifacts/tracking-take2-wait-baseline-fp-attribution-20261012/`.
