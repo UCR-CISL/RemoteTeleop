@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 import sys
 import time
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import cv2
 import numpy as np
@@ -92,8 +93,25 @@ class ArchivedXYZPosePolicy:
 class TrackingPilot:
     """Prepare read-only native recordings, then infer every selected frame."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, payload_compression_level: int | None = None):
+        if payload_compression_level is not None and (
+            isinstance(payload_compression_level, bool)
+            or not isinstance(payload_compression_level, int)
+            or not 0 <= payload_compression_level <= 9
+        ):
+            raise ValueError("payload compression level must be an integer from 0 to 9")
         self.root = root
+        self.payload_compression_level = payload_compression_level
+
+    def _write_sensor_payload(self, path: Path, image: np.ndarray, points: np.ndarray) -> None:
+        if self.payload_compression_level is None:
+            np.savez_compressed(path, image=image, lidar=points)
+            return
+        with ZipFile(path, "x", compression=ZIP_DEFLATED,
+                     compresslevel=self.payload_compression_level) as archive:
+            for name, array in (("image", image), ("lidar", points)):
+                with archive.open(f"{name}.npy", "w", force_zip64=True) as stream:
+                    np.lib.format.write_array(stream, array, allow_pickle=False)
 
     @staticmethod
     def box(pose, dimensions, track_id, score=1.0):
@@ -111,6 +129,9 @@ class TrackingPilot:
                         gt_policy="released GT transformed through released lidar inverse into reference lidar pose; G never applied to released poses",
                         gt_scope="take-namespaced IDs; each agent evaluated independently; annotated vehicles with lidar |x|,|y|<=54 m",
                         requested_count=count, sequences=[])
+        if self.payload_compression_level is not None:
+            manifest["payload_storage"] = dict(compression="ZIP_DEFLATED",
+                                               level=self.payload_compression_level, lossless=True)
         for take, agent in selections:
             summary_path = search_root / f"take{take:02d}/take{take:02d}-vehicle{agent}/summary.json"
             summary = json.loads(summary_path.read_text())
@@ -145,7 +166,7 @@ class TrackingPilot:
                     if max(abs(lidar_box[0,3]), abs(lidar_box[1,3])) <= 54:
                         gt.append(self.box(reference @ lidar_box, box.dimensions_lwh, f"take{take}:{box.track_id}"))
                 path = folder/f"{index:06d}.npz"
-                np.savez_compressed(path, image=image, lidar=points)
+                self._write_sensor_payload(path, image, points)
                 rows.append(dict(sequence_id=name, frame_id=frame.frame_id, frame_index=index,
                                  timestamp_us=stamp//1000, image_timestamp_ns=int(meta["image_ns"]),
                                  image_minus_lidar_ms=(int(meta["image_ns"])-stamp)/1e6,
@@ -321,6 +342,8 @@ def main():
     parser.add_argument("--inputs",type=Path,required=True)
     parser.add_argument("--output",type=Path)
     parser.add_argument("--count",type=int,default=60)
+    parser.add_argument("--payload-compression-level", type=int, choices=range(10),
+                        help="Lossless NPZ compression level for prepare; 1 favors speed")
     parser.add_argument("--data-root",type=Path,default=Path("/mnt/bcc-data/data/CooperScene"))
     parser.add_argument("--search-root",type=Path,default=Path("artifacts/worktree-archive-20261011/alignment_artifacts/recipe-frame-search-full-20261004"))
     parser.add_argument("--endpoint",default="tcp://127.0.0.1:18766")
@@ -333,7 +356,7 @@ def main():
     parser.add_argument("--limit-frames",type=int,help="Limit inference to the first N prepared frames per sequence")
     parser.add_argument("--map", type=Path, help="Verify archived XYZ map SHA256 during metadata export")
     args = parser.parse_args()
-    pilot = TrackingPilot(args.inputs)
+    pilot = TrackingPilot(args.inputs, payload_compression_level=args.payload_compression_level)
     if args.mode == "prepare":
         if args.count<=0: parser.error("count must be positive")
         selections = [(1,1)]

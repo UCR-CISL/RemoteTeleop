@@ -21,6 +21,13 @@ transforms. GT is solely an evaluation input. Rendering ground placement must
 not alter scored poses. Retained recipe alignment applies to raw geodetic
 GNSS/INS and sensor composition, never directly to released ICP-refined poses.
 
+`pilot.py prepare --payload-compression-level 1` selects faster lossless NPZ
+storage and records the level in the manifest. Decoded BGR/XYZI arrays, poses
+and timestamps are unchanged. Omitting the option retains NumPy's existing
+compression behavior. Two real payload controls verified identical decoded
+bytes and byte-exact default files; this is a storage optimization, not an
+inference or tracking change.
+
 Frame association is class-aware Hungarian assignment, maximizing valid pair
 count before minimizing XYZ center distance, with an inclusive 2 m default
 gate. Precision/recall include duplicate predictions as false positives. Center
