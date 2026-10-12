@@ -26,11 +26,28 @@ class TrackingOverlayRenderer:
     _EDGES = ((0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6),
               (6, 7), (7, 4), (0, 4), (1, 5), (2, 6), (3, 7))
 
-    def __init__(self, *, bev_size: int = 720, extent_m: float = 60.0):
+    def __init__(self, *, bev_size: int = 720, extent_m: float = 60.0,
+                 compact_labels: bool = False):
         if bev_size < 100 or extent_m <= 0:
             raise ValueError("BEV size must be >=100 pixels and extent positive")
         self.bev_size = int(bev_size)
         self.extent_m = float(extent_m)
+        self.compact_labels = compact_labels
+
+    def _label(self, kind, box, score, suffix):
+        identifier = str(box['track_id'])
+        if self.compact_labels:
+            parts = identifier.split(':')
+            if (kind == 'GT' and len(parts) == 2 and parts[0].startswith('take')
+                    and parts[0][4:].isdigit() and parts[1].isdigit()):
+                return f'GT{parts[1]}{suffix}'
+            if (kind == 'P' and len(parts) == 3 and parts[:2] == ['bevfusion', 'vehicle']
+                    and parts[2].isdigit()):
+                return f'P{parts[2]}{score}{suffix}'
+            if (kind == 'P' and len(parts) == 3 and parts[0] == 'proposal'
+                    and all(part.isdigit() for part in parts[1:])):
+                return f'D{parts[1]}.{parts[2]}{score}{suffix}'
+        return f"{kind}:{identifier} {box.get('label', '')}{score}{suffix}"
 
     @staticmethod
     def _pose(box):
@@ -127,7 +144,7 @@ class TrackingOverlayRenderer:
                 if kind == 'P' and identifier in switched:
                     color, suffix = self.SWITCH_COLOR, suffix + ' IDSW'
                 score = f" {float(box['score']):.2f}" if kind == 'P' and 'score' in box else ''
-                text = f"{kind}:{identifier} {box.get('label', '')}{score}{suffix}"
+                text = self._label(kind, box, score, suffix)
                 self._camera_box(camera, box, camera_T_world, intrinsic, color, text)
                 corners = self._bev_pixels(self._corners(box)[:4], center)
                 for a, b in ((0, 1), (1, 2), (2, 3), (3, 0)):

@@ -137,3 +137,9 @@ Report original timestamps/skew separately when interpreting motion latency.
 matches, misses, false positives and identity switches for overlay production.
 `metrics.json` records both metric sets and the matching protocol. Output
 directories must be new so previous results remain intact.
+
+For crowded overlays, `render.py --compact-labels` displays known take-local
+GT IDs as `GT66`, BEVFusion vehicle tracks as `P14`, and frame-local proposals
+as `D259.3`. The sequence remains in the title; saved assignments retain full
+IDs. Unknown ID formats retain their full labels. Scores and failure markers
+remain visible, and rendering does not alter poses or scores.

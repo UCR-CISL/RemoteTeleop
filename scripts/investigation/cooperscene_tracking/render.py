@@ -17,13 +17,15 @@ def main():
     parser.add_argument("--assignments",type=Path,required=True)
     parser.add_argument("--output",type=Path,required=True)
     parser.add_argument("--front-camera-only",action="store_true")
+    parser.add_argument("--compact-labels",action="store_true",
+                        help="Shorten known CooperScene and BEVFusion IDs in overlay labels")
     args = parser.parse_args()
     assignments = [json.loads(x) for x in args.assignments.read_text().splitlines()]
     frames = [json.loads(x) for x in args.frames.read_text().splitlines()]
     if len(assignments)!=len(frames):
         raise ValueError("Assignments and frames have different coverage")
     args.output.mkdir(parents=True,exist_ok=False)
-    renderer = TrackingOverlayRenderer()
+    renderer = TrackingOverlayRenderer(compact_labels=args.compact_labels)
     for kind in ("detections","tracks"):
         def images():
             for index,(frame,assigned) in enumerate(zip(frames,assignments,strict=True)):
