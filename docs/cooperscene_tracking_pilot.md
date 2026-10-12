@@ -3763,3 +3763,43 @@ drift reported separately rather than hidden by an adopted tolerance. The owned
 container and scoring exit0; earlier asynchronous and failed-attempt artifacts
 remain unchanged. Independent code/receipt review passes. All88 focused tests
 pass locally; deployment verification uses the same focused suite on both hosts.
+
+
+A labelled actual-publication before/after video and PNGs0/5/19 are available at
+`artifacts/tracking-take1-vehicle2-mcap-publication-comparison-20261012/`.
+They reuse saved assignments and unchanged source images/GT/poses, showing
+asynchronous source age versus current-capture offline results. The video plays
+source captures at10FPS; this is not the measured wall-clock delivery rate.
+
+### Full301 awaited replay and localization check before grounding
+
+`artifacts/tracking-take1-vehicle2-xyz-mcap-awaited301-20261012/` completes
+301 fresh forwards through the public MCAP adapter with real frame/analysis
+spools and 301 decoded JPEGs. Every publication uses its current capture's
+result; no requests are replaced. Detection counts remain1726/56/226 and
+published track counts1775/113/177, exactly matching the serial reference.
+Track IDF1 remains0.915625 with three switches and one fragmentation.
+The instrumented replay takes46.239s for29.999s of source captures. This
+reruns an existing case; coverage stays17 cases/5221 captures.
+
+The independent raw GNSS/INS, antenna and recorded-extrinsic composition
+check covers all301 localized poses against the retained ENU recipe:
+XYZ RMSE0.020694m, maximum0.045902m, zero errors >=0.1m, including all56
+propagated poses. This establishes recipe agreement, not independent absolute
+GT accuracy. Matched detection horizontal/Up RMSE remains approximately
+0.399/0.288m; vertical error does not dominate this case.
+
+`artifacts/tracking-take1-vehicle2-GT146-GT85-miss-audit-20261012/` separates
+the two persistent coverage failures. GT146 has five weak proposals and six
+below0.1 across11 eligible observations, with3–23 LiDAR returns and four
+observations outside the learned image crop. Direct raw-recipe checks on these
+11 poses have maximum XYZ error0.025063m. GT85 has the same nearby master
+track6 throughout its152-frame scored gap, with current strong-score witnesses,
+but its projected box lies beyond the camera boundary. GT still has a partial
+intersection. Original symmetric camera eligibility remains fixed; these
+predictions are shown before filtering only in labelled diagnostic overlays.
+
+Neither failure is recovered by correcting vertical placement. No tracker
+threshold or grounding change follows this audit. Any subsequent grounding
+must be explicit and rendering-only, preserve scored XYZ poses and heights,
+and demonstrate visual improvement against an original-height comparison.
