@@ -191,12 +191,17 @@ class FrontCameraCoverageEvaluator:
     """
 
     def __init__(self, *, center_threshold_m: float = 2.0, minimum_area_px: float = 16.0, precision_target: float | None = None,
-                 require_valid_image_timestamp: bool = False) -> None:
+                 require_valid_image_timestamp: bool = False,
+                 minimum_depth: float = 0.1, clip_near_plane: bool = False) -> None:
         if precision_target is not None and not 0 < precision_target <= 1:
             raise ValueError("precision_target must be in (0, 1]")
         if not math.isfinite(minimum_area_px) or minimum_area_px < 0:
             raise ValueError("minimum_area_px must be finite and non-negative")
+        if not math.isfinite(minimum_depth) or minimum_depth <= 0:
+            raise ValueError("minimum_depth must be finite and positive")
         self.minimum_area_px = minimum_area_px
+        self.minimum_depth = minimum_depth
+        self.clip_near_plane = clip_near_plane
         self.precision_target = precision_target
         self.detection = GeometricTrackingEvaluator(center_threshold_m=center_threshold_m, identity_metrics=False)
         self.tracking = GeometricTrackingEvaluator(center_threshold_m=center_threshold_m)
@@ -244,7 +249,8 @@ class FrontCameraCoverageEvaluator:
                 world_T_object=np.asarray(box["world_T_object"], dtype=float).reshape(4, 4),
                 world_T_camera=camera, intrinsics=intrinsic, dimensions=VehicleDimensions(*box["dimensions_lwh"]),
                 image_size=image_size,
-                minimum_area_px=self.minimum_area_px) is not None]
+                minimum_area_px=self.minimum_area_px, minimum_depth=self.minimum_depth,
+                clip_near_plane=self.clip_near_plane) is not None]
         gt, detections, tracks = (projected_boxes(frame[key]) for key in ("gt", "detections", "tracks"))
         common = dict(sequence_id=frame["sequence_id"], timestamp_us=frame["timestamp_us"], gt=gt)
         detection = self.detection.update(predictions=detections, **common)
@@ -290,7 +296,9 @@ class FrontCameraCoverageEvaluator:
             result["precision"] is not None and result["precision"] >= self.precision_target
             for result in (detection_summary, tracking_summary))
         result = dict(visibility_policy=dict(type="geometric projected cuboid intersection", minimum_area_px=self.minimum_area_px,
-                    near_plane_policy="reject entire box if any corner has camera depth <= 0.1 m; no near-plane clipping",
+                    near_plane_policy=(f"clip cuboid edges at camera depth >= {self.minimum_depth:g} m"
+                        if self.clip_near_plane else
+                        f"reject entire box if any corner has camera depth <= {self.minimum_depth:g} m; no near-plane clipping"),
                     actual_occlusion_tested=False, symmetric_prediction_filter=True), detections=detection_summary,
                     tracks=tracking_summary, per_gt_id=coverage,
                     acceptance=dict(minimum_visible_frames=5, minimum_per_id_detection_recall=.9, minimum_per_id_track_recall=.9,
@@ -302,6 +310,8 @@ class FrontCameraCoverageEvaluator:
                         optional_detection_and_track_precision_target=self.precision_target,
                         optional_precision_target_pass=precision_pass,
                         zero_id_switches=switches == 0))
+        if self.clip_near_plane:
+            result["visibility_policy"].update(clip_near_plane=True, minimum_depth_m=self.minimum_depth)
         if self.require_valid_image_timestamp:
             result["image_timestamp_validity"] = dict(
                 policy="opt-in sensitivity: evaluate front camera only when exact integer image_timestamp_ns > 0; absent/malformed metadata is an error; no skew gate or inferred timestamp",

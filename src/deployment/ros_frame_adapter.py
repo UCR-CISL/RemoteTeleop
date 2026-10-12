@@ -131,6 +131,7 @@ class LatestBevFusionBoxes:
                 world_T_object=world_T_object, world_T_camera=world_T_camera,
                 intrinsics=intrinsic, dimensions=VehicleDimensions(*dimensions),
                 image_size=image_shape, minimum_area_px=self.minimum_area_px,
+                clip_near_plane=True,  # Retain the in-frame portion of tracked render prompts.
             )
             if projected is None:
                 continue

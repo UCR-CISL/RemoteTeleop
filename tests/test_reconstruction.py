@@ -115,6 +115,52 @@ def test_projection_rejects_invalid_area_threshold(area):
                             image_size=(80, 100), minimum_area_px=area)
 
 
+def test_projection_near_plane_clipping_uses_edge_intersections():
+    pose = np.eye(4)
+    pose[2, 3] = .5
+    options = dict(world_T_object=pose, world_T_camera=np.eye(4),
+                   intrinsics=np.array([[10., 0, 50.], [0, 10., 40.], [0, 0, 1.]]),
+                   dimensions=VehicleDimensions(4., 2., 2.), image_size=(80, 100),
+                   minimum_depth=1., minimum_area_px=16.)
+    assert project_vehicle_box(**options) is None
+    clipped = project_vehicle_box(**options, clip_near_plane=True)
+    assert clipped is not None
+    # At Z=1 the clipped face spans X=+-2 and Y=+-1. Original front
+    # vertices at Z=1.5 alone would produce a smaller rectangle.
+    np.testing.assert_array_equal(clipped.xyxy, [30., 30., 70., 50.])
+    assert clipped.visible_fraction == 1.
+    wide = project_vehicle_box(**dict(options, intrinsics=np.array(
+        [[100., 0, 50.], [0, 100., 40.], [0, 0, 1.]])), clip_near_plane=True)
+    np.testing.assert_array_equal(wide.xyxy, [0., 0., 99., 79.])
+    assert wide.visible_fraction == pytest.approx(99 * 79 / (400 * 200))
+
+
+def test_projection_clipping_rejects_offscreen_and_fully_behind_and_preserves_front():
+    pose = np.eye(4)
+    options = dict(world_T_object=pose, world_T_camera=np.eye(4),
+                   intrinsics=np.array([[10., 0, 50.], [0, 10., 40.], [0, 0, 1.]]),
+                   dimensions=VehicleDimensions(4., 2., 2.), image_size=(80, 100),
+                   minimum_depth=1., minimum_area_px=0.)
+    pose[:3, 3] = (20., 0., .5)
+    assert project_vehicle_box(**options, clip_near_plane=True) is None
+    pose[:3, 3] = (0., 0., -2.)
+    assert project_vehicle_box(**options, clip_near_plane=True) is None
+    pose[2, 3] = 10.
+    original = project_vehicle_box(**options)
+    clipped = project_vehicle_box(**options, clip_near_plane=True)
+    assert original is not None and clipped is not None
+    np.testing.assert_array_equal(clipped.xyxy, original.xyxy)
+    assert clipped.visible_fraction == original.visible_fraction
+
+
+@pytest.mark.parametrize("depth", [0., -1., float("nan"), float("inf")])
+def test_projection_rejects_invalid_minimum_depth(depth):
+    with pytest.raises(ValueError, match="minimum_depth"):
+        project_vehicle_box(world_T_object=np.eye(4), world_T_camera=np.eye(4),
+                            intrinsics=np.eye(3), dimensions=VehicleDimensions(4., 2., 2.),
+                            image_size=(80, 100), minimum_depth=depth)
+
+
 def test_sam3d_adapter_loads_backend_once(tmp_path):
     loads = []
 

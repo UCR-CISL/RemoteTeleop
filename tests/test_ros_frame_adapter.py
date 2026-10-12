@@ -654,6 +654,32 @@ def _complete_lifecycle_detection(detector, client, timestamp_us, sequence, scor
     return detector.boxes_for(payload, (100, 100))
 
 
+def test_bevfusion_render_prompts_clip_partial_near_plane_box_without_changing_state():
+    client = _LifecycleBevFusionClient()
+    detector = LatestBevFusionBoxes(client, score_threshold=.2, minimum_area_px=16.)
+    crossing = BevFusionBox((2.5, 0, .5), (4, 2, 2), 0, .83, class_name="car")
+    prompts = _complete_lifecycle_detection(detector, client, 0, 0, 0., extra_boxes=(
+        crossing,
+        BevFusionBox((0, 0, -3), (4, 2, 2), 0, .9, class_name="car"),
+        BevFusionBox((30, 0, .5), (4, 2, 2), 0, .9, class_name="car"),
+    ))
+    assert len(prompts) == 1  # Fully behind and offscreen tracks remain excluded.
+    prompt = prompts[0]
+    # The nearest retained face crosses the image edge, but the far face
+    # has a visible left boundary at 50 + 50 * .5 / 1.5 pixels.
+    assert prompt.xyxy == pytest.approx((66.66666666666667, 0., 99., 99.))
+    assert 0 < prompt.visibility < 1
+    expected_pose = np.eye(4)
+    expected_pose[:3, 3] = crossing.center_xyz
+    np.testing.assert_array_equal(np.asarray(prompt.world_T_object).reshape(4, 4), expected_pose)
+    assert prompt.dimensions_lwh == crossing.dimensions_lwh
+    assert prompt.detection_confidence == crossing.score
+    tracked = detector._tracker.boxes_at(0)
+    assert len(tracked) == 3  # Rendering eligibility does not remove tracker state.
+    original = next(item for item in tracked if item.track_id == prompt.track_id)
+    np.testing.assert_array_equal(original.world_T_object, expected_pose)
+
+
 @pytest.mark.parametrize("continuation", [None, .1])
 def test_bevfusion_weak_server_proposal_cannot_birth_a_track(continuation):
     client = _LifecycleBevFusionClient()

@@ -48,18 +48,22 @@ def project_vehicle_box(
     image_size: tuple[int, int],
     minimum_depth: float = 0.1,
     minimum_area_px: float = 64.0,
+    clip_near_plane: bool = False,
 ) -> ProjectedBox | None:
     """Determine geometric image eligibility using a projected bbox envelope.
 
     The camera optical axis is positive Z. The eight projected corners define
     an axis-aligned rectangle, which is clipped to the image. This tests neither
     occlusion nor the optical visibility of the corresponding physical object.
-    Returns ``None`` for boxes that cross the camera plane, do not intersect
-    the image, or are too small to produce a useful segmentation prompt.
+    By default, a corner at or behind ``minimum_depth`` rejects the whole box.
+    Opt-in near-plane clipping projects the retained vertices and cuboid-edge
+    intersections instead. Neither policy tests occlusion.
     """
 
     if not np.isfinite(minimum_area_px) or minimum_area_px < 0:
         raise ValueError("minimum_area_px must be finite and non-negative")
+    if not np.isfinite(minimum_depth) or minimum_depth <= 0:
+        raise ValueError("minimum_depth must be finite and positive")
     world_T_object = np.asarray(world_T_object, dtype=np.float64)
     world_T_camera = np.asarray(world_T_camera, dtype=np.float64)
     intrinsics = np.asarray(intrinsics, dtype=np.float64)
@@ -76,13 +80,32 @@ def project_vehicle_box(
     homogeneous = np.column_stack((corners, np.ones(8)))
     camera_T_object = np.linalg.inv(world_T_camera) @ world_T_object
     camera_corners = (camera_T_object @ homogeneous.T).T[:, :3]
+    if not np.isfinite(camera_corners).all():
+        return None
     depths = camera_corners[:, 2]
-    # A box intersecting the camera plane has an unbounded/unstable projection.
-    if np.any(depths <= minimum_depth):
+    if clip_near_plane:
+        front = depths >= minimum_depth
+        retained = list(camera_corners[front])
+        # product() corner indices differ by one bit along each of 12 edges.
+        for index in range(8):
+            for bit in (1, 2, 4):
+                other = index ^ bit
+                if index < other and front[index] != front[other]:
+                    start, end = camera_corners[index], camera_corners[other]
+                    fraction = (minimum_depth - start[2]) / (end[2] - start[2])
+                    intersection = start + fraction * (end - start)
+                    intersection[2] = minimum_depth
+                    retained.append(intersection)
+        if not retained:
+            return None
+        camera_corners = np.asarray(retained)
+    elif np.any(depths <= minimum_depth):
         return None
 
     pixels_h = (intrinsics @ camera_corners.T).T
     pixels = pixels_h[:, :2] / pixels_h[:, 2:3]
+    if not np.isfinite(pixels).all():
+        return None
     raw_min = pixels.min(axis=0)
     raw_max = pixels.max(axis=0)
     raw_area = float(np.prod(np.maximum(raw_max - raw_min, 0.0)))

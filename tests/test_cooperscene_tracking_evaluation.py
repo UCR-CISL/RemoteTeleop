@@ -136,6 +136,42 @@ def test_front_camera_rejects_invalid_projection_threshold(area):
         FrontCameraCoverageEvaluator(minimum_area_px=area)
 
 
+@pytest.mark.parametrize("depth", [0., -1., float("nan"), float("inf")])
+def test_front_camera_rejects_invalid_minimum_depth(depth):
+    with pytest.raises(ValueError, match="minimum_depth"):
+        FrontCameraCoverageEvaluator(minimum_depth=depth)
+
+
+def test_front_camera_opt_in_clipping_filters_gt_and_predictions_symmetrically():
+    import copy
+
+    crossing, offscreen, behind = box("a"), box("offscreen", 20), box("behind")
+    for item, z in ((crossing, .5), (offscreen, .5), (behind, -2.)):
+        item["world_T_object"][2][3] = z
+        item["dimensions_lwh"] = [4, 2, 2]
+    predictions = [dict(item, track_id="p-" + item["track_id"]) for item in (crossing, offscreen, behind)]
+    frame = dict(sequence_id="take1", frame_id="0", timestamp_us=0,
+        image_width=100, image_height=80, world_T_camera=np.eye(4).tolist(),
+        camera_intrinsic=[[10,0,50],[0,10,40],[0,0,1]],
+        gt=[crossing, offscreen, behind], detections=predictions, tracks=predictions)
+    saved = copy.deepcopy(frame)
+    default = FrontCameraCoverageEvaluator(minimum_depth=1.)
+    explicit_default = FrontCameraCoverageEvaluator(minimum_depth=1., clip_near_plane=False)
+    assert default.update(frame) == explicit_default.update(frame)
+    assert default.summary() == explicit_default.summary()
+    assert default.summary()["detections"]["tp"] == 0
+    clipped = FrontCameraCoverageEvaluator(minimum_depth=1., clip_near_plane=True)
+    result = clipped.update(frame)
+    assert result["visible_gt_ids"] == ["a"]
+    assert (result["visible_gt"], result["visible_detections"], result["visible_tracks"]) == (1, 1, 1)
+    assert clipped.summary()["detections"]["tp"] == clipped.summary()["tracks"]["tp"] == 1
+    policy = clipped.summary()["visibility_policy"]
+    assert policy["clip_near_plane"] is True and policy["minimum_depth_m"] == 1.
+    assert policy["actual_occlusion_tested"] is False
+    assert "clip_near_plane" not in default.summary()["visibility_policy"]
+    assert frame == saved
+
+
 def _camera_frame(index, *, image_timestamp_ns=1, prediction_id="p"):
     visible = box("a")
     visible["world_T_object"][2][3] = 10
