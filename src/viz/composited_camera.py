@@ -484,7 +484,8 @@ class PyTorch3DObjectMeshRenderer:
         )
 
     def render(
-        self, mesh, world_T_object, world_T_camera, camera_intrinsic, image_size
+        self, mesh, world_T_object, world_T_camera, camera_intrinsic, image_size,
+        *, cull_backfaces: bool = False,
     ) -> MeshRenderBuffers:
         import torch
         from pytorch3d.ops import interpolate_face_attributes
@@ -514,7 +515,8 @@ class PyTorch3DObjectMeshRenderer:
         fragments = MeshRasterizer(
             cameras=cameras,
             raster_settings=RasterizationSettings(
-                image_size=(height, width), blur_radius=0.0, faces_per_pixel=1
+                image_size=(height, width), blur_radius=0.0, faces_per_pixel=1,
+                cull_backfaces=cull_backfaces,
             ),
         )(world_mesh)
         alpha = fragments.pix_to_face[0, ..., 0] >= 0

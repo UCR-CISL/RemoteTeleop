@@ -5,6 +5,7 @@ import pytest
 
 pytest.importorskip("trimesh")
 from src.viz.vehicle_proxy import VehicleProxyRenderer
+from src.viz.primitive_vehicle import PrimitiveVehicleAsset
 
 
 def test_templates_cached_by_kind_but_instances_have_current_dimensions(tmp_path):
@@ -27,6 +28,10 @@ def test_templates_cached_by_kind_but_instances_have_current_dimensions(tmp_path
     assert (tmp_path / "truck.glb").is_file()
     assert renderer.render.call_args.args[0] == "instance"
     np.testing.assert_array_equal(renderer.render.call_args.args[1], identity)
+    assert [call.kwargs for call in renderer.render.call_args_list] == [
+        {"cull_backfaces": True}, {"cull_backfaces": True},
+        {"cull_backfaces": True}, {"cull_backfaces": False},
+    ]
 
 
 def test_template_load_failure_propagates_without_caching():
@@ -36,3 +41,11 @@ def test_template_load_failure_propagates_without_caching():
     with pytest.raises(RuntimeError, match="upload failed"):
         proxy.render("car", (4.6, 1.85, 1.5), np.eye(4), np.eye(4), np.eye(3), (32, 24))
     assert not proxy._templates
+
+
+@pytest.mark.parametrize("kind", [kind for kind in PrimitiveVehicleAsset.SUPPORTED_KINDS if kind != "car"])
+def test_other_primitive_kinds_preserve_two_sided_rendering(kind):
+    renderer = Mock()
+    proxy = VehicleProxyRenderer(renderer)
+    proxy.render(kind, PrimitiveVehicleAsset.SPECS[kind][0], np.eye(4), np.eye(4), np.eye(3), (32, 24))
+    assert renderer.render.call_args.kwargs == {"cull_backfaces": False}

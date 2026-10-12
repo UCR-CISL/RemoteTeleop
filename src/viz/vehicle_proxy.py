@@ -27,4 +27,7 @@ class VehicleProxyRenderer:
             self._templates[kind] = asset, handle
         asset, handle = self._templates[kind]
         instance = self._renderer.with_vertices(handle, asset.vertices_for_dimensions(dimensions))
-        return self._renderer.render(instance, world_T_object, world_T_camera, intrinsic, image_size)
+        # The car template's exterior views are verified with culling. Other
+        # templates retain two-sided rendering for their open surface details.
+        return self._renderer.render(instance, world_T_object, world_T_camera, intrinsic, image_size,
+                                     cull_backfaces=kind == "car")
