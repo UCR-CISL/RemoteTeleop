@@ -150,3 +150,48 @@ GT IDs as `GT66`, BEVFusion vehicle tracks as `P14`, and frame-local proposals
 as `D259.3`. The sequence remains in the title; saved assignments retain full
 IDs. Unknown ID formats retain their full labels. Scores and failure markers
 remain visible, and rendering does not alter poses or scores.
+
+## Batch detector benchmark (`batch_detect.py`, `eval_detbench.py`)
+
+Fast replacement for the per-frame ZMQ pilot when only single-frame detector
+quality is needed. `batch_detect.py` runs inside the mmdet3d image, builds each
+checkpoint's embedded training config (`checkpoint-embedded-config.py`) and its
+unchanged `CooperSceneDataset` test pipeline (pkl paths, `LoadPointsFromFile`
+4-D XYZI — the released `.bin` intensity is already /65535 —, `ImageAug3D`
+crop .3→256×512, ±72 m filter). The installed `projects.BEVFusion` replaces
+CooperScene's `models.bevfusion` (source-identical except KITTI-only loader
+branches); spconv-layout sparse weights are permuted to the mmcv layout in
+memory before a strict load. Several `--variant NAME:CONFIG:CKPT:{baseline,benchmark}`
+share one DataLoader pass: each file is read once per sample (the sshfs dataset
+mount, ~12 MB/s, is the bottleneck: ~0.5 s/sample). `benchmark` replaces
+camera0 `lidar2cam`/`cam2img` by `calibration_results_all.json`
+(`scene{take}_agent{agent}`). Output per variant and split:
+`predictions.npz` (keys, boxes `[x,y,z_gravity,l,w,h,yaw]` LiDAR frame with
+score ≥ 0.05, per-sample synchronized forward ms, evaluation-only LiDAR point
+counts inside each pkl GT box) and `manifest.json` (hashes, pipeline, latency,
+wall time). `--fp16` autocasts the forward (no measurable speed-up observed).
+
+```bash
+artifacts/detbench-20261012/run_batch.sh smoke test --limit 50   # A/B/C smoke
+artifacts/detbench-20261012/run_batch.sh full test               # ~35 min (IO bound)
+artifacts/detbench-20261012/run_batch.sh full val                # ~20 min
+.venv/bin/python -m scripts.investigation.cooperscene_tracking.eval_detbench \
+  artifacts/detbench-20261012/full --official-check
+```
+
+`eval_detbench.py` uses `src/evaluation/cooperscene_detection.py`
+(`DetectionBenchmark`). Primary metrics are BEV: rotated BEV IoU AP@0.3/0.5/0.7
+with the CooperScene/OpenCOOD protocol (greedy best-remaining GT per frame,
+global score sort, VOC2010; GT filtered to the dataset's ±72 m/[-5,3] m range)
+and inclusive 2 m BEV center Hungarian matching with P/R/F1 at scores
+0.1–0.5, plus BEV center RMSE and yaw error of matched pairs at the best-F1
+threshold. 3D IoU AP, z (center and bottom) and size errors are secondary
+diagnostics only. Subsets — front-camera FOV (benchmark calibration, any box
+corner/center in 1920×1200 at depth > 0.1), BEV range 0–30/30–50/50–72 m and
+GT with ≥ 5 LiDAR points — use ignore semantics: matching is over all GT;
+predictions matched to excluded GT are dropped, unmatched predictions count
+only inside the subset. `--official-check` recomputes AP with CooperScene's
+own `calculate_ap.py` (identical to 4 decimals on the smoke set). Frames keep
+`ego_pose` and `iter_sequences()` yields time-ordered (take, agent)
+sequences for a later world-frame tracking evaluation; note the info pkls carry
+no GT track IDs (native YAML IDs would be needed).
