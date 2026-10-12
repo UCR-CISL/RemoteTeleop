@@ -41,6 +41,23 @@ as well as height; tracker and localization poses remain unchanged. The profile
 uses Gaussian-map road support rather than GT, and is not surveyed road truth.
 Omit the flag to keep the original localized object heights.
 
+Car proxies whose metric bounding box contains the camera origin produce
+transparent buffers for that view. This display rule keeps detection/GT records
+and scored poses intact; external nearby cars still render. Actual Gamma
+first20 before/after frames in
+`artifacts/tracking-take1-vehicle1-camera-containing-proxy-render-20261012/`
+show20 containing proxies suppressed and96 unrelated asset buffers unchanged.
+The50.49m case remains fully scene-occluded. A nearby non-containing proxy at
+frame ordinal460 remains visible; this is not a general near-car exclusion.
+The42 focused proxy/compositor tests pass locally, on Lambda and on Gamma;
+deployment uses rsync into isolated checkouts without restarting queues.
+
+The separate frozen map-ground comparison in
+`artifacts/tracking-take1-vehicle1-explicit-ground-render-20261012/`
+does not establish a consistent visual improvement. Grounding remains opt-in;
+small XYZ translation error alone does not establish correct object height,
+because orientation and sensor-frame detection errors also affect map Up.
+
 Validation used simulated launchers/readers and local tests only; no replay or
 real vehicle process was launched during integration.
 
