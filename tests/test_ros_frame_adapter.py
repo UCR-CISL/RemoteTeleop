@@ -8,6 +8,7 @@ import numpy as np
 
 import pytest
 
+from src.deployment.lidar_ground_snap import LidarGroundSnapper
 from src.deployment.ros_frame_adapter import LatestBevFusionBoxes, McapFrameReplay, RosAnalysisAssembler, RosFrameAdapter, RosFrameAdapterConfig, _load_gaussian_T_nuscenes_global
 from src.realtime.bevfusion import BevFusionBox, BevFusionResult
 from src.deployment.vehicle import VehicleAnalysisSpool, VehicleFrameSpool
@@ -632,7 +633,7 @@ class _LifecycleBevFusionClient:
         return result
 
 
-def _complete_lifecycle_detection(detector, client, timestamp_us, sequence, score, extra_boxes=()):
+def _complete_lifecycle_detection(detector, client, timestamp_us, sequence, score, extra_boxes=(), points=None):
     payload = _metadata(timestamp_us=timestamp_us, frame_id=str(sequence), generation="offline-lifecycle")
     payload["camera_intrinsic"] = [50., 0., 50., 0., 50., 50., 0., 0., 1.]
     payload["world_T_camera"] = np.eye(4).reshape(-1).tolist()
@@ -642,7 +643,7 @@ def _complete_lifecycle_detection(detector, client, timestamp_us, sequence, scor
     detector.receive_lidar(SimpleNamespace(
         header=SimpleNamespace(stamp=SimpleNamespace(
             sec=timestamp_us // 1_000_000, nanosec=(timestamp_us % 1_000_000) * 1000)),
-        points=np.zeros((1, 4), dtype=np.float32),
+        points=np.zeros((1, 4), dtype=np.float32) if points is None else points,
     ))
     request = client.requests[-1]
     client.result = BevFusionResult(
@@ -692,6 +693,20 @@ def test_bevfusion_track_log_records_every_live_track_including_offscreen(tmp_pa
     assert record["frame_id"] == "0" and record["bevfusion_result_sequence"] == 0
     assert [t["track_id"] for t in record["tracks"]] == [t.track_id for t in detector._tracker.boxes_at(0)]
     assert len(record["tracks"]) == 2 and record["tracks"][1]["world_T_object"][11] == -3
+
+
+@pytest.mark.parametrize("snapper, expected_z", [(None, 9.), (LidarGroundSnapper(), 9.3)])
+def test_bevfusion_optional_lidar_ground_snap_shifts_detection_before_tracking(snapper, expected_z):
+    client = _LifecycleBevFusionClient()
+    detector = LatestBevFusionBoxes(client, score_threshold=.2, minimum_area_px=1, ground_snapper=snapper)
+    grid = np.stack(np.meshgrid(np.linspace(20, 40, 41), np.linspace(-10, 10, 41)), -1).reshape(-1, 2)
+    ground = np.c_[grid, np.full(len(grid), 8.3), np.zeros(len(grid))].astype(np.float32)  # LiDAR ground z = 8.3
+    _complete_lifecycle_detection(detector, client, 0, 0, .9, points=ground, extra_boxes=(
+        BevFusionBox((30, 0, 9), (4, 2, 2), 0, .9, class_name="car"),))
+    tracked = {round(float(t.world_T_object[0, 3])): t.world_T_object for t in detector._tracker.boxes_at(0)}
+    assert tracked[30][2, 3] == pytest.approx(expected_z)
+    assert tracked[30][:2, 3] == pytest.approx([30, 0])
+    assert tracked[0][2, 3] == pytest.approx(10.)  # no ring support: unchanged
 
 
 @pytest.mark.parametrize("continuation", [None, .1])

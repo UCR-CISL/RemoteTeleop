@@ -28,6 +28,7 @@ from src.realtime.process_support import JsonlMetrics
 from src.realtime.protocol import BoxPrompt, EgoPoseSample, FrameDetections, FrameEnd, FrameObjectDetections, FrameSnapshot
 from src.realtime.bevfusion_tracker import BevFusionKalmanTracker, WorldDetection
 from src.realtime.transport import RouterTransport
+from src.deployment.lidar_ground_snap import LidarGroundSnapper
 from src.deployment.vehicle import VehicleAnalysisSpool, VehicleAssetSession, VehicleAssetStore, VehicleFrameSession, VehicleFrameSpool
 from src.reconstruction.models import VehicleDimensions
 from src.reconstruction.projection import project_vehicle_box
@@ -70,7 +71,8 @@ class LatestBevFusionBoxes:
                  maximum_reacquisition_seconds: float = 0.0,
                  maximum_coast_seconds: float = 0.5,
                  request_calibration: str | None = "baseline",
-                 track_log: JsonlMetrics | None = None) -> None:
+                 track_log: JsonlMetrics | None = None,
+                 ground_snapper: LidarGroundSnapper | None = None) -> None:
         if not 0.0 <= score_threshold <= 1.0:
             raise ValueError("bevfusion score threshold must be between zero and one")
         self.client = client
@@ -78,6 +80,9 @@ class LatestBevFusionBoxes:
         # (including tracks outside the camera), for tracking evaluation.
         self.track_log = track_log
         self.request_calibration = request_calibration
+        # Optional: snap detection heights onto the request's LiDAR ground before tracking.
+        self.ground_snapper = ground_snapper
+        self._inflight_lidar_points: dict[str, np.ndarray] = {}
         self.score_threshold = score_threshold
         self.minimum_area_px = minimum_area_px
         self._metadata: dict[int, Mapping[str, Any]] = {}
@@ -204,8 +209,14 @@ class LatestBevFusionBoxes:
             self._in_flight = True
             self.submitted_count += 1
             self._inflight_lidar_poses[request.request_id] = np.asarray(request.world_T_lidar, dtype=np.float64).reshape(4, 4)
+            self._remember_lidar_points(request)
         else:
             self._pending = request
+
+    def _remember_lidar_points(self, request: Any) -> None:
+        if self.ground_snapper is not None:
+            self._inflight_lidar_points[request.request_id] = np.frombuffer(
+                request.lidar_f32, dtype="<f4").reshape(request.lidar_point_count, -1)
 
     def poll(self) -> None:
         """Process ready inference and latest pending work without publishing frames."""
@@ -252,11 +263,12 @@ class LatestBevFusionBoxes:
         self.result_count += 1
         request_id = _result_value(result, "request_id")
         world_T_lidar = self._inflight_lidar_poses.pop(request_id, None)
+        lidar_points = self._inflight_lidar_points.pop(request_id, None)
         if world_T_lidar is not None and _result_value(result, "error") is None:
             detections = tuple(
                 WorldDetection(world_T_object, dimensions, label, score)
                 for world_T_object, dimensions, label, score
-                in _bevfusion_world_boxes(result, world_T_lidar)
+                in _bevfusion_world_boxes(result, world_T_lidar, self.ground_snapper, lidar_points)
             )
             self._tracker.update(
                 detections,
@@ -271,6 +283,7 @@ class LatestBevFusionBoxes:
                 self._in_flight = True
                 self.submitted_count += 1
                 self._inflight_lidar_poses[pending.request_id] = np.asarray(pending.world_T_lidar, dtype=np.float64).reshape(4, 4)
+                self._remember_lidar_points(pending)
             else:
                 self._pending = pending
 
@@ -1347,8 +1360,13 @@ def _result_value(value: Any, name: str, default: Any = None) -> Any:
     return value.get(name, default) if isinstance(value, Mapping) else getattr(value, name, default)
 
 
-def _bevfusion_world_boxes(result: Any, world_T_lidar: np.ndarray) -> tuple[tuple[np.ndarray, tuple[float, float, float], str, float], ...]:
-    """Normalize a detector result whose boxes are expressed in LiDAR coordinates."""
+def _bevfusion_world_boxes(result: Any, world_T_lidar: np.ndarray, ground_snapper: LidarGroundSnapper | None = None,
+                           lidar_points: np.ndarray | None = None) -> tuple[tuple[np.ndarray, tuple[float, float, float], str, float], ...]:
+    """Normalize a detector result whose boxes are expressed in LiDAR coordinates.
+
+    With ``ground_snapper`` and the request's ``lidar_points``, box heights are first
+    snapped onto the local LiDAR ground (in the LiDAR frame).
+    """
     raw_boxes = _result_value(result, "boxes", ())
     normalized = []
     for box in raw_boxes:
@@ -1363,8 +1381,14 @@ def _bevfusion_world_boxes(result: Any, world_T_lidar: np.ndarray) -> tuple[tupl
         label, score = str(item("class_name", item("label", ""))), float(item("score", 0.0))
         if not np.isfinite(score) or not 0 <= score <= 1:
             raise ValueError("BEVFusion score must be between zero and one")
-        normalized.append((world_T_lidar @ lidar_T_object, dimensions, label, score))
-    return tuple(normalized)
+        normalized.append((lidar_T_object, dimensions, label, score))
+    if ground_snapper is not None and lidar_points is not None and normalized:
+        poses = np.stack([item[0] for item in normalized])
+        shifts = ground_snapper.offsets(lidar_points, poses[:, :3, 3], np.arctan2(poses[:, 1, 0], poses[:, 0, 0]),
+                                        np.array([item[1] for item in normalized]))
+        for (lidar_T_object, *_), shift in zip(normalized, shifts):
+            lidar_T_object[2, 3] += shift
+    return tuple((world_T_lidar @ lidar_T_object, *rest) for lidar_T_object, *rest in normalized)
 
 
 def _box_prompts(value: Any) -> tuple[BoxPrompt, ...]:
@@ -1491,6 +1515,8 @@ def main() -> None:
                         help="Reuse identities after unambiguous short gaps; zero disables reacquisition")
     parser.add_argument("--bevfusion-maximum-coast-seconds", type=float, default=0.5,
                         help="Drop tracks this long after their last associated detection")
+    parser.add_argument("--bevfusion-lidar-ground-snap", action="store_true",
+                        help="Shift detection heights onto the local LiDAR ground before tracking")
     parser.add_argument("--bevfusion-tracks-path", type=Path,
                         help="Optional JSONL of all live tracker boxes per published frame (offline evaluation)")
     parser.add_argument("--frames-endpoint", default="tcp://0.0.0.0:5555")
@@ -1609,6 +1635,7 @@ def main() -> None:
             request_calibration=(None if args.bevfusion_camera_calibration == "metadata"
                                  else args.bevfusion_camera_calibration),
             track_log=None if args.bevfusion_tracks_path is None else JsonlMetrics(args.bevfusion_tracks_path),
+            ground_snapper=LidarGroundSnapper() if args.bevfusion_lidar_ground_snap else None,
         )
     localization_metrics = None
     localization_reference = None
