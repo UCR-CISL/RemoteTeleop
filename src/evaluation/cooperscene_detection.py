@@ -24,6 +24,8 @@ import numpy as np
 import shapely
 from scipy.optimize import linear_sum_assignment
 
+from src.localization.cooperscene_calibration import DEFAULT_CALIBRATION, camera_intrinsic, camera_T_lidar
+
 PCD_LIMIT = np.array([-72, -72, -5, 72, 72, 3], dtype=float)  # CooperSceneDataset GT filter
 
 
@@ -45,7 +47,8 @@ class DetectionFrame:
 
 def load_frames(predictions_npz: str, info_pkl: str) -> list[DetectionFrame]:
     """Join a batch_detect.py NPZ with the info pkl; frames sorted by sequence/time."""
-    pred = np.load(predictions_npz)
+    with np.load(predictions_npz) as data:
+        pred = {key: data[key] for key in data.files}  # NpzFile decompresses on every access
     infos = pickle.load(open(info_pkl, "rb"))["data_list"]
     offsets = np.concatenate([[0], np.cumsum(pred["counts"])])
     gt_offsets = np.concatenate([[0], np.cumsum(pred["gt_counts"])])
@@ -140,24 +143,29 @@ def voc_ap(scores: np.ndarray, tp: np.ndarray, n_gt: int) -> float:
     return float(np.sum((rec[i] - rec[i - 1]) * prec[i]))
 
 
-class FrontCameraFov:
-    """Box at least partially in the 1920x1200 front image (any corner or the center, depth > 0.1)."""
+def in_camera_fov(boxes: np.ndarray, K: np.ndarray, T: np.ndarray, width: int = 1920,
+                  height: int = 1200) -> np.ndarray:
+    """Box at least partially in the image (any corner or the center, depth > 0.1); T = camera_T_lidar."""
+    if not len(boxes):
+        return np.zeros(0, bool)
+    pts = np.concatenate([corners_3d(boxes), boxes[:, None, :3]], 1)
+    cam = pts @ T[:3, :3].T + T[:3, 3]
+    uv = cam @ K.T
+    depth = cam[..., 2]
+    u, v = uv[..., 0] / np.maximum(depth, 1e-6), uv[..., 1] / np.maximum(depth, 1e-6)
+    inside = (depth > 0.1) & (u >= 0) & (u < width) & (v >= 0) & (v < height)
+    return inside.any(1)
 
-    def __init__(self, calibration: dict, width: int = 1920, height: int = 1200) -> None:
-        self.calibration, self.size = calibration, (width, height)
+
+class FrontCameraFov:
+    """:func:`in_camera_fov` with the agent's documented front-camera calibration."""
+
+    def __init__(self, calibration: str = DEFAULT_CALIBRATION) -> None:
+        self.calibration = calibration
 
     def __call__(self, frame: DetectionFrame, boxes: np.ndarray) -> np.ndarray:
-        if not len(boxes):
-            return np.zeros(0, bool)
-        entry = self.calibration[f"scene{frame.scenario}_agent{frame.agent_id}"]
-        T, K = np.asarray(entry["T_lidar_to_cam"]), np.asarray(entry["intrinsic"])
-        pts = np.concatenate([corners_3d(boxes), boxes[:, None, :3]], 1)
-        cam = pts @ T[:3, :3].T + T[:3, 3]
-        uv = cam @ K.T
-        depth = cam[..., 2]
-        u, v = uv[..., 0] / np.maximum(depth, 1e-6), uv[..., 1] / np.maximum(depth, 1e-6)
-        inside = (depth > 0.1) & (u >= 0) & (u < self.size[0]) & (v >= 0) & (v < self.size[1])
-        return inside.any(1)
+        return in_camera_fov(boxes, camera_intrinsic(frame.agent_id, self.calibration),
+                             camera_T_lidar(frame.agent_id, self.calibration))
 
 
 class DetectionBenchmark:

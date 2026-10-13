@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from src.evaluation.cooperscene_detection import DetectionBenchmark, FrontCameraFov, load_frames  # noqa: E402
 
 INFO = "/mnt/bcc-data/data/Cooperscene/release/250928_opv2v/cooperscene_infos_{split}.pkl"
-CALIBRATION = "/mnt/bcc-data/data/Cooperscene/benchmark_cooperbevfusion/250928/calibration_results/calibration_results_all.json"
 REPO = Path(__file__).resolve().parents[3]
 
 
@@ -68,7 +67,7 @@ def main() -> None:
     parser.add_argument("root", type=Path, help="run root containing <variant>/<split>/predictions.npz")
     parser.add_argument("--official-check", action="store_true")
     args = parser.parse_args()
-    fov = FrontCameraFov(json.loads(Path(CALIBRATION).read_text()))
+    fov = FrontCameraFov("benchmark")  # embedded copy of calibration_results_all.json
     md = [f"# Detection benchmark: {args.root}", "",
           "Primary: BEV AP (OpenCOOD protocol) and BEV 2 m center matching at the best-F1 score threshold; "
           "bev_rmse/yaw on matched pairs. AP_3D and dz (pred - GT) are secondary diagnostics.", ""]

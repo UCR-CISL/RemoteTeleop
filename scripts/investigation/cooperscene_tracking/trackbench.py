@@ -133,7 +133,7 @@ def study(args) -> None:
     raw = {}
     for variant in variants:
         results = bench.evaluate(list(thresholds), [("val", variant)], regions=("fov_r50",))
-        f1 = lambda m: 2 * m["precision"] * m["recall"] / (m["precision"] + m["recall"])
+        f1 = lambda m: 2 * m["tp"] / (2 * m["tp"] + m["fp"] + m["fn"]) if m["tp"] + m["fp"] + m["fn"] else 0.0
         best = max(range(len(thresholds)), key=lambda i: f1(results[i][("val", variant)]["overall"][PRIMARY]))
         (chosen,) = bench.evaluate([thresholds[best]], [("val", variant), ("test", variant)],
                                    gt_sets=SequenceScorer.GT_SETS)

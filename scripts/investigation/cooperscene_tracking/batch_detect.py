@@ -196,7 +196,8 @@ class BatchDetector:
     def __init__(self, args: argparse.Namespace) -> None:
         from mmdet3d.registry import DATASETS
         self.args = args
-        _register_modules(json.loads(Path(args.benchmark_calibration).read_text()))
+        benchmark = any(spec.split(":")[-1] == "benchmark" for spec in args.variant)
+        _register_modules(json.loads(Path(args.benchmark_calibration).read_text()) if benchmark else None)
         models: dict = {}
         self.variants = [Variant(spec, models) for spec in args.variant]
         # Base dataset parses infos (paths/calibration) once; prefer a camera

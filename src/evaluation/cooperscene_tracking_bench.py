@@ -28,7 +28,7 @@ from typing import Any, Iterable, Sequence
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from src.evaluation.cooperscene_detection import PCD_LIMIT, FrontCameraFov, center_match
+from src.evaluation.cooperscene_detection import PCD_LIMIT, center_match, in_camera_fov
 from src.evaluation.cooperscene_tracking import GeometricTrackingEvaluator
 from src.localization.cooperscene import CooperSceneSequenceDataset, pose_to_matrix
 from src.localization.cooperscene_calibration import camera_intrinsic, camera_T_lidar
@@ -73,10 +73,10 @@ class GroundTruthTrackCache:
               predictions_npz: str | Path, workers: int = 16) -> dict:
         with open(info_pkl, "rb") as stream:
             infos = pickle.load(stream)["data_list"]
-        pred = np.load(predictions_npz)
-        gt_offsets = np.concatenate([[0], np.cumsum(pred["gt_counts"])])
-        points = {int(idx): pred["gt_num_points"][gt_offsets[i]:gt_offsets[i + 1]]
-                  for i, idx in enumerate(pred["sample_idx"])}
+        with np.load(predictions_npz) as pred:
+            gt_counts, gt_num_points, sample_idx = pred["gt_counts"], pred["gt_num_points"], pred["sample_idx"]
+        gt_offsets = np.concatenate([[0], np.cumsum(gt_counts)])
+        points = {int(idx): gt_num_points[gt_offsets[i]:gt_offsets[i + 1]] for i, idx in enumerate(sample_idx)}
         by_key = {(str(info["scenario"]), str(info["agent_id"]), int(info["timestamp"])): (i, info)
                   for i, info in enumerate(infos)}
         dataset = CooperSceneSequenceDataset.metadata_only(data_root, cache_frames=False)
@@ -292,10 +292,8 @@ class Region:
         if name not in self.NAMES:
             raise ValueError(f"unknown region {name!r}")
         self.name = name
-        table = {f"scene{take}_agent{agent}": {"T_lidar_to_cam": camera_T_lidar(agent, calibration),
-                                               "intrinsic": camera_intrinsic(agent, calibration)}
-                 for take in range(64) for agent in (1, 2, 3)}
-        self._fov = FrontCameraFov(table)
+        self._camera = {agent: (camera_intrinsic(agent, calibration), camera_T_lidar(agent, calibration))
+                        for agent in ("1", "2", "3")}
 
     @staticmethod
     def in_limit(lidar: np.ndarray) -> np.ndarray:
@@ -306,15 +304,8 @@ class Region:
         if self.name in ("fov_r50", "all_r50"):
             inside &= np.hypot(lidar[:, 0], lidar[:, 1]) <= 50
         if self.name == "fov_r50" and len(lidar):
-            frame = _FovFrame(sequence.take, sequence.agent)
-            inside &= self._fov(frame, lidar)
+            inside &= in_camera_fov(lidar, *self._camera[sequence.agent])
         return inside
-
-
-@dataclass
-class _FovFrame:
-    scenario: str
-    agent_id: str
 
 
 class BevHota:
@@ -431,7 +422,7 @@ class SequenceScorer:
         previous_gt: dict[int, np.ndarray] = {}
         for f, out in enumerate(outputs):
             for identity in out.ids:
-                first_seen.setdefault(str(identity), f)
+                first_seen.setdefault(str(identity), int(sequence.frames[f]))
             care = self.care(sequence, f)
             gt_world = sequence.gt_world[f]
             match = center_match(out.world, gt_world, self.gate)
@@ -477,21 +468,23 @@ class SequenceScorer:
         """Bucket each FN, FP and ID switch into a likely cause (diagnostic, not a metric)."""
         gt_ids, gt_world = sequence.gt_ids[f][care], sequence.gt_world[f][care]
         live = set(map(str, out.ids))
+        frame = int(sequence.frames[f])  # frame numbers: the tracker's clock (FRAME_US each)
         for switch in result["id_switches"]:
-            gap = f - last_match.get(switch["gt_id"], f)
+            gap = frame - last_match.get(switch["gt_id"], frame)
             if switch["previous_pred_id"] in live:
                 failures["idsw/previous_track_still_live(swap_or_duplicate)"] += 1
             else:
-                fresh = f - first_seen[switch["pred_id"]] <= gap
+                fresh = frame - first_seen[switch["pred_id"]] <= gap
                 failures[f"idsw/previous_track_ended/{'new_track' if fresh else 'old_track'}/"
                          f"gap{'<=5' if gap <= 5 else '6-20' if gap <= 20 else '>20'}"] += 1
         for m in result["matches"]:
-            last_match[m["gt_id"]] = f
+            last_match[m["gt_id"]] = frame
             k = kept[m["pred_index"]]
             (coasted_err if out.coasted[k] else observed_err).append(m["center_error_m"])
             identity = int(gt_ids[m["gt_index"]])
             if identity in previous_gt and np.isfinite(out.speed[k]):
-                gt_speed = np.linalg.norm(gt_world[m["gt_index"], :2] - previous_gt[identity]) / (FRAME_US / 1e6)
+                dt_s = (frame - int(sequence.frames[f - 1])) * FRAME_US / 1e6  # previous_gt is frame f - 1
+                gt_speed = np.linalg.norm(gt_world[m["gt_index"], :2] - previous_gt[identity]) / dt_s
                 speed_err.append((float(out.speed[k] - gt_speed), float(out.scores[k]), bool(out.coasted[k])))
         dets, scores = sequence.det_lidar[f], sequence.det_scores[f]
         det_world = matrices_to_boxes(sequence.map_T_lidar[f] @ box_matrices(dets), dets[:, 3:6])
@@ -563,9 +556,15 @@ def summarize(counts: Sequence[dict[str, Any]]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Multiprocessing harness. Sequences live in a module global inherited by
-# forked workers so only (key, job) tuples cross process boundaries.
+# Multiprocessing harness. Each pool's initializer points this worker-local
+# global at its benchmark's sequences (inherited via fork, not pickled), so
+# only (key, job) tuples cross process boundaries.
 _SEQUENCES: dict[tuple[str, str], list[SequenceData]] = {}
+
+
+def _init_worker(sequences: dict[tuple[str, str], list[SequenceData]]) -> None:
+    global _SEQUENCES
+    _SEQUENCES = sequences
 
 
 def _score_job(job: tuple) -> tuple:
@@ -591,8 +590,7 @@ class TrackingBenchmark:
     """Run tracker configs (or raw-detection thresholds) over loaded splits in parallel."""
 
     def __init__(self, sequences: dict[tuple[str, str], list[SequenceData]], *, processes: int | None = None) -> None:
-        _SEQUENCES.clear()
-        _SEQUENCES.update(sequences)
+        self.sequences = sequences
         self.processes = processes or min(32, multiprocessing.cpu_count())
 
     def evaluate(self, specs: Sequence[TrackerConfig | float], keys: Sequence[tuple[str, str]], *,
@@ -600,11 +598,11 @@ class TrackingBenchmark:
                  diagnose: bool = False) -> list[dict[tuple[str, str], dict[str, Any]]]:
         """For each spec: {(split, variant): {"overall"|"take<N>": {region/gt_set: metrics}}}."""
         jobs = [(key, i, spec_index, tuple(regions), tuple(gt_sets), diagnose)
-                for spec_index in range(len(specs)) for key in keys for i in range(len(_SEQUENCES[key]))]
-        jobs.sort(key=lambda j: -len(_SEQUENCES[j[0]][j[1]].frames))
+                for spec_index in range(len(specs)) for key in keys for i in range(len(self.sequences[key]))]
+        jobs.sort(key=lambda j: -len(self.sequences[j[0]][j[1]].frames))
         resolved = [(key, i, specs[s], r, g, d) for key, i, s, r, g, d in jobs]
         context = multiprocessing.get_context("fork")
-        with context.Pool(self.processes) as pool:
+        with context.Pool(self.processes, initializer=_init_worker, initargs=(self.sequences,)) as pool:
             done = pool.map(_score_job, resolved, chunksize=1)
         grouped: list[dict] = [dict() for _ in specs]
         for (key, i, s, *_), (_, take, agent, result) in zip(jobs, done):
