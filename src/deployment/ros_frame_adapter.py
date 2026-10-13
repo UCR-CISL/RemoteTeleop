@@ -23,7 +23,7 @@ import numpy as np
 import zmq
 
 from src.common.vehicle_categories import vehicle_proxy_kind
-from src.localization.cooperscene_calibration import DEFAULT_CALIBRATION, camera_metadata
+from src.localization.cooperscene_calibration import CALIBRATIONS, DEFAULT_CALIBRATION, camera_metadata
 from src.realtime.process_support import JsonlMetrics
 from src.realtime.protocol import BoxPrompt, EgoPoseSample, FrameDetections, FrameEnd, FrameObjectDetections, FrameSnapshot
 from src.realtime.bevfusion_tracker import BevFusionKalmanTracker, WorldDetection
@@ -1472,7 +1472,7 @@ def main() -> None:
     parser.add_argument("--mcap-rate", type=float, default=1.0)
     parser.add_argument("--mcap-agent", default="1", help="Camera/LiDAR agent in Foxglove MCAPs")
     parser.add_argument("--mcap-start-sequence", type=int, default=0)
-    parser.add_argument("--mcap-camera-calibration", choices=("benchmark", "baseline"), default=DEFAULT_CALIBRATION,
+    parser.add_argument("--mcap-camera-calibration", choices=CALIBRATIONS, default=DEFAULT_CALIBRATION,
                         help="CooperScene camera calibration for replay projection/rendering")
     parser.add_argument("--localization-transform", type=Path)
     parser.add_argument("--stored-localization-transform", type=Path)
@@ -1480,7 +1480,7 @@ def main() -> None:
     parser.add_argument("--bevfusion-endpoint")
     parser.add_argument("--bevfusion-score-threshold", type=float, default=0.2)
     parser.add_argument("--bevfusion-minimum-area-px", type=float, default=64.0)
-    parser.add_argument("--bevfusion-camera-calibration", choices=("baseline", "benchmark", "metadata"),
+    parser.add_argument("--bevfusion-camera-calibration", choices=(*CALIBRATIONS, "metadata"),
                         default="baseline", help="CooperScene camera sent to BEVFusion (checkpoint trained "
                         "with baseline); 'metadata' sends the replay camera unchanged")
     parser.add_argument("--bevfusion-continuation-score-threshold", type=float,

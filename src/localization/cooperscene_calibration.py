@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-CALIBRATIONS = ("benchmark", "baseline")
-DEFAULT_CALIBRATION = "benchmark"
+CALIBRATIONS = ("refined", "benchmark", "baseline")
+DEFAULT_CALIBRATION = "refined"
 
 # "baseline": copied from CooperScene's dataset converter (SensorPlatform
 # calibration). The CooperScene BEVFusion checkpoint was trained with it.
@@ -29,9 +29,21 @@ BENCHMARK_CAMERA_CALIBRATION = {
     "3": ([[1723.4559805329009, 0.0, 951.718698093622], [0.0, 1721.5284837443248, 568.1954332460546], [0.0, 0.0, 1.0]], [[0.012401962235324929, -0.9995735923853756, -0.026435212942085076, -0.004253486143733532], [0.03758394197950837, 0.02688455285877321, -0.998931760145861, -0.2702537648357407], [0.9992165151578138, 0.011395174948396682, 0.03790134232604989, -0.07244607646915167], [0.0, 0.0, 0.0, 1.0]]),
 }
 
+# "refined": artifacts/camera-rotation-fit-20261012/corrected_camera_T_lidar.json,
+# camera_only variant. Dense image/render rotation fits at XYZ-localized poses
+# were corrected for LiDAR-pose tilt using LiDAR-ground vs map-ground normals.
+# Each camera_T_lidar is benchmark composed with its fitted camera rotation;
+# intrinsics are unchanged from benchmark.
+REFINED_CAMERA_CALIBRATION = {
+    "1": (BENCHMARK_CAMERA_CALIBRATION["1"][0], [[0.02186118441284714, -0.9997576420895049, -0.0025972448085600707, 0.006451112262567737], [0.00896780463547343, 0.0027938541261423155, -0.9999558853768382, -0.17766739851545124], [0.9997207949412308, 0.02183692843892967, 0.00902670813696243, -0.043260687870641204], [0.0, 0.0, 0.0, 1.0]]),
+    "2": (BENCHMARK_CAMERA_CALIBRATION["2"][0], [[-0.011968418892247815, -0.999715756427019, -0.020619441005494423, -0.004041364657616932], [0.06046706323416231, 0.019859588934745313, -0.9979726061680075, -0.23455413230455643], [0.9980984332317835, -0.013190948347617356, 0.060212189158060744, -0.06304340148959303], [0.0, 0.0, 0.0, 1.0]]),
+    "3": (BENCHMARK_CAMERA_CALIBRATION["3"][0], [[0.016012179914323715, -0.9997455824079596, -0.01588635592908941, -0.0017309831544342284], [0.054318502804854965, 0.016734690183815813, -0.9983834150917203, -0.2714504667828488], [0.9983952703581692, 0.01512337227429984, 0.05457264723839468, -0.06793578827638293], [0.0, 0.0, 0.0, 1.0]]),
+}
+
 
 def _calibration(agent: str | int, calibration: str) -> tuple[list, list]:
-    tables = {"benchmark": BENCHMARK_CAMERA_CALIBRATION, "baseline": CAMERA_CALIBRATION}
+    tables = {"refined": REFINED_CAMERA_CALIBRATION,
+              "benchmark": BENCHMARK_CAMERA_CALIBRATION, "baseline": CAMERA_CALIBRATION}
     if calibration not in tables:
         raise ValueError(f"unknown CooperScene calibration {calibration!r}; expected one of {CALIBRATIONS}")
     try:

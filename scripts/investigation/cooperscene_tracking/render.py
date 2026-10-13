@@ -6,7 +6,7 @@ import re
 
 import numpy as np
 
-from src.localization.cooperscene_calibration import camera_metadata
+from src.localization.cooperscene_calibration import CALIBRATIONS, DEFAULT_CALIBRATION, camera_metadata
 from src.viz.cooperscene_tracking import TrackingOverlayRenderer
 from src.reconstruction.models import VehicleDimensions
 from src.reconstruction.projection import project_vehicle_box
@@ -21,7 +21,7 @@ def main():
     parser.add_argument("--front-camera-only",action="store_true")
     parser.add_argument("--compact-labels",action="store_true",
                         help="Shorten known CooperScene and BEVFusion IDs in overlay labels")
-    parser.add_argument("--camera-calibration",choices=("benchmark","baseline","recorded"),default="benchmark",
+    parser.add_argument("--camera-calibration",choices=(*CALIBRATIONS,"recorded"),default=DEFAULT_CALIBRATION,
                         help="Camera used to draw overlays; 'recorded' uses the (detector) camera in the inputs. "
                              "Front-camera filtering always uses the recorded camera to match the assignments.")
     args = parser.parse_args()

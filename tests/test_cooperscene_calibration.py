@@ -7,15 +7,17 @@ from scipy.spatial.transform import Rotation
 
 from src.localization.cooperscene_calibration import (
     BENCHMARK_CAMERA_CALIBRATION, CAMERA_CALIBRATION, DEFAULT_CALIBRATION,
+    REFINED_CAMERA_CALIBRATION,
     camera_intrinsic, camera_metadata, camera_T_lidar, compose_map_T_camera,
 )
 
 
-def test_default_is_benchmark_and_baseline_is_explicit():
-    assert DEFAULT_CALIBRATION == "benchmark"
+def test_default_is_refined_and_older_calibrations_are_explicit():
+    assert DEFAULT_CALIBRATION == "refined"
     for agent in ("1", "2", "3"):
-        np.testing.assert_array_equal(camera_T_lidar(agent), BENCHMARK_CAMERA_CALIBRATION[agent][1])
+        np.testing.assert_array_equal(camera_T_lidar(agent), REFINED_CAMERA_CALIBRATION[agent][1])
         np.testing.assert_array_equal(camera_intrinsic(int(agent)), BENCHMARK_CAMERA_CALIBRATION[agent][0])
+        np.testing.assert_array_equal(camera_T_lidar(agent, "benchmark"), BENCHMARK_CAMERA_CALIBRATION[agent][1])
         np.testing.assert_array_equal(camera_T_lidar(agent, "baseline"), CAMERA_CALIBRATION[agent][1])
         np.testing.assert_array_equal(camera_intrinsic(agent, "baseline"), CAMERA_CALIBRATION[agent][0])
     with pytest.raises(ValueError, match="unknown CooperScene calibration"):
@@ -26,14 +28,23 @@ def test_default_is_benchmark_and_baseline_is_explicit():
 
 @pytest.mark.parametrize("agent", ["1", "2", "3"])
 def test_benchmark_is_a_small_rigid_correction_of_baseline(agent):
-    benchmark, baseline = camera_T_lidar(agent), camera_T_lidar(agent, "baseline")
+    benchmark, baseline = camera_T_lidar(agent, "benchmark"), camera_T_lidar(agent, "baseline")
     np.testing.assert_allclose(benchmark[:3, :3] @ benchmark[:3, :3].T, np.eye(3), atol=1e-6)
     angle = np.degrees(Rotation.from_matrix(benchmark[:3, :3] @ baseline[:3, :3].T).magnitude())
     assert 2.0 < angle < 5.0
     assert np.linalg.norm(benchmark[:3, 3] - baseline[:3, 3]) < 0.02
     # Only agent 3's intrinsic was refit by the benchmark.
-    same_k = np.array_equal(camera_intrinsic(agent), camera_intrinsic(agent, "baseline"))
+    same_k = np.array_equal(camera_intrinsic(agent, "benchmark"), camera_intrinsic(agent, "baseline"))
     assert same_k == (agent != "3")
+
+
+@pytest.mark.parametrize("agent", ["1", "2", "3"])
+def test_refined_is_a_camera_rotation_of_benchmark_with_unchanged_k(agent):
+    refined, benchmark = camera_T_lidar(agent), camera_T_lidar(agent, "benchmark")
+    correction = refined @ np.linalg.inv(benchmark)
+    np.testing.assert_allclose(correction[:3, :3] @ correction[:3, :3].T, np.eye(3), atol=1e-6)
+    np.testing.assert_allclose(correction[:3, 3], 0, atol=1e-12)
+    np.testing.assert_array_equal(camera_intrinsic(agent), camera_intrinsic(agent, "benchmark"))
 
 
 def test_camera_metadata_rederives_camera_from_lidar_pose():
