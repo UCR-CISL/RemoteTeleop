@@ -141,6 +141,7 @@ class LaunchOptions:
     mcap_start_sequence: int = 0
     localization_position_mode: str = "xyz"
     ground_plane: PurePosixPath | None = None
+    highlight_new_tracks: float | None = None
     bbox_source: str = "gt"
     bevfusion_image: str = "remote-teleop-bevfusion:latest"
     bevfusion_gpu: int = 0
@@ -536,8 +537,10 @@ class RemoteTeleopSimulationLauncher:
         return ["--assets-endpoint", self.vehicle.asset_endpoint_uri]
 
     def _remote_compositor_arguments(self) -> list[str]:
-        return (["--ground-plane", str(self.remote.repo_path / self.options.ground_plane)]
-                if self.options.ground_plane is not None else [])
+        return ((["--ground-plane", str(self.remote.repo_path / self.options.ground_plane)]
+                 if self.options.ground_plane is not None else [])
+                + (["--highlight-new-tracks", str(self.options.highlight_new_tracks)]
+                   if self.options.highlight_new_tracks is not None else []))
 
     def _vehicle_adapter_script(self) -> str:
         root = self._vehicle_output_root()
@@ -1004,6 +1007,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--camera-source-height", type=int, default=900)
     parser.add_argument("--bbox-source", choices=("gt", "bevfusion"), default="gt")
     add_bevfusion_arguments(parser, gpu=0)
+    parser.add_argument("--highlight-new-tracks", type=float, nargs="?", const=1.0, metavar="SECONDS",
+                        help="remote compositor tints tracks first seen within SECONDS")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     if args.source_mode in ("nuscenes", "nuscenes_mcap") and args.expected_samples is None:
@@ -1026,7 +1031,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             camera_fx=args.camera_fx, camera_fy=args.camera_fy,
             camera_cx=args.camera_cx, camera_cy=args.camera_cy,
             camera_source_size=(args.camera_source_width, args.camera_source_height),
-            bbox_source=args.bbox_source, **bevfusion_option_values(args),
+            bbox_source=args.bbox_source, highlight_new_tracks=args.highlight_new_tracks,
+            **bevfusion_option_values(args),
         ), dry_run=args.dry_run)
         result = launcher.run()
     except (LaunchError, ValueError) as error:

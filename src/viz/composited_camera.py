@@ -101,6 +101,54 @@ class PoseOnlyCompositedFrame:
     rgb: np.ndarray
     track_states: Mapping[str, str]
     ground_placements: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
+    new_track_ids: frozenset[str] = frozenset()
+
+
+class NewTrackHighlighter:
+    """Remember each track ID's first-seen frame time so new tracks can be tinted.
+
+    IDs unseen for ``forget_seconds`` are dropped; a timestamp moving backwards
+    (scene restart) or ``reset()`` clears all history.
+    """
+
+    def __init__(
+        self, highlight_seconds: float = 1.0, *, forget_seconds: float = 5.0,
+        color: tuple[float, float, float] = (1.0, 0.35, 0.0), strength: float = 0.75,
+    ) -> None:
+        if not np.isfinite(highlight_seconds) or highlight_seconds <= 0.0:
+            raise ValueError("highlight_seconds must be finite and positive")
+        self._highlight_us = highlight_seconds * 1e6
+        self._forget_us = max(forget_seconds, highlight_seconds) * 1e6
+        self.color = np.asarray(color, dtype=np.float32)
+        self._strength = float(strength)
+        self._first_seen: dict[str, int] = {}
+        self._last_seen: dict[str, int] = {}
+        self._last_timestamp: int | None = None
+
+    def reset(self) -> None:
+        self._first_seen.clear()
+        self._last_seen.clear()
+        self._last_timestamp = None
+
+    def observe(self, track_ids, timestamp_us: int) -> frozenset[str]:
+        """Record one frame's IDs and return those first seen within the window."""
+
+        if self._last_timestamp is not None and timestamp_us < self._last_timestamp:
+            self.reset()
+        self._last_timestamp = timestamp_us
+        for track_id in track_ids:
+            self._first_seen.setdefault(track_id, timestamp_us)
+            self._last_seen[track_id] = timestamp_us
+        for track_id in [k for k, seen in self._last_seen.items() if timestamp_us - seen > self._forget_us]:
+            del self._first_seen[track_id], self._last_seen[track_id]
+        return frozenset(
+            track_id for track_id in track_ids
+            if timestamp_us - self._first_seen[track_id] < self._highlight_us
+        )
+
+    def tint(self, overlay: "MeshRenderBuffers") -> "MeshRenderBuffers":
+        rgb = overlay.rgb * (1.0 - self._strength) + self.color * self._strength
+        return MeshRenderBuffers(rgb, overlay.depth, overlay.alpha)
 
 
 @dataclass(frozen=True)
@@ -135,11 +183,15 @@ class PoseOnlyCompositedCameraBackend:
         ground_z: float | None = None,
         vehicle_proxies: "VehicleProxyRenderer | None" = None,
         ground_plane: GroundPlane | GroundSurface | None = None,
+        new_tracks: NewTrackHighlighter | None = None,
+        track_id_labels: bool = False,
     ) -> None:
         if proxy_thickness <= 0:
             raise ValueError("proxy_thickness must be positive")
         self._gaussian_renderer = gaussian_renderer
         self.camera = camera
+        self._new_tracks = new_tracks
+        self._track_id_labels = track_id_labels
         self._mesh_renderer = mesh_renderer
         self._proxy_color = np.asarray(proxy_color, dtype=np.float32)
         self._proxy_thickness = proxy_thickness
@@ -230,10 +282,16 @@ class PoseOnlyCompositedCameraBackend:
         object_depth = np.full(background.depth.shape, np.inf, dtype=np.float32)
         track_states: dict[str, str] = {}
         ground_placements: dict[str, dict] = {}
+        new_ids = (frozenset() if self._new_tracks is None else
+                   self._new_tracks.observe([box.track_id for box in boxes], int(pose_sample.timestamp_us)))
+        labels: list[tuple[BoxPrompt, np.ndarray, bool]] = []
         for box in boxes:
             placed_pose = _flat_ground_box_pose(
                 box, ground_z=self._ground_z, ground_plane=self._ground_plane,
             )
+            highlight = box.track_id in new_ids
+            if highlight or self._track_id_labels:
+                labels.append((box, placed_pose, highlight))
             status = ("explicit_plane" if self._ground_plane is not None else
                       "fixed_ground_z" if self._ground_z is not None else "preserve_input_pose")
             ground_placements[box.track_id] = dict(getattr(
@@ -246,6 +304,8 @@ class PoseOnlyCompositedCameraBackend:
                     placed_pose,
                     world_T_camera, self.camera.camera_intrinsic, self.camera.image_size,
                 )
+                if highlight:
+                    overlay = self._new_tracks.tint(overlay)
                 rgb = _composite_mesh(
                     rgb, background.depth, background.alpha, overlay, object_depth=object_depth,
                     alpha_threshold=self._alpha_threshold,
@@ -273,6 +333,8 @@ class PoseOnlyCompositedCameraBackend:
                         self.camera.camera_intrinsic,
                         self.camera.image_size,
                     )
+                    if highlight:
+                        overlay = self._new_tracks.tint(overlay)
                     rgb = _composite_mesh(
                         rgb, background.depth, background.alpha, overlay, object_depth=object_depth,
                         alpha_threshold=self._alpha_threshold,
@@ -293,7 +355,7 @@ class PoseOnlyCompositedCameraBackend:
                 box,
                 world_T_camera,
                 self.camera.camera_intrinsic,
-                self._proxy_color,
+                self._new_tracks.color if highlight else self._proxy_color,
                 self._proxy_thickness,
                 self._alpha_threshold,
                 self._depth_tolerance_m,
@@ -301,6 +363,9 @@ class PoseOnlyCompositedCameraBackend:
                 ground_plane=self._ground_plane, object_depth=object_depth, placed_pose=placed_pose,
             )
             track_states[box.track_id] = "proxy"
+        for box, placed_pose, highlight in labels:
+            _draw_track_label(rgb, box, placed_pose, world_T_camera, self.camera.camera_intrinsic,
+                              self._new_tracks.color if highlight else self._proxy_color)
         return PoseOnlyCompositedFrame(
             sequence=int(pose_sample.sequence),
             timestamp_us=int(pose_sample.timestamp_us),
@@ -309,6 +374,7 @@ class PoseOnlyCompositedCameraBackend:
             rgb=rgb,
             track_states=track_states,
             ground_placements=ground_placements,
+            new_track_ids=new_ids,
         )
 
     def _activate_generation(self, generation: str) -> None:
@@ -319,6 +385,8 @@ class PoseOnlyCompositedCameraBackend:
                 f"mismatched scene generation {generation!r}; expected {self._scene_generation!r}"
             )
         self._scene_generation = generation
+        if self._new_tracks is not None:
+            self._new_tracks.reset()
 
     def _record_mesh_status(
         self, event: AssetEvent, state: str, path: Path | None, error: str | None = None
@@ -787,6 +855,25 @@ def _draw_box_proxy(
             camera[start, 2], camera[end, 2], color, thickness,
             alpha_threshold, depth_tolerance_m, shared_depth=object_depth,
         )
+
+
+def _draw_track_label(rgb, box, placed_pose, world_T_camera, intrinsic, color) -> None:
+    """Draw the short track ID above the box's top face center."""
+
+    top = placed_pose[:3, :3] @ np.array([0.0, 0.0, box.dimensions_lwh[2] / 2.0]) + placed_pose[:3, 3]
+    camera_T_world = np.linalg.inv(world_T_camera)
+    point = camera_T_world[:3, :3] @ top + camera_T_world[:3, 3]
+    if point[2] <= 1e-3:
+        return
+    u, v = (intrinsic @ point)[:2] / point[2]
+    height, width = rgb.shape[:2]
+    if not (0 <= u < width and 0 <= v < height):
+        return
+    text = box.track_id.rsplit(":", 1)[-1]
+    (text_w, text_h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+    x, y = int(u - text_w / 2), int(v) - 6
+    cv2.rectangle(rgb, (x - 2, y - text_h - 3), (x + text_w + 2, y + 3), tuple(float(c) for c in color), -1)
+    cv2.putText(rgb, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (1.0, 1.0, 1.0), 1, cv2.LINE_AA)
 
 
 def _flat_ground_box_pose(

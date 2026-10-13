@@ -104,6 +104,14 @@ def test_cooperscene_preserves_localized_object_height_by_default(tmp_path):
     command = launcher._remote_start_script()
     assert "--ground-z" not in command
     assert "--preserve-object-z" not in command
+    assert "--highlight-new-tracks" not in command
+
+
+def test_highlight_new_tracks_is_passed_to_remote_compositor(tmp_path):
+    launcher = RemoteTeleopSimulationLauncher(
+        _options(tmp_path, highlight_new_tracks=1.5), dry_run=True, output=lambda _line: None
+    )
+    assert "--highlight-new-tracks 1.5" in launcher._remote_start_script()
 
 
 def test_retrieved_metrics_require_ordered_complete_gap_free_mp4(tmp_path):

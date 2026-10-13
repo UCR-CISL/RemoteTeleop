@@ -29,6 +29,7 @@ from src.realtime.runtime_support import HealthHeartbeat, JsonlMetricsWriter
 from src.realtime.transport import DealerTransport
 from src.viz.composited_camera import (
     CudaGaussianBufferRenderer,
+    NewTrackHighlighter,
     PyTorch3DObjectMeshRenderer,
     PoseOnlyCompositedCameraBackend,
     RemoteCameraConfig,
@@ -383,6 +384,8 @@ class CompositedCameraProcess:
         cursor_path: Path | None = None,
         mesh_cache_dir: Path | None = None,
         asset_proxy: bool = False,
+        highlight_new_tracks: float | None = None,
+        track_id_labels: bool = False,
     ) -> None:
         self._context = zmq.Context()
         self._frames = DealerTransport.open(self._context, frames_endpoint, identity=receiver_id)
@@ -403,6 +406,8 @@ class CompositedCameraProcess:
         self._backend = PoseOnlyCompositedCameraBackend(
             CudaGaussianBufferRenderer(gaussian_map, device=device, downsample=1),
             camera, mesh_renderer, ground_z=ground_z, ground_plane=ground_plane, vehicle_proxies=vehicle_proxies,
+            new_tracks=None if highlight_new_tracks is None else NewTrackHighlighter(highlight_new_tracks),
+            track_id_labels=track_id_labels,
         )
         self._cursor = FrameCursor(cursor_path or output_dir / "frame-cursor.json", scene_generation)
         self._writer.reconcile(self._cursor.next_sequence)
@@ -504,6 +509,7 @@ class CompositedCameraProcess:
                     "ground_placements": dict(rendered.ground_placements),
                     "proxy_track_ids": sorted(track_id for track_id, state in rendered.track_states.items() if state == "proxy"),
                     "mesh_track_ids": sorted(track_id for track_id, state in rendered.track_states.items() if state == "mesh"),
+                    **({"new_track_ids": sorted(rendered.new_track_ids)} if rendered.new_track_ids else {}),
                     "output_path": str(path),
                     "render_ms": elapsed * 1_000.0,
                     "effective_fps": 1.0 / elapsed if elapsed > 0 else 0.0,
@@ -576,6 +582,11 @@ def main() -> None:
         help="Anchor object bottoms to this Z; omitted preserves localized object poses.",
     )
     parser.add_argument("--ground-plane", type=Path, help="Audited map-space plane or road-surface JSON for proxy placement.")
+    parser.add_argument(
+        "--highlight-new-tracks", type=float, nargs="?", const=1.0, metavar="SECONDS",
+        help="Tint objects whose track ID first appeared within SECONDS (default 1.0) and label their ID.",
+    )
+    parser.add_argument("--track-id-labels", action="store_true", help="Label every object with its short track ID.")
     args = parser.parse_args()
     if args.ground_plane is not None and args.ground_z is not None:
         parser.error("--ground-plane and --ground-z are mutually exclusive")
@@ -618,6 +629,7 @@ def main() -> None:
         ground_plane=None if args.ground_plane is None else load_ground_placement(json.loads(args.ground_plane.read_text())),
         cursor_path=args.cursor_path, mesh_cache_dir=args.mesh_cache_dir,
         asset_proxy=args.asset_proxy,
+        highlight_new_tracks=args.highlight_new_tracks, track_id_labels=args.track_id_labels,
     )
     signal.signal(signal.SIGINT, process.request_stop)
     signal.signal(signal.SIGTERM, process.request_stop)

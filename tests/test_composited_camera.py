@@ -10,6 +10,7 @@ from src.realtime.protocol import (
 from src.viz.composited_camera import (
     CompositedCameraBackend,
     MeshRenderBuffers,
+    NewTrackHighlighter,
     PoseOnlyCompositedCameraBackend,
     RemoteCameraConfig,
     _decimate_mesh_for_render,
@@ -586,3 +587,50 @@ def test_explicit_plane_retains_height_and_reports_placement_status():
     frame = backend.render_pose(_pose(), (replace(_box(), text_label='car'),))
     assert frame.ground_placements['car'] == {'status': 'explicit_plane'}
     assert renderer.poses[0][1][2, 3] == pytest.approx(-1.8)
+
+
+def test_new_track_highlighter_first_seen_expiry_forget_and_reset():
+    helper = NewTrackHighlighter(1.0, forget_seconds=2.0)
+    assert helper.observe(["a"], 0) == {"a"}
+    assert helper.observe(["a", "b"], 500_000) == {"a", "b"}
+    assert helper.observe(["a", "b"], 1_000_000) == {"b"}  # a's window has expired
+    assert helper.observe(["b"], 1_600_000) == set()
+    assert helper.observe(["b"], 3_500_000) == set()  # b kept alive, a forgotten
+    assert helper.observe(["a", "b"], 3_600_000) == {"a"}
+    assert helper.observe(["b"], 100) == {"b"}  # timestamp rewind resets history
+    helper.reset()
+    assert helper.observe(["b"], 200) == {"b"}
+
+
+def test_highlight_tints_only_new_track_proxies_and_default_is_unchanged():
+    from dataclasses import replace
+
+    def backend(**kwargs):
+        renderer = FakeMeshRenderer()
+        return PoseOnlyCompositedCameraBackend(
+            FakeGaussianRenderer(), RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)),
+            renderer, vehicle_proxies=FakeVehicleProxies(renderer), **kwargs,
+        )
+
+    car = replace(_box("bevfusion:vehicle:7"), text_label="car")
+    plain = backend()
+    highlighted = backend(new_tracks=NewTrackHighlighter(1.0, strength=1.0))
+    first_plain = plain.render_pose(_pose(), (car,))
+    first = highlighted.render_pose(_pose(), (car,))
+    assert first.new_track_ids == {"bevfusion:vehicle:7"} and not first_plain.new_track_ids
+    np.testing.assert_allclose(first.rgb[10:14, 14:18], np.tile([1.0, 0.35, 0.0], (4, 4, 1)))
+    np.testing.assert_allclose(first.rgb[:4], first_plain.rgb[:4])  # occluded/background untouched
+    later = highlighted.render_pose(_pose(1, 1_000_000), (car,))
+    assert not later.new_track_ids
+    np.testing.assert_array_equal(later.rgb, plain.render_pose(_pose(1, 1_000_000), (car,)).rgb)
+
+
+def test_highlighted_wireframe_proxy_uses_highlight_color():
+    backend = PoseOnlyCompositedCameraBackend(
+        FakeGaussianRenderer(depth=100.0), RemoteCameraConfig(np.eye(4), np.array([[20., 0, 16], [0, 20., 12], [0, 0, 1]]), (32, 24)),
+        new_tracks=NewTrackHighlighter(1.0),
+    )
+    result = backend.render_pose(_pose(), (_box("person"),))
+    colors = {tuple(round(float(v), 2) for v in pixel) for pixel in result.rgb.reshape(-1, 3) if pixel.any()}
+    assert (1.0, 0.35, 0.0) in colors and (0.0, 0.7, 1.0) not in colors
+    assert (1.0, 1.0, 1.0) in colors  # short track-ID label text

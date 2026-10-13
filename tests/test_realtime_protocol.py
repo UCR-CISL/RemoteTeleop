@@ -97,6 +97,17 @@ def test_frame_snapshot_optional_camera_pose_round_trips_without_changing_legacy
     assert exact.sha256 != legacy.sha256
 
 
+def test_frame_snapshot_round_trips_persistent_track_id_and_requires_it():
+    snapshot = FrameSnapshot(0, 0, "scene", "frame-0", IDENTITY_4, boxes=frame().boxes)
+    _, decoded = ProtocolCodec().decode(ProtocolCodec().encode(snapshot))
+    assert decoded == snapshot
+    assert [box.track_id for box in decoded.boxes] == ["car-1"]
+    values = frame().boxes[0].to_dict()
+    del values["track_id"]
+    with pytest.raises(TypeError):
+        BoxPrompt.from_dict(values)
+
+
 @pytest.mark.parametrize(
     "message",
     [
