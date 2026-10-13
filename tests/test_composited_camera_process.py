@@ -215,3 +215,31 @@ def test_process_proxy_mode_initializes_lazy_templates_and_disables_receiver(tmp
     receiver_factory.assert_called_once()
     assert default._assets is receiver_factory.return_value
     assert default._backend._vehicle_proxies is None
+
+
+def test_process_proxy_mode_renders_occluder_depth_by_default(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    import src.realtime.composited_camera_process as module
+    from src.viz.composited_camera import OpacityThresholdDepth, RemoteCameraConfig
+
+    monkeypatch.setattr(module.zmq, "Context", Mock())
+    for name in ("HealthHeartbeat", "JsonlMetricsWriter", "CompositedFrameWriter", "load_gaussian_map",
+                 "PyTorch3DObjectMeshRenderer", "RemoteAssetReceiver"):
+        monkeypatch.setattr(module, name, Mock())
+    monkeypatch.setattr(module.DealerTransport, "open", Mock())
+    gaussian_factory = Mock()
+    monkeypatch.setattr(module, "CudaGaussianBufferRenderer", gaussian_factory)
+    kwargs = dict(
+        frames_endpoint="tcp://localhost:5555", scene_generation="test", receiver_id="test",
+        health_endpoint="tcp://localhost:5557", splat_path=tmp_path / "map.spz",
+        metrics_path=tmp_path / "metrics.jsonl", camera=RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)),
+    )
+    module.CompositedCameraProcess(**kwargs, output_dir=tmp_path / "a", asset_proxy=True)
+    assert isinstance(gaussian_factory.call_args.kwargs["occluder_depth"], OpacityThresholdDepth)
+    legacy = module.CompositedCameraProcess(
+        **kwargs, output_dir=tmp_path / "b", asset_proxy=True, proxy_occlusion_depth="expected",
+    )
+    assert gaussian_factory.call_args.kwargs["occluder_depth"] is None
+    assert legacy._backend._proxy_occlusion_depth == "expected"
+    module.CompositedCameraProcess(**kwargs, output_dir=tmp_path / "c")  # no vehicle proxies: no extra pass
+    assert gaussian_factory.call_args.kwargs["occluder_depth"] is None

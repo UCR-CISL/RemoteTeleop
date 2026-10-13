@@ -28,8 +28,10 @@ from src.realtime.protocol import (
 from src.realtime.runtime_support import HealthHeartbeat, JsonlMetricsWriter
 from src.realtime.transport import DealerTransport
 from src.viz.composited_camera import (
+    PROXY_OCCLUSION_DEPTHS,
     CudaGaussianBufferRenderer,
     NewTrackHighlighter,
+    OpacityThresholdDepth,
     PyTorch3DObjectMeshRenderer,
     PoseOnlyCompositedCameraBackend,
     RemoteCameraConfig,
@@ -386,6 +388,7 @@ class CompositedCameraProcess:
         asset_proxy: bool = False,
         highlight_new_tracks: float | None = None,
         track_id_labels: bool = False,
+        proxy_occlusion_depth: str = "occluder",
     ) -> None:
         self._context = zmq.Context()
         self._frames = DealerTransport.open(self._context, frames_endpoint, identity=receiver_id)
@@ -403,11 +406,14 @@ class CompositedCameraProcess:
             vehicle_proxies = VehicleProxyRenderer(
                 mesh_renderer, asset_dir=output_dir / "vehicle-proxies",
             )
+        occluder_depth = (
+            OpacityThresholdDepth() if asset_proxy and proxy_occlusion_depth == "occluder" else None
+        )
         self._backend = PoseOnlyCompositedCameraBackend(
-            CudaGaussianBufferRenderer(gaussian_map, device=device, downsample=1),
+            CudaGaussianBufferRenderer(gaussian_map, device=device, downsample=1, occluder_depth=occluder_depth),
             camera, mesh_renderer, ground_z=ground_z, ground_plane=ground_plane, vehicle_proxies=vehicle_proxies,
             new_tracks=None if highlight_new_tracks is None else NewTrackHighlighter(highlight_new_tracks),
-            track_id_labels=track_id_labels,
+            track_id_labels=track_id_labels, proxy_occlusion_depth=proxy_occlusion_depth,
         )
         self._cursor = FrameCursor(cursor_path or output_dir / "frame-cursor.json", scene_generation)
         self._writer.reconcile(self._cursor.next_sequence)
@@ -587,6 +593,11 @@ def main() -> None:
         help="Tint objects whose track ID first appeared within SECONDS (default 1.0) and label their ID.",
     )
     parser.add_argument("--track-id-labels", action="store_true", help="Label every object with its short track ID.")
+    parser.add_argument(
+        "--proxy-occlusion-depth", choices=PROXY_OCCLUSION_DEPTHS, default="occluder",
+        help="Splat depth that hides --asset-proxy vehicles: 'occluder' (default; depth where non-ground "
+             "splat opacity reaches 0.3) or 'expected' (legacy expected depth, for A/B comparison).",
+    )
     args = parser.parse_args()
     if args.ground_plane is not None and args.ground_z is not None:
         parser.error("--ground-plane and --ground-z are mutually exclusive")
@@ -630,6 +641,7 @@ def main() -> None:
         cursor_path=args.cursor_path, mesh_cache_dir=args.mesh_cache_dir,
         asset_proxy=args.asset_proxy,
         highlight_new_tracks=args.highlight_new_tracks, track_id_labels=args.track_id_labels,
+        proxy_occlusion_depth=args.proxy_occlusion_depth,
     )
     signal.signal(signal.SIGINT, process.request_stop)
     signal.signal(signal.SIGTERM, process.request_stop)

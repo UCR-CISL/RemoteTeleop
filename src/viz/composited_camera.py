@@ -185,10 +185,16 @@ class PoseOnlyCompositedCameraBackend:
         ground_plane: GroundPlane | GroundSurface | None = None,
         new_tracks: NewTrackHighlighter | None = None,
         track_id_labels: bool = False,
+        proxy_occlusion_depth: str = "occluder",
     ) -> None:
         if proxy_thickness <= 0:
             raise ValueError("proxy_thickness must be positive")
+        if proxy_occlusion_depth not in PROXY_OCCLUSION_DEPTHS:
+            raise ValueError(f"proxy_occlusion_depth must be one of {PROXY_OCCLUSION_DEPTHS}")
         self._gaussian_renderer = gaussian_renderer
+        # Vehicle proxies are depth-tested against the renderer's occluder depth
+        # (see OpacityThresholdDepth); "expected" keeps the legacy test for A/B.
+        self._proxy_occlusion_depth = proxy_occlusion_depth
         self.camera = camera
         self._new_tracks = new_tracks
         self._track_id_labels = track_id_labels
@@ -307,7 +313,8 @@ class PoseOnlyCompositedCameraBackend:
                 if highlight:
                     overlay = self._new_tracks.tint(overlay)
                 rgb = _composite_mesh(
-                    rgb, background.depth, background.alpha, overlay, object_depth=object_depth,
+                    rgb, self._proxy_occluder_depth(background), background.alpha, overlay,
+                    object_depth=object_depth,
                     alpha_threshold=self._alpha_threshold,
                     depth_tolerance_m=self._depth_tolerance_m,
                 )
@@ -376,6 +383,13 @@ class PoseOnlyCompositedCameraBackend:
             ground_placements=ground_placements,
             new_track_ids=new_ids,
         )
+
+    def _proxy_occluder_depth(self, background: GaussianRenderBuffers) -> np.ndarray:
+        """Splat depth that occludes vehicle proxies; renderers without one fall back to ED."""
+
+        if self._proxy_occlusion_depth == "expected" or background.occluder_depth is None:
+            return background.depth
+        return background.occluder_depth
 
     def _activate_generation(self, generation: str) -> None:
         if self._scene_generation == generation:
@@ -449,6 +463,122 @@ class ObjectMeshRenderer(Protocol):
     ) -> MeshRenderBuffers: ...
 
 
+PROXY_OCCLUSION_DEPTHS = ("occluder", "expected")
+
+
+class OpacityThresholdDepth:
+    """Per-pixel depth where accumulated splat opacity first reaches ``threshold``.
+
+    Expected depth averages every splat on a ray, so on grazing road it sits
+    short of the surface.  One extra gsplat pass renders, for each log-spaced
+    depth edge, the opacity of splats centred no farther than that edge;
+    gsplat's front-to-back depth order makes these values exact at the edges.
+    The crossing is interpolated in log depth.  Pixels that never reach the
+    threshold are ``inf``; opaque pixels crossing beyond ``far_m`` get ``far_m``.
+
+    ``ground_max_tilt_deg`` drops ground-like splats from this pass, so the
+    road cannot occlude the grounded vehicles drawn on it: splats whose flattest
+    axis is within that angle of map +z and, with ``ground_band_m``, whose
+    centre is at most that far above the local ground height (20th percentile
+    height of such splats in its ``ground_cell_m`` map cell).  Upright occluders
+    (poles, trunks, walls) and raised flat ones (awnings, ledges) remain.  The
+    low default ``threshold`` keeps semi-transparent splat occluders (glass,
+    foliage) hiding what is behind them.
+    """
+
+    def __init__(
+        self, *, threshold: float = 0.3, bins: int = 64, near_m: float = 1.0, far_m: float = 150.0,
+        ground_max_tilt_deg: float | None = 30.0, ground_band_m: float | None = 0.6, ground_cell_m: float = 2.0,
+    ) -> None:
+        if not 0.0 < threshold < 1.0:
+            raise ValueError("threshold must be in (0, 1)")
+        if bins < 2 or not 0.0 < near_m < far_m:
+            raise ValueError("need bins >= 2 and 0 < near_m < far_m")
+        if ground_max_tilt_deg is not None and not 0.0 < ground_max_tilt_deg < 90.0:
+            raise ValueError("ground_max_tilt_deg must be in (0, 90)")
+        self.threshold = float(threshold)
+        self._log_edges = np.linspace(np.log(near_m), np.log(far_m), int(bins))
+        self._ground_min_up = None if ground_max_tilt_deg is None else float(np.cos(np.radians(ground_max_tilt_deg)))
+        self._ground_band_m = ground_band_m
+        self._ground_cell_m = float(ground_cell_m)
+        self._keep: tuple[object, object] | None = None  # (source means tensor, kept-splat mask)
+
+    def _occluder_splats(self, tensors: Mapping[str, object]) -> dict[str, object]:
+        names = ("means", "quats", "scales", "opacities")
+        if self._ground_min_up is None:
+            return {name: tensors[name] for name in names}
+        if self._keep is None or self._keep[0] is not tensors["means"]:
+            self._keep = (tensors["means"], self.non_ground_mask(
+                tensors["means"], tensors["quats"], tensors["scales"], self._ground_min_up,
+                band_m=self._ground_band_m, cell_m=self._ground_cell_m,
+            ))
+        keep = self._keep[1]
+        return {name: tensors[name][keep] for name in names}
+
+    @staticmethod
+    def non_ground_mask(means, quats, scales, min_up: float, *, band_m: float | None = None, cell_m: float = 2.0):
+        """False for ground splats: flattest axis within ``acos(min_up)`` of +z (and, with
+        ``band_m``, centre at most ``band_m`` above its cell's 20th-percentile such splat)."""
+
+        import torch
+
+        w, x, y, z = torch.nn.functional.normalize(quats, dim=-1).unbind(-1)
+        # z components of the rotation matrix columns (the splat's local axes).
+        axis_z = torch.stack((2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)), dim=-1)
+        flattest = torch.argmin(scales, dim=-1, keepdim=True)
+        ground = torch.gather(axis_z, -1, flattest)[..., 0].abs() >= min_up
+        if band_m is not None and bool(ground.any()):
+            _, cell = torch.unique(torch.floor(means[:, :2] / cell_m).long(), dim=0, return_inverse=True)
+            flat_cell, flat_z = cell[ground], means[ground, 2]
+            by_z = torch.argsort(flat_z)
+            order = by_z[torch.argsort(flat_cell[by_z], stable=True)]  # grouped by cell, ascending z
+            counts = torch.bincount(flat_cell, minlength=int(cell.max()) + 1)
+            starts = torch.cumsum(counts, 0) - counts
+            pick = (starts + (counts - 1) // 5).clamp(min=0, max=len(order) - 1)
+            height = torch.where(counts > 0, flat_z[order][pick], torch.full_like(pick, -1e9, dtype=means.dtype))
+            ground &= means[:, 2] <= height[cell] + band_m
+        return ~ground
+
+    def render(self, tensors: Mapping[str, object], width: int, height: int, *, antialiased: bool):
+        """Return a ``(1, height, width)`` torch depth image for one camera."""
+
+        import torch
+        from gsplat import rasterization
+
+        splats, viewmats = self._occluder_splats(tensors), tensors["viewmats"]
+        means = splats["means"]
+        log_edges = torch.as_tensor(self._log_edges, dtype=means.dtype, device=means.device)
+        camera_z = means @ viewmats[0, 2, :3] + viewmats[0, 2, 3]
+        below_edge = (camera_z[:, None] <= torch.exp(log_edges)[None]).to(means.dtype)
+        cumulative, alpha, _ = rasterization(
+            means, splats["quats"], splats["scales"], splats["opacities"], below_edge,
+            viewmats, tensors["Ks"], width, height, sh_degree=None, packed=False,
+            rasterize_mode="antialiased" if antialiased else "classic",
+        )
+        depth = self.crossing_depth(cumulative, log_edges, self.threshold)
+        beyond = torch.isinf(depth) & (alpha[..., 0] >= self.threshold)
+        return torch.where(beyond, torch.exp(log_edges[-1]), depth)
+
+    @staticmethod
+    def crossing_depth(cumulative, log_edges, threshold: float):
+        """Interpolate where a non-decreasing ``(..., bins)`` opacity crosses ``threshold``."""
+
+        import torch
+
+        reached = cumulative >= threshold
+        upper = torch.argmax(reached.to(torch.uint8), dim=-1, keepdim=True)
+        lower = (upper - 1).clamp(min=0)
+        first = upper == 0
+        opacity_upper = torch.gather(cumulative, -1, upper)
+        opacity_lower = torch.where(first, 0.0, torch.gather(cumulative, -1, lower))
+        log_upper = log_edges[upper]
+        step = log_edges[1] - log_edges[0]
+        log_lower = torch.where(first, log_edges[0] - step, log_edges[lower])
+        fraction = ((threshold - opacity_lower) / (opacity_upper - opacity_lower).clamp(min=1e-6)).clamp(0.0, 1.0)
+        depth = torch.exp(log_lower + fraction * (log_upper - log_lower))[..., 0]
+        return torch.where(reached.any(dim=-1), depth, float("inf"))
+
+
 class CudaGaussianBufferRenderer:
     """Keep static Gaussian tensors resident while rendering changing cameras."""
 
@@ -458,10 +588,12 @@ class CudaGaussianBufferRenderer:
         *,
         device: str = "cuda",
         downsample: int = 1,
+        occluder_depth: OpacityThresholdDepth | None = None,
     ) -> None:
         self._gaussian_map = gaussian_map
         self._device = device
         self._downsample = downsample
+        self._occluder_depth = occluder_depth
         self._tensors: dict[str, object] | None = None
 
     def render(self, world_T_camera, camera_intrinsic, image_size) -> GaussianRenderBuffers:
@@ -492,7 +624,11 @@ class CudaGaussianBufferRenderer:
         alpha = _single_camera_array(alphas, "rendered alpha")
         if alpha.shape == (height, width, 1):
             alpha = alpha[..., 0]
-        return GaussianRenderBuffers(rendered[..., :3], rendered[..., 3], alpha)
+        occluder = None if self._occluder_depth is None else _single_camera_array(
+            self._occluder_depth.render(tensors, width, height, antialiased=self._gaussian_map.antialiased),
+            "rendered occluder depth",
+        )
+        return GaussianRenderBuffers(rendered[..., :3], rendered[..., 3], alpha, occluder_depth=occluder)
 
 
 class PyTorch3DObjectMeshRenderer:

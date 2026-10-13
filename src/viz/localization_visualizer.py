@@ -26,12 +26,17 @@ class CameraRender:
 
 @dataclass(frozen=True)
 class GaussianRenderBuffers:
-    """In-memory RGB, expected-depth, and alpha from one GSplat camera."""
+    """In-memory RGB, expected-depth, and alpha from one GSplat camera.
+
+    ``occluder_depth`` optionally holds a sharper occlusion depth (see
+    ``OpacityThresholdDepth``); ``inf`` marks pixels with no such occluder.
+    """
 
     rgb: np.ndarray
     depth: np.ndarray
     alpha: np.ndarray
     backend: str = "gsplat-cuda"
+    occluder_depth: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         rgb = np.asarray(self.rgb, dtype=np.float32)
@@ -46,6 +51,11 @@ class GaussianRenderBuffers:
         object.__setattr__(self, "rgb", rgb)
         object.__setattr__(self, "depth", depth)
         object.__setattr__(self, "alpha", alpha)
+        if self.occluder_depth is not None:
+            occluder = np.asarray(self.occluder_depth, dtype=np.float32)
+            if occluder.shape != depth.shape:
+                raise ValueError("occluder_depth must match the depth image size")
+            object.__setattr__(self, "occluder_depth", occluder)
 
 
 def plot_localization_trajectory(

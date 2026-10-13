@@ -634,3 +634,140 @@ def test_highlighted_wireframe_proxy_uses_highlight_color():
     colors = {tuple(round(float(v), 2) for v in pixel) for pixel in result.rgb.reshape(-1, 3) if pixel.any()}
     assert (1.0, 0.35, 0.0) in colors and (0.0, 0.7, 1.0) not in colors
     assert (1.0, 1.0, 1.0) in colors  # short track-ID label text
+
+
+class OccluderDepthGaussianRenderer(FakeGaussianRenderer):
+    """Opaque splats whose expected depth sits short of their opacity-threshold depth."""
+
+    def __init__(self, depth, occluder_depth):
+        super().__init__(depth)
+        self.occluder_depth = occluder_depth
+
+    def render(self, pose, intrinsic, image_size):
+        from dataclasses import replace
+
+        buffers = super().render(pose, intrinsic, image_size)
+        return replace(buffers, occluder_depth=np.full_like(buffers.depth, self.occluder_depth))
+
+
+def _vehicle_backend(gaussian, **kwargs):
+    renderer = FakeMeshRenderer()  # mesh depth 4.0
+    return PoseOnlyCompositedCameraBackend(
+        gaussian, RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)), renderer,
+        vehicle_proxies=FakeVehicleProxies(renderer), **kwargs,
+    )
+
+
+def _car():
+    from dataclasses import replace
+
+    return replace(_box(), text_label="car")
+
+
+@pytest.mark.parametrize("mode, occluder, visible", [
+    (None, 4.5, True),         # default: biased-short ED (3.9) no longer hides a proxy in front of the occluder
+    (None, 3.0, False),        # default: a genuine nearer occluder still hides it
+    (None, np.inf, True),      # default: no occluder on this ray (e.g. only road splats)
+    ("expected", 4.5, False),  # legacy A/B mode keeps comparing against ED
+])
+def test_vehicle_proxy_occlusion_depth_mode(mode, occluder, visible):
+    kwargs = {} if mode is None else {"proxy_occlusion_depth": mode}
+    backend = _vehicle_backend(OccluderDepthGaussianRenderer(3.9, occluder), **kwargs)
+    assert backend.render_pose(_pose(), (_car(),)).rgb.any() == visible
+
+
+def test_vehicle_proxy_falls_back_to_expected_depth_without_occluder_buffer():
+    assert not _vehicle_backend(FakeGaussianRenderer(depth=3.9)).render_pose(_pose(), (_car(),)).rgb.any()
+
+
+def test_occluder_depth_applies_only_to_vehicle_proxies(tmp_path):
+    """Wireframe boxes and received meshes keep the expected-depth test."""
+    renderer = FakeMeshRenderer()
+    backend = PoseOnlyCompositedCameraBackend(
+        OccluderDepthGaussianRenderer(3.9, 4.5), RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)), renderer,
+    )
+    mesh_path = tmp_path / "car.glb"
+    mesh_path.write_bytes(b"glTF")
+    backend.handle_asset_event(AssetEvent(request_id="r", scene_generation="scene-1", track_id="car",
+                                          state=AssetState.READY, aligned_mesh_path=mesh_path, source_sequence=0))
+    result = backend.render_pose(_pose(), (_box(),))
+    assert result.track_states == {"car": "mesh"} and not result.rgb.any()
+
+
+def test_proxy_occlusion_option_is_validated():
+    with pytest.raises(ValueError, match="proxy_occlusion_depth"):
+        _vehicle_backend(FakeGaussianRenderer(), proxy_occlusion_depth="median")
+
+
+def test_opacity_threshold_crossing_depth_interpolates_in_log_depth():
+    torch = pytest.importorskip("torch")
+    from src.viz.composited_camera import OpacityThresholdDepth
+
+    log_edges = torch.log(torch.tensor([1.0, 2.0, 4.0, 8.0]))
+    cumulative = torch.tensor([
+        [0.0, 0.25, 0.75, 1.0],   # crosses 0.5 halfway between 2 m and 4 m
+        [0.6, 0.9, 1.0, 1.0],     # crosses before the first edge
+        [0.0, 0.1, 0.2, 0.3],     # never reaches 0.5
+        [0.0, 0.5, 0.5, 0.9],     # exactly at an edge
+    ])
+    depth = OpacityThresholdDepth.crossing_depth(cumulative, log_edges, 0.5)
+    np.testing.assert_allclose(depth[0], np.sqrt(8.0), rtol=1e-6)
+    assert 0.5 < depth[1] < 1.0
+    assert torch.isinf(depth[2])
+    np.testing.assert_allclose(depth[3], 2.0, rtol=1e-6)
+
+
+def test_opacity_threshold_depth_sees_through_translucent_front_splat():
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("gsplat")
+    if not torch.cuda.is_available():
+        pytest.skip("gsplat rasterization requires CUDA")
+    from src.viz.composited_camera import OpacityThresholdDepth
+
+    def tensors(opacities, depths):
+        n = len(depths)
+        return {
+            "means": torch.tensor([[0.0, 0.0, d] for d in depths], device="cuda"),
+            "quats": torch.tensor([[1.0, 0.0, 0.0, 0.0]] * n, device="cuda"),
+            "scales": torch.full((n, 3), 2.0, device="cuda"),
+            "opacities": torch.tensor(opacities, device="cuda"),
+            "viewmats": torch.eye(4, device="cuda")[None],
+            "Ks": torch.tensor([[[16.0, 0.0, 8.0], [0.0, 16.0, 8.0], [0.0, 0.0, 1.0]]], device="cuda"),
+        }
+
+    renderer = OpacityThresholdDepth(threshold=0.5, bins=256, near_m=1.0, far_m=100.0, ground_max_tilt_deg=None)
+    # A 0.3-opacity splat at 5 m in front of an opaque one at 20 m: expected depth would be ~15.5 m.
+    depth = renderer.render(tensors([0.3, 0.99], [5.0, 20.0]), 16, 16, antialiased=False)[0, 8, 8].item()
+    np.testing.assert_allclose(depth, 20.0, rtol=0.03)
+    # Opaque front splat: the crossing is at the front surface.
+    depth = renderer.render(tensors([0.99, 0.99], [5.0, 20.0]), 16, 16, antialiased=False)[0, 8, 8].item()
+    np.testing.assert_allclose(depth, 5.0, rtol=0.03)
+    # Nothing reaches the threshold: no occluder.
+    assert np.isinf(renderer.render(tensors([0.2], [5.0]), 16, 16, antialiased=False)[0, 8, 8].item())
+    # Default ground filter: an opaque splat flat along world z (road-like) is not an occluder.
+    flat_front = tensors([0.99, 0.99], [5.0, 20.0])
+    flat_front["scales"][0] = torch.tensor([2.0, 2.0, 0.01])
+    ground_filtered = OpacityThresholdDepth(bins=256, near_m=1.0, far_m=100.0)  # band keeps the lowest flat splat
+    depth = ground_filtered.render(flat_front, 16, 16, antialiased=False)[0, 8, 8].item()
+    np.testing.assert_allclose(depth, 20.0, rtol=0.03)
+
+
+def test_non_ground_mask_drops_only_splats_whose_flattest_axis_is_vertical():
+    torch = pytest.importorskip("torch")
+    from src.viz.composited_camera import OpacityThresholdDepth
+
+    half = np.sqrt(0.5)
+    quats = torch.tensor([
+        [1.0, 0.0, 0.0, 0.0],    # identity: flat along z -> road-like
+        [1.0, 0.0, 0.0, 0.0],    # identity, flat along x -> upright wall/pole
+        [half, half, 0.0, 0.0],  # 90 deg about x: local z now horizontal -> upright
+        [2.0, 0.0, 0.0, 0.0],    # unnormalized identity, flat along z
+    ])
+    scales = torch.tensor([[1.0, 1.0, 0.01], [0.01, 1.0, 1.0], [1.0, 1.0, 0.01], [1.0, 1.0, 0.01]])
+    means = torch.tensor([[0.0, 0.0, 0.0], [0.5, 0.0, 0.0], [0.0, 0.5, 0.0], [0.5, 0.5, 2.0]])
+    min_up = float(np.cos(np.radians(30.0)))
+    keep = OpacityThresholdDepth.non_ground_mask(means, quats, scales, min_up)
+    assert keep.tolist() == [False, True, True, False]
+    # With a height band, the flat splat 2 m above its cell's ground (an awning) stays an occluder.
+    keep = OpacityThresholdDepth.non_ground_mask(means, quats, scales, min_up, band_m=0.3, cell_m=2.0)
+    assert keep.tolist() == [False, True, True, True]
