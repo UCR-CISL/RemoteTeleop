@@ -722,6 +722,10 @@ def test_opacity_threshold_depth_sees_through_translucent_front_splat():
     pytest.importorskip("gsplat")
     if not torch.cuda.is_available():
         pytest.skip("gsplat rasterization requires CUDA")
+    try:
+        from gsplat.cuda._backend import _C  # noqa: F401
+    except Exception:
+        pytest.skip("gsplat CUDA backend is not built in this environment")
     from src.viz.composited_camera import OpacityThresholdDepth
 
     def tensors(opacities, depths):
