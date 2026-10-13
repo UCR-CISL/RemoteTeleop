@@ -1,5 +1,41 @@
 # CooperScene tracking pilot
 
+## Current state — 2026-10-12 (supersedes the pilot sections below)
+
+- **"Floating boxes" were a camera calibration error, not detector height.** The
+  converter lidar→camera extrinsic is rotated ~2.5–3° per agent. Projection and
+  rendering now default to the per-agent benchmark-adjusted calibration
+  (`cooperscene_calibration.py`, e25fece). BEV/XYZ localization never uses it.
+  In the LiDAR frame, detector dz is ≈+0.03 m, and GT bottoms sit within −0.07 m
+  (median) of the ground.
+- **Evaluation moved to the official held-out splits** (test takes 2/8, val
+  13/14) using the info pkls and `.bin` LiDAR. `/mnt/bcc-data` is sshfs at
+  ~12 MB/s; that IO, not the GPU, made the old per-MCAP loop slow.
+  - `batch_detect.py` + `eval_detbench.py` (8de52a3): the native BEVFusion
+    reproduces the paper's BEV AP@0.5 (test 0.565 LiDAR+camera, 0.543
+    LiDAR-only). Range is the limit: AP@0.5 is 0.74 at 0–30 m vs 0.23 at 30–50 m.
+    Calibration choice does not change detection.
+  - `trackbench.py` (c898d8e) runs the production tracker on cached detections
+    in ~11 s and scores BEV-only (2 m center gate, no height/size).
+- **Chosen setup**, the `cooperscene_lidar` profile in
+  `run_remote_teleop_simulation.py` (03878f4):
+  - Detector: LiDAR-only native checkpoint, 50 ms forward.
+  - Tracker: birth .25 / continuation .1 / 2 hits / coast 0.8 s /
+    reacquisition 1 s, selected on val. Held-out test, front FOV ≤50 m: MOTA
+    .728, IDF1 .818, HOTA .570, P .862, R .870, 34 ID switches.
+  - Extra tracker options (score-weighted noise, NMS/merge, output gating)
+    did not generalize; their patch is in
+    `artifacts/trackbench-20261012/improve/patch/`.
+- **Replay** (ecea72e, 03878f4): split-system replay of held-out take 8/agent 1
+  reproduces the offline tracks exactly (same IDs on all 431 frames). It runs
+  at 14.7 fps lossless and drops 0/431 frames at 1×. Videos are in
+  `artifacts/replay-tracks-take8-tuned2-20261012/`.
+  - The compositor rejects XYZ-sidecar timestamps (it requires exact 100 ms
+    spacing), so the composite uses one fixed map alignment fit to the
+    per-frame XYZ poses (≤4.6 cm / 0.25° from them).
+- **Remaining limit: detector misses at 30–50 m.** The detector is not retrained
+  by user decision. Some visible cars are neither labeled nor detected.
+
 ## Paused handoff — 2026-10-12
 
 The user requested a pause. All owned inference containers and evaluation queues
