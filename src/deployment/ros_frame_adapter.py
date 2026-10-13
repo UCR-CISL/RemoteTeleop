@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import json
 import signal
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 import time
 from threading import Event, Lock, Thread
 from types import SimpleNamespace
@@ -196,6 +196,14 @@ class LatestBevFusionBoxes:
         """Process ready inference and latest pending work without publishing frames."""
         self._poll()
 
+    def idle(self, seconds: float, sleep: Any = time.sleep) -> None:
+        """Sleep up to ``seconds``, returning early when an in-flight reply is readable."""
+        wait = getattr(self.client, "wait", None)
+        if wait is None or not self._in_flight:
+            sleep(seconds)
+        else:
+            wait(max(1, int(seconds * 1000)))
+
     def wait_for_sequence(self, sequence: int, *, timeout_seconds: float = 30.0,
                           monotonic: Any = time.monotonic, sleep: Any = time.sleep) -> None:
         """Bounded offline wait for this capture; polling never publishes frames."""
@@ -219,7 +227,7 @@ class LatestBevFusionBoxes:
             remaining = deadline - monotonic()
             if remaining <= 0:
                 raise TimeoutError(f"BEVFusion capture {sequence} did not complete")
-            sleep(min(remaining, .01))
+            self.idle(min(remaining, .01), sleep)
 
     def _poll(self) -> None:
         result = self.client.poll()
@@ -420,6 +428,52 @@ class _McapPointCloud:
     points: np.ndarray
 
 
+class _PrefetchedFrames:
+    """Read/decode the next recorded frames on a worker thread, in source order.
+
+    Decoding then overlaps detector waits and pacing sleeps instead of
+    delaying them. Errors are re-raised in the consumer at the failing frame.
+    """
+
+    _END = object()
+
+    def __init__(self, frames: Any, depth: int = 2) -> None:
+        self._queue: Queue[Any] = Queue(maxsize=depth)
+        self._stop = Event()
+        self._thread = Thread(target=self._run, args=(frames,), name="mcap-frame-prefetch", daemon=True)
+        self._thread.start()
+
+    def _put(self, item: Any) -> bool:
+        while not self._stop.is_set():
+            try:
+                self._queue.put(item, timeout=0.1)
+                return True
+            except Full:
+                continue
+        return False
+
+    def _run(self, frames: Any) -> None:
+        try:
+            for frame in frames:
+                if not self._put(frame):
+                    return
+            self._put(self._END)
+        except BaseException as error:
+            self._put(error)
+
+    def __iter__(self) -> Any:
+        try:
+            while True:
+                item = self._queue.get()
+                if item is self._END:
+                    return
+                if isinstance(item, BaseException):
+                    raise item
+                yield item
+        finally:
+            self._stop.set()
+
+
 class McapFrameReplay:
     """Replay ROS2 or Foxglove MCAP recordings without ROS/DDS delivery.
 
@@ -449,9 +503,8 @@ class McapFrameReplay:
         if isinstance(start_sequence, bool) or not isinstance(start_sequence, int) or start_sequence < 0:
             raise ValueError("start_sequence must be a non-negative integer")
         self.await_detections = await_detections
-        if await_detections and (xyz_pose_sidecar is None or adapter.bevfusion is None
-                                 or adapter.config.bbox_source != "bevfusion"):
-            raise ValueError("await detections requires XYZ sidecar replay with BEVFusion")
+        if await_detections and (adapter.bevfusion is None or adapter.config.bbox_source != "bevfusion"):
+            raise ValueError("await detections requires BEVFusion")
         self.xyz_pose_sidecar = xyz_pose_sidecar
         if xyz_pose_sidecar is not None:
             if start_sequence not in (0, xyz_pose_sidecar.start_index):
@@ -496,11 +549,12 @@ class McapFrameReplay:
             if remaining > 0:
                 self.sleep(remaining)
             return
+        idle = getattr(self.adapter.bevfusion, "idle", lambda seconds, sleep: sleep(seconds))
         while remaining > 0:
             self.adapter.bevfusion.poll()
             remaining = target - self.monotonic()
             if remaining > 0:
-                self.sleep(min(remaining, 0.01))
+                idle(min(remaining, 0.01), self.sleep)
             remaining = target - self.monotonic()
 
     def replay(self, path: Path) -> None:
@@ -523,6 +577,8 @@ class McapFrameReplay:
             if self.xyz_pose_sidecar is not None:
                 self._replay_xyz_ros(reader, summary)
                 return
+            if self.await_detections:
+                raise ValueError("await detections requires a Foxglove MCAP or XYZ sidecar")
             if self.start_sequence:
                 raise ValueError("nonzero start_sequence requires a Foxglove MCAP")
             for schema, channel, message in reader.iter_messages(
@@ -663,7 +719,7 @@ class McapFrameReplay:
         first_timestamp = None
         first_metadata_timestamp_us = None
         count = 0
-        for frame in frames:
+        for frame in _PrefetchedFrames(frames):
             if frame.sequence < self.start_sequence:
                 continue
             if self.xyz_pose_sidecar is not None and frame.sequence > self.xyz_pose_sidecar.end_index:
@@ -697,7 +753,10 @@ class McapFrameReplay:
                 self.adapter.bevfusion.receive_image(image)
                 if frame.lidar_points is not None:
                     self.adapter.bevfusion.receive_lidar(_McapPointCloud(header, frame.lidar_points))
-            self.adapter.receive_metadata(metadata)
+            if self.await_detections:
+                self.adapter.receive_metadata(metadata, wait_for_bevfusion=True)
+            else:
+                self.adapter.receive_metadata(metadata)
             count += 1
         if self.xyz_pose_sidecar is not None:
             self.xyz_pose_sidecar.finish()
@@ -1393,7 +1452,7 @@ def main() -> None:
     parser.add_argument("--image-topic", default="/camera/image_raw")
     parser.add_argument("--lidar-topic", default="/lidar/points")
     parser.add_argument("--mcap", type=Path)
-    parser.add_argument("--mcap-await-detections", action="store_true", help="Offline XYZ replay: wait for each current capture before publishing")
+    parser.add_argument("--mcap-await-detections", action="store_true", help="Offline Foxglove/XYZ replay: wait for each current capture before publishing")
     parser.add_argument("--xyz-pose-sidecar", type=Path, help="Offline-only verified per-frame XYZ poses and sensor identity")
     parser.add_argument("--mcap-rate", type=float, default=1.0)
     parser.add_argument("--mcap-agent", default="1", help="Camera/LiDAR agent in Foxglove MCAPs")
@@ -1436,8 +1495,8 @@ def main() -> None:
     args = parser.parse_args()
     if not np.isfinite(args.bevfusion_minimum_area_px) or args.bevfusion_minimum_area_px <= 0:
         parser.error("--bevfusion-minimum-area-px must be finite and positive")
-    if args.mcap_await_detections and (args.mcap is None or args.xyz_pose_sidecar is None or args.bbox_source != "bevfusion"):
-        parser.error("--mcap-await-detections requires MCAP, XYZ sidecar and BEVFusion")
+    if args.mcap_await_detections and (args.mcap is None or args.bbox_source != "bevfusion"):
+        parser.error("--mcap-await-detections requires MCAP and BEVFusion")
     if args.xyz_pose_sidecar is not None:
         if args.mcap is None or any((args.localization_transform, args.stored_localization_transform,
                 args.localization_metrics_path, args.localization_reference_transform)):

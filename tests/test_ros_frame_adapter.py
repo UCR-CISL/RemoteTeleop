@@ -874,3 +874,34 @@ def test_main_idle_loop_advances_final_bevfusion_pending_request(monkeypatch, tm
     # Polling advances inference only; published source frames remain immutable.
     assert [s.timestamp_us for s in spools[0].snapshots] == [0, 100_000, 200_000]
     assert [len(s.boxes) for s in spools[0].snapshots] == [0, 0, 0]
+
+
+def test_prefetched_frames_preserve_order_and_reraise_errors():
+    from src.deployment.ros_frame_adapter import _PrefetchedFrames
+
+    assert list(_PrefetchedFrames(iter(range(5)))) == [0, 1, 2, 3, 4]
+
+    def failing():
+        yield 0
+        raise ValueError("bad frame")
+    frames = _PrefetchedFrames(failing())
+    iterator = iter(frames)
+    assert next(iterator) == 0
+    with pytest.raises(ValueError, match="bad frame"):
+        next(iterator)
+
+
+def test_idle_returns_on_ready_reply_and_sleeps_without_one():
+    waits, sleeps = [], []
+
+    class Client:
+        def wait(self, timeout_ms):
+            waits.append(timeout_ms)
+            return True
+
+    latest = LatestBevFusionBoxes(Client(), score_threshold=.2)
+    latest.idle(.01, sleeps.append)
+    assert waits == [] and sleeps == [.01]
+    latest._in_flight = True
+    latest.idle(.01, sleeps.append)
+    assert waits == [10] and sleeps == [.01]

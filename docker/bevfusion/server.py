@@ -79,16 +79,38 @@ class BevFusionModel:
     def __init__(self, config: Path, checkpoint: Path, device: str, score_threshold: float, raw_predictions_dir: Path | None = None) -> None:
         from mmdet3d.apis import init_model
         from mmengine.dataset import Compose
-        from mmengine.runner import load_checkpoint
-        self.model = init_model(str(config), str(checkpoint), device=device)
         # init_model tolerates missing or incompatible parameters. A sidecar
-        # must fail before serving detections from partially loaded weights.
-        load_checkpoint(self.model, str(checkpoint), map_location="cpu", strict=True)
+        # must fail before serving detections from partially loaded weights,
+        # so weights are loaded once, strictly, below.
+        self.model = init_model(str(config), None, device=device)
+        self._load_strict(checkpoint)
         self.pipeline = Compose(self.model.cfg.test_dataloader.dataset.pipeline)
         self.device = device
         self.score_threshold = score_threshold
         self._warmed = False
         self.raw_predictions = RawPredictionWriter(raw_predictions_dir) if raw_predictions_dir is not None else None
+
+    def _load_strict(self, checkpoint: Path) -> None:
+        """Strict load; spconv2 (O,D,H,W,I) sparse weights -> mmcv (D,H,W,I,O) in memory.
+
+        Native CooperScene checkpoints were saved with spconv; this image uses
+        mmcv sparse ops. The permutation is exact and only applies to 5-D
+        tensors whose shape differs from the model's.
+        """
+        import torch
+        loaded = torch.load(str(checkpoint), map_location="cpu")
+        state = loaded.get("state_dict", loaded)
+        target = self.model.state_dict()
+        for name, value in list(state.items()):
+            if value.ndim == 5 and name in target and value.shape != target[name].shape:
+                state[name] = value.permute(1, 2, 3, 4, 0).contiguous()
+        self.model.load_state_dict(state, strict=True)
+        meta = loaded.get("meta", {})
+        # Same precedence as mmdet3d.apis.init_model.
+        if "dataset_meta" in meta:
+            self.model.dataset_meta = meta["dataset_meta"]
+        else:
+            self.model.dataset_meta = {"classes": meta.get("CLASSES", self.model.cfg.get("class_names"))}
 
     def warmup(self) -> None:
         import torch
@@ -148,8 +170,16 @@ class BevFusionModel:
             "box_type_3d": box_type_3d, "box_mode_3d": box_mode_3d,
         })
         inference_started = time.perf_counter()
+        cuda = self.device.startswith("cuda")
         with torch.inference_mode():
-            prediction = self.model.test_step(pseudo_collate([data]))[0]
+            # Equivalent to BaseModel.test_step, split for stage timing.
+            batch = self.model.data_preprocessor(pseudo_collate([data]), False)
+            if cuda:
+                torch.cuda.synchronize()
+            forward_started = time.perf_counter()
+            prediction = self.model._run_forward(batch, mode="predict")[0]
+            if cuda:
+                torch.cuda.synchronize()
         postprocess_started = time.perf_counter()
         instances = prediction.pred_instances_3d
         boxes = instances.bboxes_3d.tensor.detach().cpu().numpy()
@@ -182,6 +212,8 @@ class BevFusionModel:
         return tuple(detections), {
             "preprocess": (inference_started - preprocess_started) * 1000,
             "inference": (postprocess_started - inference_started) * 1000,
+            "data_preprocessor": (forward_started - inference_started) * 1000,
+            "forward": (postprocess_started - forward_started) * 1000,
             "postprocess": (completed - postprocess_started) * 1000,
         }
 

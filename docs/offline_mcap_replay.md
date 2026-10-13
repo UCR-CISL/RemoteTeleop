@@ -190,11 +190,23 @@ into catch-up playback. This pacing rule has a regression test; capture timestam
 used for tracker motion remain the original LiDAR timestamps.
 
 For deterministic offline comparison, additionally pass
-`--mcap-await-detections`. This requires MCAP + verified XYZ sidecar +
-`--bbox-source bevfusion`. Each fully joined capture is submitted once; the
+`--mcap-await-detections`. This requires an MCAP (Foxglove, or ROS with a
+verified XYZ sidecar) and `--bbox-source bevfusion`; Foxglove MCAPs without a
+sidecar use their recorded `/tf` poses. Each fully joined capture is submitted once; the
 adapter polls until that capture's result arrives before publishing its normal
 snapshot and analysis frame. A detector error or30-second timeout aborts the
 run. Original capture timestamps, poses and heights remain unchanged; delayed
 wall-clock delivery can exceed the recorded cadence. This is an explicit
 lossless comparison policy, not a10Hz or real-time guarantee. Omitting the flag
 retains normal nonblocking latest-pending replay and live callbacks unchanged.
+
+The server loads native CooperScene checkpoints directly: spconv-layout sparse
+weights are permuted in memory to the image's mmcv layout before one strict
+load (bit-identical to `tracking-cooperscene-local-compatible-checkpoint-20261012`).
+For the LiDAR-only checkpoint, mount `tracking-native-lidar-only-checkpoint-20261011`
+at `/native` and pass `--config /workspace/cooperscene_native_lidar_front.py
+--checkpoint /native/bevfusion_single_lidar.pth`. Native mmcv sparse-conv
+results vary run to run on identical inputs (here ≤4e-3, 2–6% of frames). Foxglove
+replay reads and decodes the next frames on a worker thread, and detector waits
+wake when the reply arrives instead of on a 10 ms sleep tick. Timings and commands:
+`artifacts/replay-latency-20261012/`.

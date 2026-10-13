@@ -276,6 +276,10 @@ class BevFusionClient:
         self._in_flight = request
         return True
 
+    def wait(self, timeout_ms: int) -> bool:
+        """Block up to ``timeout_ms`` until the outstanding reply is readable."""
+        return self._in_flight is not None and bool(self.socket.poll(timeout=timeout_ms))
+
     def poll(self, *, timeout_ms: int | None = None) -> BevFusionResult | None:
         """Return the outstanding result, or ``None`` when a zero-time poll has none."""
         request = self._in_flight
