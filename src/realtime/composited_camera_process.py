@@ -596,7 +596,7 @@ def main() -> None:
     parser.add_argument(
         "--proxy-occlusion-depth", choices=PROXY_OCCLUSION_DEPTHS, default="occluder",
         help="Splat depth that hides --asset-proxy vehicles: 'occluder' (default; depth where non-ground "
-             "splat opacity reaches 0.3) or 'expected' (legacy expected depth, for A/B comparison).",
+             "splat opacity reaches 0.25) or 'expected' (legacy expected depth, for A/B comparison).",
     )
     args = parser.parse_args()
     if args.ground_plane is not None and args.ground_z is not None:

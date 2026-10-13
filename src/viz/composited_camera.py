@@ -480,15 +480,19 @@ class OpacityThresholdDepth:
     road cannot occlude the grounded vehicles drawn on it: splats whose flattest
     axis is within that angle of map +z and, with ``ground_band_m``, whose
     centre is at most that far above the local ground height (20th percentile
-    height of such splats in its ``ground_cell_m`` map cell).  Upright occluders
-    (poles, trunks, walls) and raised flat ones (awnings, ledges) remain.  The
+    height of such splats in its ``ground_cell_m`` map cell).  ``near_ground_m``
+    also drops every splat, whatever its shape, centred at most that far above
+    the local ground: tilted and blob-shaped road fuzz would otherwise hide the
+    wheels of vehicles 20+ m away.  Upright occluders (poles, trunks, walls)
+    above that height and raised flat ones (awnings, ledges) remain.  The
     low default ``threshold`` keeps semi-transparent splat occluders (glass,
     foliage) hiding what is behind them.
     """
 
     def __init__(
-        self, *, threshold: float = 0.3, bins: int = 64, near_m: float = 1.0, far_m: float = 150.0,
+        self, *, threshold: float = 0.25, bins: int = 64, near_m: float = 1.0, far_m: float = 150.0,
         ground_max_tilt_deg: float | None = 30.0, ground_band_m: float | None = 0.6, ground_cell_m: float = 2.0,
+        near_ground_m: float | None = 0.3,
     ) -> None:
         if not 0.0 < threshold < 1.0:
             raise ValueError("threshold must be in (0, 1)")
@@ -501,6 +505,7 @@ class OpacityThresholdDepth:
         self._ground_min_up = None if ground_max_tilt_deg is None else float(np.cos(np.radians(ground_max_tilt_deg)))
         self._ground_band_m = ground_band_m
         self._ground_cell_m = float(ground_cell_m)
+        self._near_ground_m = near_ground_m
         self._keep: tuple[object, object] | None = None  # (source means tensor, kept-splat mask)
 
     def _occluder_splats(self, tensors: Mapping[str, object]) -> dict[str, object]:
@@ -510,15 +515,19 @@ class OpacityThresholdDepth:
         if self._keep is None or self._keep[0] is not tensors["means"]:
             self._keep = (tensors["means"], self.non_ground_mask(
                 tensors["means"], tensors["quats"], tensors["scales"], self._ground_min_up,
-                band_m=self._ground_band_m, cell_m=self._ground_cell_m,
+                band_m=self._ground_band_m, cell_m=self._ground_cell_m, near_m=self._near_ground_m,
             ))
         keep = self._keep[1]
         return {name: tensors[name][keep] for name in names}
 
     @staticmethod
-    def non_ground_mask(means, quats, scales, min_up: float, *, band_m: float | None = None, cell_m: float = 2.0):
+    def non_ground_mask(
+        means, quats, scales, min_up: float, *, band_m: float | None = None, cell_m: float = 2.0,
+        near_m: float | None = None,
+    ):
         """False for ground splats: flattest axis within ``acos(min_up)`` of +z (and, with
-        ``band_m``, centre at most ``band_m`` above its cell's 20th-percentile such splat)."""
+        ``band_m``, centre at most ``band_m`` above its cell's 20th-percentile such splat),
+        or, with ``near_m``, any splat centred at most ``near_m`` above that height."""
 
         import torch
 
@@ -527,7 +536,7 @@ class OpacityThresholdDepth:
         axis_z = torch.stack((2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)), dim=-1)
         flattest = torch.argmin(scales, dim=-1, keepdim=True)
         ground = torch.gather(axis_z, -1, flattest)[..., 0].abs() >= min_up
-        if band_m is not None and bool(ground.any()):
+        if (band_m is not None or near_m is not None) and bool(ground.any()):
             _, cell = torch.unique(torch.floor(means[:, :2] / cell_m).long(), dim=0, return_inverse=True)
             flat_cell, flat_z = cell[ground], means[ground, 2]
             by_z = torch.argsort(flat_z)
@@ -536,7 +545,11 @@ class OpacityThresholdDepth:
             starts = torch.cumsum(counts, 0) - counts
             pick = (starts + (counts - 1) // 5).clamp(min=0, max=len(order) - 1)
             height = torch.where(counts > 0, flat_z[order][pick], torch.full_like(pick, -1e9, dtype=means.dtype))
-            ground &= means[:, 2] <= height[cell] + band_m
+            above = means[:, 2] - height[cell]
+            if band_m is not None:
+                ground &= above <= band_m
+            if near_m is not None:
+                ground |= above <= near_m
         return ~ground
 
     def render(self, tensors: Mapping[str, object], width: int, height: int, *, antialiased: bool):

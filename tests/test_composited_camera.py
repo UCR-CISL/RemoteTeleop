@@ -775,3 +775,7 @@ def test_non_ground_mask_drops_only_splats_whose_flattest_axis_is_vertical():
     # With a height band, the flat splat 2 m above its cell's ground (an awning) stays an occluder.
     keep = OpacityThresholdDepth.non_ground_mask(means, quats, scales, min_up, band_m=0.3, cell_m=2.0)
     assert keep.tolist() == [False, True, True, True]
+    # near_m also drops upright/blob splats centred near the local ground (road fuzz), not those above it.
+    means[2, 2] = 0.5
+    keep = OpacityThresholdDepth.non_ground_mask(means, quats, scales, min_up, band_m=0.3, cell_m=2.0, near_m=0.3)
+    assert keep.tolist() == [False, False, True, True]
