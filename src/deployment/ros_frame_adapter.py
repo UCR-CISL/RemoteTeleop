@@ -1515,8 +1515,8 @@ def main() -> None:
                         help="Reuse identities after unambiguous short gaps; zero disables reacquisition")
     parser.add_argument("--bevfusion-maximum-coast-seconds", type=float, default=0.5,
                         help="Drop tracks this long after their last associated detection")
-    parser.add_argument("--bevfusion-lidar-ground-snap", action="store_true",
-                        help="Shift detection heights onto the local LiDAR ground before tracking")
+    parser.add_argument("--bevfusion-lidar-ground-snap", action=argparse.BooleanOptionalAction, default=True,
+                        help="Shift detection heights onto the local LiDAR ground before tracking (default: on)")
     parser.add_argument("--bevfusion-tracks-path", type=Path,
                         help="Optional JSONL of all live tracker boxes per published frame (offline evaluation)")
     parser.add_argument("--frames-endpoint", default="tcp://0.0.0.0:5555")

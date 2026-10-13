@@ -823,7 +823,8 @@ def test_bevfusion_adapter_optional_duplicate_birth_guard_preserves_continuation
     assert boxes[0].detection_confidence == .9
 
 
-def test_main_idle_loop_advances_final_bevfusion_pending_request(monkeypatch, tmp_path):
+@pytest.mark.parametrize("snap_arguments, snapped", [([], True), (["--no-bevfusion-lidar-ground-snap"], False)])
+def test_main_idle_loop_advances_final_bevfusion_pending_request(monkeypatch, tmp_path, snap_arguments, snapped):
     from src.deployment import ros_frame_adapter as module
 
     spools = []
@@ -891,7 +892,7 @@ def test_main_idle_loop_advances_final_bevfusion_pending_request(monkeypatch, tm
     mcap.touch()
     monkeypatch.setattr("sys.argv", ["ros_frame_adapter", "--mcap", str(mcap),
         "--bbox-source", "bevfusion", "--bevfusion-endpoint", "fake",
-        "--analysis-endpoint", "fake"])
+        "--analysis-endpoint", "fake", *snap_arguments])
     monkeypatch.setattr(module, "_open_bevfusion_client", lambda endpoint: client)
     monkeypatch.setattr(module.zmq, "Context", lambda: SimpleNamespace(term=lambda: None))
     monkeypatch.setattr(module.RouterTransport, "open", lambda *args, **kwargs: Router())
@@ -909,6 +910,8 @@ def test_main_idle_loop_advances_final_bevfusion_pending_request(monkeypatch, tm
     assert client.result is None
     assert adapters[0].bevfusion.result_count == 2
     assert adapters[0].bevfusion.latest_sequence == 2
+    # LiDAR-ground snapping is on by default; --no-bevfusion-lidar-ground-snap disables it.
+    assert isinstance(adapters[0].bevfusion.ground_snapper, LidarGroundSnapper) is snapped
     # Polling advances inference only; published source frames remain immutable.
     assert [s.timestamp_us for s in spools[0].snapshots] == [0, 100_000, 200_000]
     assert [len(s.boxes) for s in spools[0].snapshots] == [0, 0, 0]
