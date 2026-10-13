@@ -9,6 +9,7 @@ from scripts.deployment.run_remote_teleop_simulation import (
     LaunchError,
     LaunchOptions,
     RemoteTeleopSimulationLauncher,
+    main,
 )
 
 
@@ -350,8 +351,75 @@ def test_bevfusion_nuscenes_mcap_starts_a_narrowly_mounted_service_before_adapte
     assert "--lidar-topic /lidar/points" in adapter_start
     assert "--bevfusion-endpoint tcp://127.0.0.1:8772" in adapter_start
     assert "--bevfusion-score-threshold 0.2" in adapter_start
+    assert "--bevfusion-continuation-score-threshold 0.2 --bevfusion-minimum-confirmation-hits 1 " \
+        "--bevfusion-maximum-reacquisition-seconds 0.0 --bevfusion-maximum-coast-seconds 0.5" in adapter_start
+    assert "--score-threshold 0.2" in service_start
+    assert "/native" not in service_start
     assert "docker logs remote-teleop-bevfusion-alien4" in commands[10][-1]
     assert "docker rm -f remote-teleop-bevfusion-alien4" in commands[10][-1]
+
+
+def _native_launcher(tmp_path, **overrides):
+    return RemoteTeleopSimulationLauncher(_options(
+        tmp_path, config_path=REPO_ROOT / "cfg/alien4_alien3.yaml", source_mode="nuscenes_mcap",
+        bbox_source="bevfusion", mcap_path=PurePosixPath("artifacts/take8.mcap"), expected_samples=431,
+        scene_generation="cooperscene:test:8:1", bevfusion_detector="cooperscene_lidar", **overrides,
+    ), dry_run=True)
+
+
+def test_native_cooperscene_detector_mounts_checkpoint_and_uses_benchmark_tracker(tmp_path):
+    commands = _native_launcher(tmp_path).planned_commands()
+    preflight, service_start, adapter_start = commands[2][-1], commands[3][-1], commands[6][-1]
+    native = "/home/jyue86/Documents/CISL-Projects/RemoteTeleop/artifacts/tracking-native-lidar-only-checkpoint-20261011"
+
+    assert f"test -f {native}/bevfusion_single_lidar.pth" in preflight
+    assert "docker/bevfusion/cooperscene_native_lidar_front.py" in preflight
+    assert f"type=bind,src={native},dst=/native,readonly" in service_start
+    assert "--config /workspace/cooperscene_native_lidar_front.py" in service_start
+    assert "--checkpoint /native/bevfusion_single_lidar.pth" in service_start
+    # The service keeps boxes down to the continuation score; the tracker births at 0.3.
+    assert "--score-threshold 0.1 " in service_start
+    assert ("--bevfusion-score-threshold 0.25 --bevfusion-continuation-score-threshold 0.1 "
+            "--bevfusion-minimum-confirmation-hits 2 --bevfusion-maximum-reacquisition-seconds 1.0 "
+            "--bevfusion-maximum-coast-seconds 0.8") in adapter_start
+
+
+def test_bevfusion_tracker_and_service_thresholds_can_be_overridden(tmp_path):
+    launcher = _native_launcher(tmp_path, bevfusion_score_threshold=0.4, bevfusion_continuation_score_threshold=0.2,
+                                bevfusion_minimum_confirmation_hits=3, bevfusion_maximum_coast_seconds=1.5)
+    service_start, adapter_start = launcher._bevfusion_start_script(), launcher._vehicle_adapter_script()
+    assert "--score-threshold 0.2 " in service_start
+    assert "--bevfusion-score-threshold 0.4 --bevfusion-continuation-score-threshold 0.2 " \
+        "--bevfusion-minimum-confirmation-hits 3 --bevfusion-maximum-reacquisition-seconds 1.0 " \
+        "--bevfusion-maximum-coast-seconds 1.5" in adapter_start
+    launcher = _native_launcher(tmp_path, bevfusion_server_score_threshold=0.05)
+    assert "--score-threshold 0.05 " in launcher._bevfusion_start_script()
+
+
+@pytest.mark.parametrize("overrides", [
+    dict(bevfusion_server_score_threshold=0.2),  # above continuation: tracker could never see 0.1 boxes
+    dict(bevfusion_continuation_score_threshold=0.5),  # above birth
+    dict(bevfusion_minimum_confirmation_hits=0),
+    dict(bevfusion_maximum_reacquisition_seconds=-1.0),
+    dict(bevfusion_maximum_coast_seconds=0.0),
+    dict(bevfusion_maximum_coast_seconds=float("inf")),
+    dict(bevfusion_native_dir=PurePosixPath("../checkpoints")),
+    dict(bevfusion_detector="unknown"),
+])
+def test_bevfusion_detector_options_are_validated(tmp_path, overrides):
+    with pytest.raises(ValueError):
+        _options(tmp_path, bbox_source="bevfusion", **{"bevfusion_detector": "cooperscene_lidar", **overrides})
+
+
+def test_cli_selects_native_lidarcam_detector(tmp_path, capsys):
+    main(["--config", str(REPO_ROOT / "cfg/alien4_alien3.yaml"), "--source-mode", "nuscenes_mcap",
+          "--expected-samples", "431", "--bbox-source", "bevfusion", "--bevfusion-detector", "cooperscene_lidarcam",
+          "--local-artifacts", str(tmp_path / "out"), "--dry-run"])
+    printed = capsys.readouterr().out
+    assert "dst=/native,readonly" in printed and "artifacts/tracking-cooperscene-checkpoint-audit-20261011" in printed
+    assert "--checkpoint /native/bevfusion_single_lidarcam.pth" in printed
+    assert "--config /workspace/cooperscene_native_front.py" in printed
+    assert "--bevfusion-minimum-confirmation-hits 2" in printed and "--bevfusion-maximum-coast-seconds 0.8" in printed
 
 
 def test_bevfusion_bbox_source_accepts_cooperscene_mcap(tmp_path):

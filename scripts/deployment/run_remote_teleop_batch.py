@@ -161,7 +161,7 @@ class ReplayBatch:
         unknown = set(values) - allowed
         if unknown:
             raise ValueError(f"{run_id}: unknown options: {sorted(unknown)}")
-        for name in ("ground_plane", "localization_reference_transform", "nuscenes_scene_root", "nuscenes_localization_transform", "cooperscene_localization_transform", "cooperscene_stored_localization_transform", "bevfusion_runtime_dir", "bevfusion_checkpoint", "bevfusion_config"):
+        for name in ("ground_plane", "localization_reference_transform", "nuscenes_scene_root", "nuscenes_localization_transform", "cooperscene_localization_transform", "cooperscene_stored_localization_transform", "bevfusion_runtime_dir", "bevfusion_checkpoint", "bevfusion_config", "bevfusion_native_dir"):
             if values.get(name) is not None:
                 values[name] = PurePosixPath(values[name])
         if "camera_source_size" in values:

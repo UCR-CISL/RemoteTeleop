@@ -20,6 +20,8 @@ from scripts.deployment.run_remote_teleop_simulation import (
     LaunchOptions,
     RemoteTeleopSimulationLauncher,
     _path,
+    add_bevfusion_arguments,
+    bevfusion_option_values,
 )
 
 
@@ -225,12 +227,7 @@ class SamRemoteTeleopSimulationLauncher(RemoteTeleopSimulationLauncher):
                 "--localization-metrics-path", str(root / "localization-trajectory.jsonl"),
             ))
         if self._uses_bevfusion:
-            command.extend((
-                "--bbox-source", "bevfusion",
-                "--lidar-topic", "/lidar/points",
-                "--bevfusion-endpoint", self.options.bevfusion_endpoint,
-                "--bevfusion-score-threshold", str(self.options.bevfusion_score_threshold),
-            ))
+            command.extend(self._bevfusion_adapter_args())
         if self.options.nuscenes_localization_transform is not None:
             command.extend((
                 "--localization-transform",
@@ -545,19 +542,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--scene-generation", default="cooperscene:train:1:1")
     parser.add_argument("--health-port", type=int, default=8770)
     parser.add_argument("--bbox-source", choices=("gt", "bevfusion"), default="gt")
-    parser.add_argument("--bevfusion-image", default="remote-teleop-bevfusion:latest")
-    parser.add_argument("--bevfusion-gpu", type=int, default=1)
-    parser.add_argument("--bevfusion-endpoint", default="tcp://127.0.0.1:8772")
-    parser.add_argument("--bevfusion-runtime-dir", type=_path, default=PurePosixPath("docker/bevfusion"))
-    parser.add_argument(
-        "--bevfusion-checkpoint", type=_path,
-        default=PurePosixPath("checkpoints/bevfusion_converted.pth"),
-    )
-    parser.add_argument(
-        "--bevfusion-config", type=_path,
-        default=PurePosixPath("nuscenes_front.py"),
-    )
-    parser.add_argument("--bevfusion-score-threshold", type=float, default=0.2)
+    add_bevfusion_arguments(parser, gpu=1)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -579,13 +564,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             cooperscene_stored_localization_transform=(
                 args.cooperscene_stored_localization_transform
             ),
-            bbox_source=args.bbox_source, bevfusion_image=args.bevfusion_image,
-            bevfusion_gpu=args.bevfusion_gpu,
-            bevfusion_endpoint=args.bevfusion_endpoint,
-            bevfusion_runtime_dir=args.bevfusion_runtime_dir,
-            bevfusion_checkpoint=args.bevfusion_checkpoint,
-            bevfusion_config=args.bevfusion_config,
-            bevfusion_score_threshold=args.bevfusion_score_threshold,
+            bbox_source=args.bbox_source, **bevfusion_option_values(args),
         )
         launcher = SamRemoteTeleopSimulationLauncher(
             options,

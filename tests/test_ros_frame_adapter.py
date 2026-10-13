@@ -680,6 +680,20 @@ def test_bevfusion_render_prompts_clip_partial_near_plane_box_without_changing_s
     np.testing.assert_array_equal(original.world_T_object, expected_pose)
 
 
+def test_bevfusion_track_log_records_every_live_track_including_offscreen(tmp_path):
+    client = _LifecycleBevFusionClient()
+    detector = LatestBevFusionBoxes(client, score_threshold=.2, minimum_area_px=16.,
+                                    track_log=JsonlMetrics(tmp_path / "tracks.jsonl"))
+    prompts = _complete_lifecycle_detection(detector, client, 0, 0, .9, extra_boxes=(
+        BevFusionBox((0, 0, -3), (4, 2, 2), 0, .8, class_name="car"),))  # behind the camera
+    (record,) = [json.loads(line) for line in (tmp_path / "tracks.jsonl").read_text().splitlines()]
+    assert len(prompts) == 1
+    assert record["event"] == "bevfusion_tracks" and record["timestamp_us"] == 0
+    assert record["frame_id"] == "0" and record["bevfusion_result_sequence"] == 0
+    assert [t["track_id"] for t in record["tracks"]] == [t.track_id for t in detector._tracker.boxes_at(0)]
+    assert len(record["tracks"]) == 2 and record["tracks"][1]["world_T_object"][11] == -3
+
+
 @pytest.mark.parametrize("continuation", [None, .1])
 def test_bevfusion_weak_server_proposal_cannot_birth_a_track(continuation):
     client = _LifecycleBevFusionClient()
@@ -753,11 +767,20 @@ def test_bevfusion_adapter_rejects_invalid_tracker_settings(settings):
         LatestBevFusionBoxes(_LifecycleBevFusionClient(), score_threshold=.2, **settings)
 
 
+def test_bevfusion_coast_setting_reaches_tracker():
+    detector = LatestBevFusionBoxes(_LifecycleBevFusionClient(), score_threshold=.2)
+    assert detector._tracker.maximum_coast_us == 500_000  # unchanged default
+    detector = LatestBevFusionBoxes(_LifecycleBevFusionClient(), score_threshold=.2, maximum_coast_seconds=.8)
+    assert detector._tracker.maximum_coast_us == 800_000
+
+
 @pytest.mark.parametrize("arguments, expected", [
     (["--bevfusion-continuation-score-threshold", ".3"], "between zero and the birth score"),
     (["--bevfusion-maximum-reacquisition-seconds", "-1"], "finite and non-negative"),
     (["--bevfusion-maximum-reacquisition-seconds", "nan"], "finite and non-negative"),
     (["--bevfusion-maximum-reacquisition-seconds", "inf"], "finite and non-negative"),
+    (["--bevfusion-maximum-coast-seconds", "0"], "finite and positive"),
+    (["--bevfusion-maximum-coast-seconds", "nan"], "finite and positive"),
     (["--bevfusion-continuation-score-threshold", "nan"], "between zero and the birth score"),
     (["--bevfusion-minimum-confirmation-hits", "0"], "must be positive"),
 ])

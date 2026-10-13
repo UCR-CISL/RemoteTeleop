@@ -68,10 +68,15 @@ class LatestBevFusionBoxes:
                  continuation_score_threshold: float | None = None, minimum_confirmation_hits: int = 1,
                  suppress_duplicate_births: bool = False,
                  maximum_reacquisition_seconds: float = 0.0,
-                 request_calibration: str | None = "baseline") -> None:
+                 maximum_coast_seconds: float = 0.5,
+                 request_calibration: str | None = "baseline",
+                 track_log: JsonlMetrics | None = None) -> None:
         if not 0.0 <= score_threshold <= 1.0:
             raise ValueError("bevfusion score threshold must be between zero and one")
         self.client = client
+        # Optional offline record of every live track per published frame
+        # (including tracks outside the camera), for tracking evaluation.
+        self.track_log = track_log
         self.request_calibration = request_calibration
         self.score_threshold = score_threshold
         self.minimum_area_px = minimum_area_px
@@ -88,6 +93,7 @@ class LatestBevFusionBoxes:
             minimum_confirmation_hits=minimum_confirmation_hits,
             suppress_duplicate_births=suppress_duplicate_births,
             maximum_reacquisition_seconds=maximum_reacquisition_seconds,
+            maximum_coast_seconds=maximum_coast_seconds,
         )
         self.submitted_count = 0
         self.replaced_pending_count = 0
@@ -132,7 +138,16 @@ class LatestBevFusionBoxes:
         if self._latest_sequence is None:
             return ()
         timestamp_us = _non_negative_int(payload["timestamp_us"], "timestamp_us")
-        for tracked in self._tracker.boxes_at(timestamp_us):
+        tracks = self._tracker.boxes_at(timestamp_us)
+        if self.track_log is not None:
+            self.track_log.write("bevfusion_tracks", {
+                "sequence": payload.get("sequence"), "frame_id": payload.get("frame_id"),
+                "timestamp_us": timestamp_us, "bevfusion_result_sequence": self._latest_sequence,
+                "tracks": [dict(track_id=t.track_id, label=t.label, score=float(t.score),
+                                dimensions_lwh=[float(v) for v in t.dimensions_lwh],
+                                world_T_object=[float(v) for v in np.asarray(t.world_T_object).reshape(-1)])
+                           for t in tracks]})
+        for tracked in tracks:
             world_T_object = tracked.world_T_object
             dimensions = tracked.dimensions_lwh
             label = tracked.label
@@ -1474,6 +1489,10 @@ def main() -> None:
     parser.add_argument("--bevfusion-duplicate-birth-guard", action="store_true")
     parser.add_argument("--bevfusion-maximum-reacquisition-seconds", type=float, default=0.0,
                         help="Reuse identities after unambiguous short gaps; zero disables reacquisition")
+    parser.add_argument("--bevfusion-maximum-coast-seconds", type=float, default=0.5,
+                        help="Drop tracks this long after their last associated detection")
+    parser.add_argument("--bevfusion-tracks-path", type=Path,
+                        help="Optional JSONL of all live tracker boxes per published frame (offline evaluation)")
     parser.add_argument("--frames-endpoint", default="tcp://0.0.0.0:5555")
     parser.add_argument("--queue-depth", type=int, default=2_048)
     parser.add_argument("--high-water-mark", type=int, default=2_048)
@@ -1537,6 +1556,8 @@ def main() -> None:
     if (not np.isfinite(args.bevfusion_maximum_reacquisition_seconds)
             or args.bevfusion_maximum_reacquisition_seconds < 0):
         parser.error("--bevfusion-maximum-reacquisition-seconds must be finite and non-negative")
+    if not np.isfinite(args.bevfusion_maximum_coast_seconds) or args.bevfusion_maximum_coast_seconds <= 0:
+        parser.error("--bevfusion-maximum-coast-seconds must be finite and positive")
     if args.bbox_source == "bevfusion" and not args.bevfusion_endpoint:
         parser.error("--bbox-source bevfusion requires --bevfusion-endpoint")
 
@@ -1584,8 +1605,10 @@ def main() -> None:
             minimum_confirmation_hits=args.bevfusion_minimum_confirmation_hits,
             suppress_duplicate_births=args.bevfusion_duplicate_birth_guard,
             maximum_reacquisition_seconds=args.bevfusion_maximum_reacquisition_seconds,
+            maximum_coast_seconds=args.bevfusion_maximum_coast_seconds,
             request_calibration=(None if args.bevfusion_camera_calibration == "metadata"
                                  else args.bevfusion_camera_calibration),
+            track_log=None if args.bevfusion_tracks_path is None else JsonlMetrics(args.bevfusion_tracks_path),
         )
     localization_metrics = None
     localization_reference = None

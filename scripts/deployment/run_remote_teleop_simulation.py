@@ -9,7 +9,7 @@ nuScenes and log-time-paced nuScenes MCAP sources.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import math
 from pathlib import Path, PurePosixPath
@@ -38,6 +38,76 @@ class SubprocessRunner:
 
     def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
         return subprocess.run(list(command), text=True, capture_output=True, check=False)
+
+
+@dataclass(frozen=True)
+class BevFusionDetector:
+    """Vehicle-local detector service profile and the tracker settings used with it.
+
+    ``checkpoint`` is relative to ``native_dir`` (mounted read-only at
+    ``/native``) when given, else to the BEVFusion runtime directory.
+    ``server_score_threshold`` filters boxes inside the service and defaults to
+    the lower of the tracker birth and continuation thresholds.
+    """
+
+    config: PurePosixPath
+    checkpoint: PurePosixPath
+    native_dir: PurePosixPath | None = None
+    birth_score_threshold: float = 0.2
+    continuation_score_threshold: float | None = None
+    minimum_confirmation_hits: int = 1
+    maximum_reacquisition_seconds: float = 0.0
+    maximum_coast_seconds: float = 0.5
+    server_score_threshold: float | None = None
+
+    @property
+    def continuation(self) -> float:
+        if self.continuation_score_threshold is None:
+            return self.birth_score_threshold
+        return self.continuation_score_threshold
+
+    @property
+    def server_threshold(self) -> float:
+        if self.server_score_threshold is None:
+            return min(self.birth_score_threshold, self.continuation)
+        return self.server_score_threshold
+
+    def validate(self) -> None:
+        for name in ("config", "checkpoint", "native_dir"):
+            path = getattr(self, name)
+            if path is not None and (path.is_absolute() or ".." in path.parts):
+                raise ValueError(f"bevfusion {name} must be a relative repository path")
+        if not 0.0 <= self.birth_score_threshold <= 1.0:
+            raise ValueError("bevfusion_score_threshold must be between zero and one")
+        if not 0.0 <= self.continuation <= self.birth_score_threshold:
+            raise ValueError("bevfusion continuation score must be between zero and the birth score")
+        if not 0.0 <= self.server_threshold <= self.continuation:
+            raise ValueError("bevfusion server score must be between zero and the continuation score")
+        if isinstance(self.minimum_confirmation_hits, bool) or not isinstance(
+                self.minimum_confirmation_hits, int) or self.minimum_confirmation_hits < 1:
+            raise ValueError("bevfusion minimum confirmation hits must be a positive integer")
+        if not math.isfinite(self.maximum_reacquisition_seconds) or self.maximum_reacquisition_seconds < 0:
+            raise ValueError("bevfusion reacquisition seconds must be finite and non-negative")
+        if not math.isfinite(self.maximum_coast_seconds) or self.maximum_coast_seconds <= 0:
+            raise ValueError("bevfusion coast seconds must be finite and positive")
+
+
+# Native CooperScene detectors use the trackbench (artifacts/trackbench-20261012) config selected
+# on val for the LiDAR-only detector and confirmed on held-out test fov_r50 against b.3/c.1/h3/coast.5:
+# MOTA .655->.728, IDF1 .781->.818, HOTA .565->.570, recall .743->.870 (precision .894->.862).
+_COOPERSCENE_TRACKER = dict(birth_score_threshold=0.25, continuation_score_threshold=0.1,
+                            minimum_confirmation_hits=2, maximum_coast_seconds=0.8,
+                            maximum_reacquisition_seconds=1.0)
+BEVFUSION_DETECTORS = {
+    "nuscenes": BevFusionDetector(PurePosixPath("nuscenes_front.py"),
+                                  PurePosixPath("checkpoints/bevfusion_converted.pth")),
+    "cooperscene_lidar": BevFusionDetector(
+        PurePosixPath("cooperscene_native_lidar_front.py"), PurePosixPath("bevfusion_single_lidar.pth"),
+        PurePosixPath("artifacts/tracking-native-lidar-only-checkpoint-20261011"), **_COOPERSCENE_TRACKER),
+    "cooperscene_lidarcam": BevFusionDetector(
+        PurePosixPath("cooperscene_native_front.py"), PurePosixPath("bevfusion_single_lidarcam.pth"),
+        PurePosixPath("artifacts/tracking-cooperscene-checkpoint-audit-20261011"), **_COOPERSCENE_TRACKER),
+}
 
 
 @dataclass(frozen=True)
@@ -76,11 +146,32 @@ class LaunchOptions:
     bevfusion_gpu: int = 0
     bevfusion_endpoint: str = "tcp://127.0.0.1:8772"
     bevfusion_runtime_dir: PurePosixPath = PurePosixPath("docker/bevfusion")
-    bevfusion_checkpoint: PurePosixPath = PurePosixPath(
-        "checkpoints/bevfusion_converted.pth"
-    )
-    bevfusion_config: PurePosixPath = PurePosixPath("nuscenes_front.py")
-    bevfusion_score_threshold: float = 0.2
+    # Unset values come from ``BEVFUSION_DETECTORS[bevfusion_detector]``.
+    bevfusion_detector: str = "nuscenes"
+    bevfusion_checkpoint: PurePosixPath | None = None
+    bevfusion_config: PurePosixPath | None = None
+    bevfusion_native_dir: PurePosixPath | None = None
+    bevfusion_score_threshold: float | None = None
+    bevfusion_continuation_score_threshold: float | None = None
+    bevfusion_minimum_confirmation_hits: int | None = None
+    bevfusion_maximum_reacquisition_seconds: float | None = None
+    bevfusion_maximum_coast_seconds: float | None = None
+    bevfusion_server_score_threshold: float | None = None
+
+    @property
+    def bevfusion(self) -> BevFusionDetector:
+        """Detector profile with explicit option overrides applied."""
+        overrides = {
+            "config": self.bevfusion_config, "checkpoint": self.bevfusion_checkpoint,
+            "native_dir": self.bevfusion_native_dir, "birth_score_threshold": self.bevfusion_score_threshold,
+            "continuation_score_threshold": self.bevfusion_continuation_score_threshold,
+            "minimum_confirmation_hits": self.bevfusion_minimum_confirmation_hits,
+            "maximum_reacquisition_seconds": self.bevfusion_maximum_reacquisition_seconds,
+            "maximum_coast_seconds": self.bevfusion_maximum_coast_seconds,
+            "server_score_threshold": self.bevfusion_server_score_threshold,
+        }
+        return replace(BEVFUSION_DETECTORS[self.bevfusion_detector],
+                       **{name: value for name, value in overrides.items() if value is not None})
 
     def __post_init__(self) -> None:
         if (self.localization_reference_transform is None) != (self.localization_reference_kind is None):
@@ -125,12 +216,9 @@ class LaunchOptions:
             raise ValueError("bevfusion_endpoint must be a vehicle-local tcp://127.0.0.1 endpoint")
         if self.bevfusion_runtime_dir.is_absolute() or ".." in self.bevfusion_runtime_dir.parts:
             raise ValueError("bevfusion_runtime_dir must be a relative repository path")
-        if self.bevfusion_checkpoint.is_absolute() or ".." in self.bevfusion_checkpoint.parts:
-            raise ValueError("bevfusion_checkpoint must be relative to bevfusion_runtime_dir")
-        if self.bevfusion_config.is_absolute() or ".." in self.bevfusion_config.parts:
-            raise ValueError("bevfusion_config must be relative to bevfusion_runtime_dir")
-        if not 0.0 <= self.bevfusion_score_threshold <= 1.0:
-            raise ValueError("bevfusion_score_threshold must be between zero and one")
+        if self.bevfusion_detector not in BEVFUSION_DETECTORS:
+            raise ValueError("bevfusion_detector must be one of " + ", ".join(BEVFUSION_DETECTORS))
+        self.bevfusion.validate()
 
 
 class RemoteTeleopSimulationLauncher:
@@ -234,6 +322,19 @@ class RemoteTeleopSimulationLauncher:
     @property
     def _uses_bevfusion(self) -> bool:
         return self.options.bbox_source == "bevfusion"
+
+    def _bevfusion_adapter_args(self) -> list[str]:
+        detector = self.options.bevfusion
+        return [
+            "--bbox-source", "bevfusion",
+            "--lidar-topic", "/lidar/points",
+            "--bevfusion-endpoint", self.options.bevfusion_endpoint,
+            "--bevfusion-score-threshold", str(detector.birth_score_threshold),
+            "--bevfusion-continuation-score-threshold", str(detector.continuation),
+            "--bevfusion-minimum-confirmation-hits", str(detector.minimum_confirmation_hits),
+            "--bevfusion-maximum-reacquisition-seconds", str(detector.maximum_reacquisition_seconds),
+            "--bevfusion-maximum-coast-seconds", str(detector.maximum_coast_seconds),
+        ]
 
     def _launch_bevfusion(self) -> None:
         self._checked(self._ssh(self.vehicle, self._bevfusion_start_script()), "BEVFusion service")
@@ -472,12 +573,7 @@ class RemoteTeleopSimulationLauncher:
                 "--analysis-spool-root", str(root / "analysis-spool"),
             ]
             if self._uses_bevfusion:
-                command.extend([
-                    "--bbox-source", "bevfusion",
-                    "--lidar-topic", "/lidar/points",
-                    "--bevfusion-endpoint", self.options.bevfusion_endpoint,
-                    "--bevfusion-score-threshold", str(self.options.bevfusion_score_threshold),
-                ])
+                command.extend(self._bevfusion_adapter_args())
             if self.options.nuscenes_localization_transform is not None:
                 command.extend([
                     "--localization-transform",
@@ -599,10 +695,14 @@ class RemoteTeleopSimulationLauncher:
         # Docker names cannot contain the colon used by scene generations.
         return f"remote-teleop-bevfusion-{self.vehicle.name}"
 
+    def _bevfusion_checkpoint_root(self) -> PurePosixPath:
+        native = self.options.bevfusion.native_dir
+        return self._bevfusion_runtime_root() if native is None else self.vehicle.repo_path / native
+
     def _bevfusion_preflight_script(self) -> str:
         runtime = self._bevfusion_runtime_root()
-        checkpoint = runtime / self.options.bevfusion_checkpoint
-        config = runtime / self.options.bevfusion_config
+        checkpoint = self._bevfusion_checkpoint_root() / self.options.bevfusion.checkpoint
+        config = runtime / self.options.bevfusion.config
         return " && ".join((
             "test -d " + shlex.quote(str(runtime)),
             "test -f " + shlex.quote(str(runtime / "bevfusion_server.py")),
@@ -616,16 +716,21 @@ class RemoteTeleopSimulationLauncher:
         root = self._vehicle_output_root()
         runtime = self._bevfusion_runtime_root()
         container = self._bevfusion_container_name()
+        detector = self.options.bevfusion
+        # Native checkpoints (and their base configs) are mounted read-only at /native.
+        native = [] if detector.native_dir is None else [
+            "--mount", f"type=bind,src={self._bevfusion_checkpoint_root()},dst=/native,readonly"]
         command = [
             "docker", "run", "-d", "--rm", "--name", container,
             "--gpus", f"device={self.options.bevfusion_gpu}", "--network", "host", "--ipc", "host",
             "--mount", f"type=bind,src={runtime},dst=/workspace,readonly",
+            *native,
             self.options.bevfusion_image,
             "python", "/workspace/bevfusion_server.py",
             "--endpoint", self.options.bevfusion_endpoint,
-            "--config", "/workspace/" + str(self.options.bevfusion_config),
-            "--checkpoint", "/workspace/" + str(self.options.bevfusion_checkpoint),
-            "--score-threshold", str(self.options.bevfusion_score_threshold),
+            "--config", "/workspace/" + str(detector.config),
+            "--checkpoint", ("/workspace/" if detector.native_dir is None else "/native/") + str(detector.checkpoint),
+            "--score-threshold", str(detector.server_threshold),
             "--metrics-path", "/dev/stdout",
         ]
         # Keep a durable vehicle-side launch record without granting the
@@ -835,6 +940,39 @@ def _path(value: str) -> PurePosixPath:
     return path
 
 
+_BEVFUSION_OPTIONS = (
+    "bevfusion_image", "bevfusion_gpu", "bevfusion_endpoint", "bevfusion_runtime_dir", "bevfusion_detector",
+    "bevfusion_checkpoint", "bevfusion_config", "bevfusion_native_dir", "bevfusion_score_threshold",
+    "bevfusion_continuation_score_threshold", "bevfusion_minimum_confirmation_hits",
+    "bevfusion_maximum_reacquisition_seconds", "bevfusion_maximum_coast_seconds", "bevfusion_server_score_threshold",
+)
+
+
+def add_bevfusion_arguments(parser: argparse.ArgumentParser, *, gpu: int) -> None:
+    """Detector service and tracker flags shared by the split-system launchers."""
+    parser.add_argument("--bevfusion-image", default="remote-teleop-bevfusion:latest")
+    parser.add_argument("--bevfusion-gpu", type=int, default=gpu)
+    parser.add_argument("--bevfusion-endpoint", default="tcp://127.0.0.1:8772")
+    parser.add_argument("--bevfusion-runtime-dir", type=_path, default=PurePosixPath("docker/bevfusion"))
+    parser.add_argument("--bevfusion-detector", choices=tuple(BEVFUSION_DETECTORS), default="nuscenes",
+                        help="detector profile; the flags below override its config, checkpoint and tracker settings")
+    parser.add_argument("--bevfusion-checkpoint", type=_path,
+                        help="relative to --bevfusion-native-dir when the profile uses one, else the runtime dir")
+    parser.add_argument("--bevfusion-config", type=_path, help="relative to --bevfusion-runtime-dir")
+    parser.add_argument("--bevfusion-native-dir", type=_path, help="repository directory mounted read-only at /native")
+    parser.add_argument("--bevfusion-score-threshold", type=float, help="tracker birth score")
+    parser.add_argument("--bevfusion-continuation-score-threshold", type=float)
+    parser.add_argument("--bevfusion-minimum-confirmation-hits", type=int)
+    parser.add_argument("--bevfusion-maximum-reacquisition-seconds", type=float)
+    parser.add_argument("--bevfusion-maximum-coast-seconds", type=float)
+    parser.add_argument("--bevfusion-server-score-threshold", type=float,
+                        help="service-side minimum score; defaults to min(birth, continuation)")
+
+
+def bevfusion_option_values(args: argparse.Namespace) -> dict:
+    return {name: getattr(args, name) for name in _BEVFUSION_OPTIONS}
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("cfg/alien4_alien3.yaml"))
@@ -865,19 +1003,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--camera-source-width", type=int, default=1600)
     parser.add_argument("--camera-source-height", type=int, default=900)
     parser.add_argument("--bbox-source", choices=("gt", "bevfusion"), default="gt")
-    parser.add_argument("--bevfusion-image", default="remote-teleop-bevfusion:latest")
-    parser.add_argument("--bevfusion-gpu", type=int, default=0)
-    parser.add_argument("--bevfusion-endpoint", default="tcp://127.0.0.1:8772")
-    parser.add_argument("--bevfusion-runtime-dir", type=_path, default=PurePosixPath("docker/bevfusion"))
-    parser.add_argument(
-        "--bevfusion-checkpoint", type=_path,
-        default=PurePosixPath("checkpoints/bevfusion_converted.pth"),
-    )
-    parser.add_argument(
-        "--bevfusion-config", type=_path,
-        default=PurePosixPath("nuscenes_front.py"),
-    )
-    parser.add_argument("--bevfusion-score-threshold", type=float, default=0.2)
+    add_bevfusion_arguments(parser, gpu=0)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     if args.source_mode in ("nuscenes", "nuscenes_mcap") and args.expected_samples is None:
@@ -900,13 +1026,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             camera_fx=args.camera_fx, camera_fy=args.camera_fy,
             camera_cx=args.camera_cx, camera_cy=args.camera_cy,
             camera_source_size=(args.camera_source_width, args.camera_source_height),
-            bbox_source=args.bbox_source, bevfusion_image=args.bevfusion_image,
-            bevfusion_gpu=args.bevfusion_gpu,
-            bevfusion_endpoint=args.bevfusion_endpoint,
-            bevfusion_runtime_dir=args.bevfusion_runtime_dir,
-            bevfusion_checkpoint=args.bevfusion_checkpoint,
-            bevfusion_config=args.bevfusion_config,
-            bevfusion_score_threshold=args.bevfusion_score_threshold,
+            bbox_source=args.bbox_source, **bevfusion_option_values(args),
         ), dry_run=args.dry_run)
         result = launcher.run()
     except (LaunchError, ValueError) as error:
