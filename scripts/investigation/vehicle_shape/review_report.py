@@ -11,6 +11,7 @@ import numpy as np
 from src.viz.primitive_vehicle import CarShapeParams, PrimitiveVehicleAsset, car_section_tables
 
 RANGE_BUCKETS = ((3, 10), (10, 20), (20, 30), (30, 45), (45, 60))
+BODY_LABELS = Path(__file__).with_name("body_labels.json")  # visual body labels of near vehicles
 MIN_HELDOUT_POINTS = 20  # held-out distance stats need this many target-frame returns
 MAX_VEHICLE_ROWS = 10
 
@@ -104,6 +105,34 @@ class FrameFigures:
         fig.tight_layout(pad=0.4)
         fig.savefig(path, dpi=72)
         plt.close(fig)
+
+    def callout(self, result, v, baseline: Path, path: Path) -> None:
+        """Real | baseline fitted+tint | this run's fitted+tint crops of one vehicle, with color swatches."""
+        x0, y0, x1, y1 = self._crop_box(v.crop_xyxy_native, result.real_bgr.shape)
+        width, height = result.render_default.shape[1], result.render_default.shape[0]
+        scale = width / result.real_bgr.shape[1]
+        c0, r0, c1, r1 = (int(value * scale) for value in (x0, y0, x1, y1))
+        real = cv2.resize(result.real_bgr, (width, height), interpolation=cv2.INTER_AREA)[r0:r1, c0:c1]
+        old = cv2.imread(str(baseline / "frames" / result.spec.key / "compare.png"))
+        old = old[r0:r1, 2 * (width + 6) + c0:2 * (width + 6) + c1] if old is not None else np.zeros_like(real)
+        panels = [real, old, result.render_fitted[r0:r1, c0:c1]]
+        target = 180
+        panels = [cv2.resize(panel, (max(1, int(panel.shape[1] * target / max(panel.shape[0], 1))), target))
+                  for panel in panels]
+        gap = np.full((target, 4, 3), 255, np.uint8)
+        cv2.imwrite(str(path), np.hstack([panels[0], gap, panels[1], gap, panels[2]]))
+
+    @staticmethod
+    def swatch(rgb, path: Path, *, displayed: bool = True) -> None:
+        """Published color (left) and, with ``displayed``, the albedo this renderer paints (right)."""
+        image = np.full((40, 120 if displayed else 60, 3), 215, np.uint8)
+        if rgb is not None:
+            image[:, :60] = np.rint(np.asarray(rgb)[::-1] * 255)
+            if displayed:
+                image[:, 60:] = np.rint(displayed_albedo(rgb)[::-1] * 255)
+        else:
+            cv2.line(image, (0, 0), (image.shape[1] - 1, 39), (90, 90, 90), 1)
+        cv2.imwrite(str(path), image)
 
     @staticmethod
     def _crop_box(xyxy, shape):
@@ -203,8 +232,10 @@ class FrameFigures:
 class ReviewReport:
     """Collect per-frame results; write figures as they arrive and the summaries at the end."""
 
-    def __init__(self, output: Path, settings: dict, *, figures: bool = True) -> None:
+    def __init__(self, output: Path, settings: dict, *, figures: bool = True, baseline: Path | None = None,
+                 callouts: list[dict] | None = None) -> None:
         self.output, self.settings, self.figures = output, settings, figures
+        self.baseline, self.callouts = baseline, callouts or []
         self.output.mkdir(parents=True, exist_ok=True)
         self.rows: list[dict] = []
         self.frames: list[dict] = []
@@ -216,6 +247,11 @@ class ReviewReport:
         if self.figures:
             self._drawer.compare(result, directory / "compare.png")
             self._drawer.vehicles(result, directory / "vehicles.png")
+            for v in result.vehicles:
+                if self.baseline is not None and any(c["frame_key"] == result.spec.key and c["track_id"] == v.track_id
+                                                     for c in self.callouts):
+                    self._drawer.callout(result, v, self.baseline, directory / f"callout_{v.track_id}.png")
+                    self._drawer.swatch(v.color_rgb, directory / f"swatch_{v.track_id}.png")
         rows = [v.row(result.spec) for v in result.vehicles]
         for row, v in zip(rows, result.vehicles):
             row["color_observation_log"] = v.color_observations
@@ -230,7 +266,9 @@ class ReviewReport:
     def rebuild(cls, output: Path) -> None:
         """Rewrite REVIEW.md from an existing summary.json (e.g. after adding variants/)."""
         summary = json.loads((output / "summary.json").read_text())
-        report = cls(output, summary["settings"])
+        settings = summary["settings"]
+        report = cls(output, settings, baseline=Path(settings["baseline"]) if settings.get("baseline") else None,
+                     callouts=settings.get("callouts"))
         report.rows, report.frames = summary["vehicles"], summary["frames"]
         (output / "REVIEW.md").write_text(report._markdown(summary["aggregate"]))
 
@@ -294,6 +332,8 @@ class ReviewReport:
                 gt_x_vs_motion=_rate(sum(r["motion_front_sign"] == 1 for r in group if r["motion_front_sign"]),
                                      sum(bool(r["motion_front_sign"]) for r in group)),
                 body_types={t: sum(r["body_type"] == t for r in published) for t in CarShapeParams.BODY_TYPES},
+                color_L_percentiles=_percentiles([r["color_L"] for r in group if r["color_published"]]),
+                color_L_below_30=sum(r["color_published"] and r["color_L"] < 30 for r in group),
                 fit_latency_ms_mean=_median([r["fit_latency_ms_mean"] for r in group]),
                 fit_latency_ms_max=max([r["fit_latency_ms_max"] or 0 for r in group], default=None),
             )
@@ -354,6 +394,7 @@ class ReviewReport:
             "```",
             f"Settings: `{json.dumps({k: s[k] for k in ('history', 'fitter', 'accumulator', 'color', 'calibration', 'default_incumbent')})}`",
             "",
+            *self._changes_since_baseline(aggregate),
             "## Aggregate (per range bucket)",
             "",
             f"Distances are medians over vehicles with >= {MIN_HELDOUT_POINTS} held-out points. A vehicle with no",
@@ -384,8 +425,7 @@ class ReviewReport:
         if variants:
             lines += ["## Library-config variants (all ranges)", "",
                       "These runs use the same frames and harness with experimental settings. Their summaries are",
-                      "in `variants/<name>/summary.json`. The `--fixed-forward-sign` and `--bright-majority-color`",
-                      "flags are in-script subclasses that propose library changes; they do not change the library.", "",
+                      "in `variants/<name>/summary.json`.", "",
                       "| variant | settings | shape pub. | color pub. | med dist def→fit | p90 def→fit | fit better / worse | fwd = GT +x | fwd vs motion | body types | fit ms (median / max) |",
                       "|---|---|---|---|---|---|---|---|---|---|---|"]
             for name, item in [("baseline (this review)", dict(settings=s, all=aggregate["all"]))] + list(variants.items()):
@@ -427,6 +467,87 @@ class ReviewReport:
                     lines += self._frame_section(frame)
         return "\n".join(lines) + "\n"
 
+    def _changes_since_baseline(self, aggregate: dict) -> list[str]:
+        if self.baseline is None or not (self.baseline / "summary.json").is_file():
+            return []
+        base = json.loads((self.baseline / "summary.json").read_text())
+        old_rows = {(r["frame_key"], r["track_id"]): r for r in base["vehicles"]}
+        new_rows = {(r["frame_key"], r["track_id"]): r for r in self.rows}
+        relative = f"../{self.baseline.name}"
+        old, new = ReviewReport.aggregate(base["vehicles"])["all"], aggregate["all"]
+        near_old = ReviewReport.aggregate([r for r in base["vehicles"] if r["range_m"] < 10]).get("all", {})
+        near_new = ReviewReport.aggregate([r for r in self.rows if r["range_m"] < 10]).get("all", {})
+        bodies = [body_label_accuracy(base["vehicles"]), body_label_accuracy(self.rows)]
+
+        def label(accuracy, body):
+            return f"{accuracy[body][0]}/{accuracy[body][1]}" if body in accuracy else "–"
+
+        def lstar(a):
+            return f"{'/'.join(f'{v:.0f}' for v in a['color_L_percentiles'])}" if a.get("color_L_percentiles") else "–"
+
+        published = lambda a, rows: f"{a['color_L_below_30']}/{sum(r['color_published'] for r in rows)}"
+
+        def displayed(rows, albedo=displayed_albedo):
+            values = _percentiles([_lightness(albedo(r["color_rgb"])) for r in rows if r["color_published"]])
+            return "/".join(f"{v:.0f}" for v in values) if values else "–"
+
+        table = [
+            ("forward_sign = GT +x (all / 3-10 m)", f"{_pct(old['forward_sign_vs_gt_x'])} / {_pct(near_old.get('forward_sign_vs_gt_x'))}",
+             f"{_pct(new['forward_sign_vs_gt_x'])} / {_pct(near_new.get('forward_sign_vs_gt_x'))}"),
+            ("forward_sign vs GT motion", _pct(old["forward_sign_vs_motion"]), _pct(new["forward_sign_vs_motion"])),
+            ("held-out median dist, fitted (m)", _f(old["heldout_median_fitted_m"]), _f(new["heldout_median_fitted_m"])),
+            ("held-out p90 dist, fitted (m)", _f(old["heldout_p90_fitted_m"]), _f(new["heldout_p90_fitted_m"])),
+            ("fit better / worse than default (p90)", f"{_pct(old['fitted_better_p90_rate'])} / {_pct(old['fitted_worse_p90_rate'])}",
+             f"{_pct(new['fitted_better_p90_rate'])} / {_pct(new['fitted_worse_p90_rate'])}"),
+            ("shape published", _pct(old["shape_published_rate"]), _pct(new["shape_published_rate"])),
+            ("published body types", ", ".join(f"{k}={v}" for k, v in old["body_types"].items()),
+             ", ".join(f"{k}={v}" for k, v in new["body_types"].items())),
+            *((f"body type vs visual label: {body}", label(bodies[0], body), label(bodies[1], body))
+              for body in ("sedan", "suv_hatch", "pickup")),
+            ("color published", _pct(old["color_published_rate"]), _pct(new["color_published_rate"])),
+            ("published color L* p10/p50/p90", lstar(old), lstar(new)),
+            ("published colors with L* < 30", published(old, base["vehicles"]), published(new, self.rows)),
+            ("rendered body albedo L* p10/p50/p90", displayed(base["vehicles"], _v1_albedo), displayed(self.rows)),
+            ("warm (red/orange/brown) published tints", str(sum(r["color_published"] and _warm_tint(r["color_rgb"])
+                                                               for r in base["vehicles"])),
+             str(sum(r["color_published"] and _warm_tint(r["color_rgb"]) for r in self.rows))),
+            ("fit ms, median of per-vehicle means / max", f"{_f(old['fit_latency_ms_mean'], 1)} / {_f(old['fit_latency_ms_max'], 0)}",
+             f"{_f(new['fit_latency_ms_mean'], 1)} / {_f(new['fit_latency_ms_max'], 0)}"),
+        ]
+        lines = ["## Changes since v1", "",
+                 f"Baseline: [`{relative}/REVIEW.md`]({relative}/REVIEW.md) (same frames and harness).", "",
+                 *self.settings.get("changes", []), "",
+                 "| metric (all ranges unless noted) | v1 | v2 |", "|---|---|---|",
+                 *(f"| {name} | {before} | {after} |" for name, before, after in table), "",
+                 f"Body labels: `{BODY_LABELS.name}` holds visual labels of near (< 25 m) vehicles from the camera crops;",
+                 "pickups count as correct when fitted as hatch_suv (there is no pickup preset).", ""]
+        if self.callouts:
+            lines += ["### Called-out vehicles", "",
+                      "Each crop is real camera | v1 fitted+tint | v2 fitted+tint at frame *t*. The v1 swatch is its published",
+                      "body color; the v2 swatch is the published color (left) and the albedo v2's renderer paints after its",
+                      "dark-paint lift (right). A crossed gray swatch means no color was published.", ""]
+            for item in self.callouts:
+                key, track = item["frame_key"], item["track_id"]
+                before, after = old_rows.get((key, track)), new_rows.get((key, track))
+                if before is None or after is None:
+                    continue
+
+                def describe(r):
+                    shape = f"{r['body_type']} fwd {r['forward_sign']:+d}" if r["shape_published"] else "no shape"
+                    color = f"{_hex(r['color_rgb'])} (L* {r['color_L']:.0f})" if r["color_published"] else "no color"
+                    return f"{shape}, {color}"
+
+                lines += [f"**{key} #{track}** ({after['range_m']:.0f} m): {item['note']}", "",
+                          f"v1: {describe(before)} → v2: {describe(after)}  ",
+                          f"[v1 frame]({relative}/frames/{key}/compare.png) · [v2 frame](frames/{key}/compare.png)", "",
+                          f"![{key} #{track}](frames/{key}/callout_{track}.png) "
+                          f"![v1 swatch](frames/{key}/swatch_v1_{track}.png) ![v2 swatch](frames/{key}/swatch_{track}.png)", ""]
+                FrameFigures.swatch(before["color_rgb"] if before["color_published"] else None,
+                                    self.output / "frames" / key / f"swatch_v1_{track}.png", displayed=False)
+                FrameFigures.swatch(after["color_rgb"] if after["color_published"] else None,
+                                    self.output / "frames" / key / f"swatch_{track}.png")
+        return lines
+
     def _frame_section(self, frame: dict) -> list[str]:
         key = frame["key"]
         rows = [r for r in self.rows if r["frame_key"] == key]
@@ -455,6 +576,53 @@ def _warm_tint(rgb) -> bool:
     """Red-orange-brown hue with some chroma: rare as paint, common as tail-light/low-sun contamination."""
     _, a, b = cv2.cvtColor(np.float32(rgb).reshape(1, 1, 3), cv2.COLOR_RGB2Lab)[0, 0]
     return bool(np.hypot(a, b) >= 15 and 15 < np.degrees(np.arctan2(b, a)) < 85)
+
+
+_ASSET = []
+
+
+def displayed_albedo(rgb) -> np.ndarray:
+    """Body albedo the proxy renderer paints for ``rgb`` (vertex_colors_for_tint without baked shading)."""
+    if not _ASSET:
+        from src.viz.primitive_car import PrimitiveCarAsset
+
+        _ASSET.append(PrimitiveCarAsset())
+    asset = _ASSET[0]
+    body = (asset._material_colors == asset.BODY).all(axis=1)
+    colors = asset.vertex_colors_for_tint(rgb)[body, :3] / asset._shade[body, None]
+    return np.clip(np.median(colors, axis=0) / 255, 0, 1)
+
+
+def _v1_albedo(rgb) -> np.ndarray:
+    """v1's vertex_colors_for_tint lift (gray added up to luma 0.16), for the before/after table."""
+    rgb = np.clip(np.asarray(rgb, dtype=float), 0., 1.)
+    luma = rgb @ (.299, .587, .114)
+    return np.clip(rgb + max(.16 - luma, 0.), 0., 1.) * min(1., .92 / max(luma, .16))
+
+
+def _lightness(rgb) -> float:
+    return float(cv2.cvtColor(np.float32(rgb).reshape(1, 1, 3), cv2.COLOR_RGB2Lab)[0, 0, 0])
+
+
+def _percentiles(values, q=(10, 50, 90)):
+    values = [v for v in values if v is not None]
+    return None if not values else [round(float(v), 1) for v in np.percentile(values, q)]
+
+
+def body_label_accuracy(rows: list[dict]) -> dict[str, list[int]]:
+    """{label: [published body types that match, published]}; pickups count as hatch_suv matches."""
+    if not BODY_LABELS.is_file():
+        return {}
+    rows_by_id = {(r["frame_key"], r["track_id"]): r for r in rows}
+    accuracy: dict[str, list[int]] = {}
+    for label in json.loads(BODY_LABELS.read_text()):
+        r = rows_by_id.get((label["frame_key"], label["track_id"]))
+        if r is None or not r["shape_published"]:
+            continue
+        counts = accuracy.setdefault(label["body"], [0, 0])
+        counts[0] += (r["body_type"] == "sedan") == (label["body"] == "sedan")
+        counts[1] += 1
+    return accuracy
 
 
 def _median(values):

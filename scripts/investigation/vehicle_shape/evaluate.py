@@ -249,48 +249,13 @@ def _round(value, digits: int = 4):
     return None if value is None or not np.isfinite(value) else round(float(value), digits)
 
 
-class FixedSignShapeFitter(CarShapeFitter):
-    """Experimental variant: never flip the tracker heading (forward_sign stays +1)."""
-
-    def _fit_candidate(self, points, weights, dimensions, body_type, sign, previous):
-        fitted, cost, rms = super()._fit_candidate(points, weights, dimensions, body_type, 1., previous) \
-            if sign > 0 else (None, float("inf"), float("inf"))
-        return (fitted if fitted is not None else CarShapeParams.default(body_type)), cost, rms
-
-
-class BrightMajorityColorEstimator(VehicleColorEstimator):
-    """Experimental variant: a colored minority cluster only wins over a DARK achromatic majority.
-
-    Trim, glass and shadow are dark; a bright achromatic majority (median L* >= ``bright_l``) is
-    white/silver paint, and its warm minority is tail lights / reflectors.
-    """
-
-    bright_l = 60.0
-
-    def _dominant_color(self, samples_rgb):
-        from src.deployment.vehicle_color import _rgb_to_lab, _two_means
-
-        observation = super()._dominant_color(samples_rgb)
-        if observation.dominant_fraction >= 0.5:
-            return observation
-        lab = _rgb_to_lab(samples_rgb)
-        labels, _ = _two_means(lab * np.array([self.config.luminance_weight, 1.0, 1.0]))
-        larger = int(np.argmax(np.bincount(labels, minlength=2)))
-        if np.median(lab[labels == larger, 0]) < self.bright_l:
-            return observation
-        majority = samples_rgb[labels == larger]
-        return replace(super()._dominant_color(majority), sample_count=len(lab))
-
-
 class VehicleEvidencePipeline:
     """Accumulate, fit and color every target vehicle over a K-frame history (one frame spec at a time)."""
 
     def __init__(self, loader: FrameLoader, *, history: int = 10, fitter_kwargs: dict | None = None,
                  accumulator_kwargs: dict | None = None, color_config: VehicleColorConfig | None = None,
-                 cold_fit: bool = True, default_incumbent: bool = False, fixed_sign: bool = False,
-                 bright_majority: bool = False) -> None:
+                 cold_fit: bool = True, default_incumbent: bool = False) -> None:
         self.loader, self.history = loader, history
-        self.fixed_sign, self.bright_majority = fixed_sign, bright_majority
         self.default_incumbent = default_incumbent
         self.fitter_kwargs, self.accumulator_kwargs = fitter_kwargs or {}, accumulator_kwargs or {}
         self.color_config = color_config or VehicleColorConfig()
@@ -309,8 +274,8 @@ class VehicleEvidencePipeline:
         agent = str(spec.agent)
         K, cam_T_lidar = camera_intrinsic(agent, "refined"), camera_T_lidar(agent, "refined")
         accumulator = ObjectPointAccumulator(**self.accumulator_kwargs)
-        fitter = (FixedSignShapeFitter if self.fixed_sign else CarShapeFitter)(**self.fitter_kwargs)
-        estimator = (BrightMajorityColorEstimator if self.bright_majority else VehicleColorEstimator)(self.color_config)
+        fitter = CarShapeFitter(**self.fitter_kwargs)
+        estimator = VehicleColorEstimator(self.color_config)
         indices, used_future = self.history_indices(spec)
         by_id = {v.track_id: v for v in vehicles}
         for v in vehicles:
@@ -595,13 +560,14 @@ def main() -> None:
     parser.add_argument("--fitter", type=json.loads, default={}, help="CarShapeFitter kwargs override (JSON)")
     parser.add_argument("--accumulator", type=json.loads, default={}, help="ObjectPointAccumulator kwargs (JSON)")
     parser.add_argument("--color", type=json.loads, default={}, help="VehicleColorConfig overrides (JSON)")
-    parser.add_argument("--fixed-forward-sign", action="store_true",
-                        help="variant: fit only forward_sign=+1 (keep the box heading)")
-    parser.add_argument("--bright-majority-color", action="store_true",
-                        help="variant: colored minority cluster wins only over a dark achromatic majority")
     parser.add_argument("--default-incumbent", action="store_true",
                         help="variant: first fit treats the default sedan (+x forward) as the incumbent, so a body "
                              "type or forward-sign change must win by the fitter's switch_margin")
+    parser.add_argument("--baseline", type=Path, default=None,
+                        help="earlier review directory: REVIEW.md gets a 'Changes since' comparison against it")
+    parser.add_argument("--changes", type=Path, default=None,
+                        help='JSON {"changes": [markdown lines], "callouts": [{frame_key, track_id, note}]} '
+                             "describing the change and the vehicles to compare against --baseline")
     parser.add_argument("--no-render", action="store_true", help="metrics only (no gsplat renders / figures)")
     parser.add_argument("--rebuild-review", action="store_true",
                         help="only rewrite REVIEW.md from <output>/summary.json (+ variants/*/summary.json)")
@@ -620,16 +586,16 @@ def main() -> None:
     settings = dict(history=args.history, fitter=args.fitter, accumulator=args.accumulator, color=args.color,
                     frames_file=str(args.frames), map=str(MAP_PLY), render_size=RENDER_SIZE,
                     calibration="refined", render=not args.no_render,
-                    default_incumbent=args.default_incumbent, fixed_forward_sign=args.fixed_forward_sign,
-                    bright_majority_color=args.bright_majority_color)
+                    default_incumbent=args.default_incumbent,
+                    baseline=None if args.baseline is None else str(args.baseline.resolve()),
+                    **(json.loads(args.changes.read_text()) if args.changes else {}))
     pipeline = VehicleEvidencePipeline(FrameLoader(), history=args.history, fitter_kwargs=args.fitter,
                                        accumulator_kwargs=args.accumulator,
                                        color_config=VehicleColorConfig(**args.color),
-                                       default_incumbent=args.default_incumbent,
-                                       fixed_sign=args.fixed_forward_sign,
-                                       bright_majority=args.bright_majority_color)
+                                       default_incumbent=args.default_incumbent)
     evaluation = VehicleProxyEvaluation(pipeline, None if args.no_render else ProxyRenderHarness())
-    report = ReviewReport(args.output, settings, figures=not args.no_render)
+    report = ReviewReport(args.output, settings, figures=not args.no_render, baseline=args.baseline,
+                          callouts=settings.get("callouts"))
     for number, spec in enumerate(specs, 1):
         result = evaluation.evaluate(spec)
         if result is None:

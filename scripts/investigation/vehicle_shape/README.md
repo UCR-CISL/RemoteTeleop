@@ -42,12 +42,21 @@ Outputs (default `../RemoteTeleop/artifacts/pcd-vehicle-assets-20261015/`):
   (one row per vehicle).
 
 `--fitter`, `--accumulator` and `--color` take JSON keyword overrides for `CarShapeFitter`,
-`ObjectPointAccumulator` and `VehicleColorConfig`. Three experimental flags are implemented as
-in-script subclasses or fitter inputs, so the library stays unchanged:
+`ObjectPointAccumulator` and `VehicleColorConfig` (e.g. `--fitter '{"fit_forward_sign": true}'` restores the
+forward-sign sweep, `'{"height_prior": 0}'` disables the box-height body prior). `--default-incumbent` is an
+experimental flag: the first fit treats the default sedan as the incumbent.
 
-- `--default-incumbent`: the first fit treats the default sedan (+x forward) as the incumbent.
-- `--fixed-forward-sign`: fits only `forward_sign=+1`.
-- `--bright-majority-color`: a colored minority cluster wins only over a dark achromatic majority.
+`--baseline <earlier output>` adds a "Changes since" section to REVIEW.md: a before/after aggregate table
+(including body-type accuracy against the visual labels in `body_labels.json`) and, for the vehicles listed
+in `--changes` (see `v2_changes.json`), real | before | after crops with color swatches. The v2 review was made
+with:
+
+```bash
+PYTHONPATH=. ../RemoteTeleop/.venv/bin/python scripts/investigation/vehicle_shape/evaluate.py \
+    --output ../RemoteTeleop/artifacts/pcd-vehicle-assets-20261015-v2 \
+    --baseline ../RemoteTeleop/artifacts/pcd-vehicle-assets-20261015 \
+    --changes scripts/investigation/vehicle_shape/v2_changes.json
+```
 
 To compare variants, copy a variant's `summary.json` (and optionally `frames/*/compare.png`) to
 `<output>/variants/<name>/`, then rewrite REVIEW.md:

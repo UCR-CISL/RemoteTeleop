@@ -1,0 +1,26 @@
+{
+ "changes": [
+  "- `CarShapeFitter` trusts the box heading: `forward_sign` is no longer fitted (`fit_forward_sign=True` restores the sweep). Candidates are the body presets only.",
+  "- `CarShapeFitter` compares candidates after a box-height prior (`height_prior=0.15` around `suv_height_m=1.87`, span 0.1 m): taller boxes favor hatch_suv, lower ones sedan.",
+  "- `VehicleColorEstimator`: a colored minority cluster only wins over an achromatic majority darker than L* 60 (`trim_max_lightness`), so tail lights no longer tint white/silver paint.",
+  "- `VehicleColorEstimator`: neutral paint snaps to a = b = 0 (chroma < 8, unless saturated dark paint such as navy). The visible road ring around the box floor (via the depth buffer) is the gray reference: paint chroma that the road's illuminant cast explains is treated as neutral; colored paint keeps its hue.",
+  "- `VehicleColorEstimator` fusion: per-channel medians over the last 10 (a, b) / 20 (L) confident observations replace the EMA, so incompatible readings are outvoted instead of averaged.",
+  "- `PrimitiveVehicleAsset.vertex_colors_for_tint`: dark paint is lifted to about L* 25 by scaling (hue kept) before adding gray, instead of adding gray only.",
+  "- Tried and not kept: L*-only exposure normalization against the road ring (whites on bright roads dropped to L* ~76, shaded rears stayed dark, blacks got darker)."
+ ],
+ "callouts": [
+  {"frame_key": "take06_a1_527905", "track_id": "74", "note": "white Tesla tinted orange by its tail-light cluster; forward sign flipped"},
+  {"frame_key": "take06_a1_527905", "track_id": "28", "note": "dark gray sedan published brown under low sun; forward sign flipped"},
+  {"frame_key": "take06_a1_527905", "track_id": "54", "note": "silver sedan published tan under low sun"},
+  {"frame_key": "take01_a2_481675", "track_id": "103", "note": "white sedan tinted tan (white + tail-light frames averaged); forward sign flipped"},
+  {"frame_key": "take01_a2_481675", "track_id": "81", "note": "white SUV fitted as sedan"},
+  {"frame_key": "take01_a1_481325", "track_id": "46", "note": "gray SUV fitted as sedan"},
+  {"frame_key": "take03_a3_497215", "track_id": "11", "note": "white sedan with a shaded rear published brown; forward sign flipped"},
+  {"frame_key": "take05_a2_524120", "track_id": "18", "note": "silver SUV published brown under low sun"},
+  {"frame_key": "take05_a2_524120", "track_id": "7", "note": "red Tesla: must stay red"},
+  {"frame_key": "take08_a2_537370", "track_id": "2", "note": "blue Tucson (shaded rear) rendered near-black navy"},
+  {"frame_key": "take08_a2_537370", "track_id": "49", "note": "red pickup: must stay red; 6.1 m pickup body"},
+  {"frame_key": "take08_a2_537595", "track_id": "2", "note": "Tucson fitted as sedan"},
+  {"frame_key": "take12_a2_549360", "track_id": "73", "note": "red Prius: must stay red"}
+ ]
+}
