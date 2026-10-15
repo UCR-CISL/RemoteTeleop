@@ -5,7 +5,7 @@ import pytest
 
 pytest.importorskip("trimesh")
 from src.viz.vehicle_proxy import VehicleProxyRenderer
-from src.viz.primitive_vehicle import PrimitiveVehicleAsset
+from src.viz.primitive_vehicle import CarShapeParams, PrimitiveVehicleAsset
 
 
 def test_templates_cached_by_kind_but_instances_have_current_dimensions(tmp_path):
@@ -84,3 +84,37 @@ def test_other_primitive_kinds_preserve_two_sided_rendering(kind):
     proxy = VehicleProxyRenderer(renderer)
     proxy.render(kind, PrimitiveVehicleAsset.SPECS[kind][0], np.eye(4), np.eye(4), np.eye(3), (32, 24))
     assert renderer.render.call_args.kwargs == {"cull_backfaces": False}
+
+
+def test_shape_and_body_color_instance_without_touching_template():
+    renderer = Mock()
+    renderer.load_geometry.return_value = "car-handle"
+    renderer.with_vertices.return_value = "instance"
+    renderer.with_vertex_colors.return_value = "painted"
+    proxy = VehicleProxyRenderer(renderer)
+    camera = np.eye(4)
+    camera[0, 3] = 10
+    shape = CarShapeParams.default("hatch_suv")
+    proxy.render("car", (4.5, 1.9, 1.7), np.eye(4), camera, np.eye(3), (32, 24),
+                 shape=shape, body_color_rgb=(.9, .5, .1))
+    asset, _ = proxy._templates["car"]
+    np.testing.assert_allclose(renderer.with_vertices.call_args.args[1],
+                               asset.vertices_for_dimensions((4.5, 1.9, 1.7), shape))
+    instance, colors = renderer.with_vertex_colors.call_args.args
+    assert instance == "instance"
+    np.testing.assert_array_equal(colors, asset.vertex_colors_for_tint((.9, .5, .1)))
+    assert renderer.render.call_args.args[0] == "painted"
+    proxy.render("car", (4.5, 1.9, 1.7), np.eye(4), camera, np.eye(3), (32, 24))
+    assert renderer.with_vertex_colors.call_count == 1
+    assert renderer.render.call_args.args[0] == "instance"
+
+
+def test_shape_is_ignored_for_other_kinds_and_tint_needs_renderer_support():
+    renderer = Mock(spec=["load_geometry", "with_vertices", "render"])
+    proxy = VehicleProxyRenderer(renderer)
+    size = PrimitiveVehicleAsset.SPECS["truck"][0]
+    proxy.render("truck", size, np.eye(4), np.eye(4), np.eye(3), (32, 24),
+                 shape=CarShapeParams.default("hatch_suv"), body_color_rgb=(.1, .2, .3))
+    asset, _ = proxy._templates["truck"]
+    np.testing.assert_allclose(renderer.with_vertices.call_args.args[1], asset.vertices_for_dimensions(size))
+    renderer.render.assert_called_once()

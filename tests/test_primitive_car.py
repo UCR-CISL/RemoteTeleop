@@ -1,4 +1,5 @@
 """Geometry contracts for procedural vehicle templates and bbox adaptation."""
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -7,7 +8,7 @@ import pytest
 trimesh = pytest.importorskip("trimesh")
 
 from src.viz.primitive_car import PrimitiveCarAsset
-from src.viz.primitive_vehicle import PrimitiveVehicleAsset, SUPPORTED_KINDS
+from src.viz.primitive_vehicle import CarShapeParams, PrimitiveVehicleAsset, SUPPORTED_KINDS
 
 
 @pytest.mark.parametrize("kind", SUPPORTED_KINDS)
@@ -165,3 +166,96 @@ def test_cabin_roof_and_pillars_share_one_closed_shell(monkeypatch, roof):
     assert colors.shape == (len(mesh.faces), 4)
     assert set(map(tuple, colors)) == {asset.BODY, asset.GLASS}
     assert len(np.unique(np.sort(mesh.faces, axis=1), axis=0)) == len(mesh.faces)
+
+
+SHAPES = [CarShapeParams.default("hatch_suv"),
+          CarShapeParams(windshield_base_x=.36, roof_front_x=0., roof_rear_x=-.22, rear_window_base_x=-.42,
+                         hood_z=.62, deck_z=.52, nose_half_width=.28, tail_half_width=.42, cabin_half_width=.32),
+          CarShapeParams(**{name: CarShapeParams.BOUNDS[name][index] for name, index in (
+              ("windshield_base_x", 1), ("roof_front_x", 1), ("roof_rear_x", 0), ("rear_window_base_x", 0),
+              ("hood_z", 0), ("deck_z", 0), ("nose_half_width", 0), ("tail_half_width", 0),
+              ("cabin_half_width", 1))})]
+
+
+@pytest.mark.parametrize("body_type", CarShapeParams.BODY_TYPES)
+def test_car_shape_vector_roundtrip(body_type):
+    shape = CarShapeParams.default(body_type)
+    vector = shape.to_vector()
+    assert len(vector) == 2 + len(CarShapeParams.CONTINUOUS)
+    assert CarShapeParams.from_vector(vector) == shape
+    assert CarShapeParams.from_vector(np.asarray(vector)) == shape
+    assert CarShapeParams.default() == CarShapeParams()
+
+
+@pytest.mark.parametrize("vector", [(0., 1.), (0., 1.) + (np.nan,) * 9, (.5,) + CarShapeParams().to_vector()[1:],
+                                    (7.,) + CarShapeParams().to_vector()[1:], (0., 0.) + CarShapeParams().to_vector()[2:]])
+def test_car_shape_rejects_bad_vectors(vector):
+    with pytest.raises(ValueError):
+        CarShapeParams.from_vector(vector)
+
+
+@pytest.mark.parametrize("changes", [dict(body_type="van"), dict(hood_z=.9), dict(cabin_half_width=np.nan),
+                                     dict(roof_front_x=-.13, roof_rear_x=-.14)])
+def test_car_shape_validates_fields(changes):
+    with pytest.raises(ValueError):
+        CarShapeParams(**changes)
+
+
+@pytest.mark.parametrize("dimensions", [(4.65, 1.85, 1.48), (5.2, 2.0, 1.9), (4.6, 2.0, 1.0), (.3, .2, .2)])
+def test_default_car_shape_reproduces_template(dimensions):
+    asset = PrimitiveCarAsset()
+    np.testing.assert_allclose(asset.vertices_for_dimensions(dimensions, CarShapeParams()),
+                               asset.vertices_for_dimensions(dimensions), rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("dimensions", [(4.65, 1.85, 1.48), (4.4, 1.8, 1.75), (4.6, 2.0, 1.0)])
+def test_car_shapes_keep_topology_bbox_and_wheels(shape, dimensions):
+    asset = PrimitiveCarAsset()
+    dimensions = np.asarray(dimensions)
+    vertices = asset.vertices_for_dimensions(dimensions, shape)
+    default = asset.vertices_for_dimensions(dimensions)
+    assert vertices.shape == default.shape and np.isfinite(vertices).all()
+    assert np.all(np.abs(vertices) <= dimensions / 2 + 1e-9)
+    np.testing.assert_allclose(vertices[:, 2].max(), dimensions[2] / 2)  # roof stays pinned
+    assert np.abs(vertices - default).max() > .01
+    for wheel in asset._wheels:
+        np.testing.assert_array_equal(vertices[wheel.start:wheel.stop], default[wheel.start:wheel.stop])
+    mesh = asset.mesh_for_dimensions(dimensions)
+    mesh.vertices = vertices
+    assert (mesh.area_faces > 0).all()
+    np.testing.assert_array_equal(asset.mesh.faces, mesh.faces)
+
+
+def test_reversed_car_shape_is_a_half_turn():
+    asset = PrimitiveCarAsset()
+    shape = SHAPES[1]
+    reversed_shape = replace(shape, forward_sign=-1.)
+    forward = asset.vertices_for_dimensions((4.6, 1.9, 1.5), shape)
+    np.testing.assert_allclose(asset.vertices_for_dimensions((4.6, 1.9, 1.5), reversed_shape),
+                               forward * [-1, -1, 1])
+
+
+def test_car_shape_is_rejected_for_other_templates():
+    with pytest.raises(ValueError, match="car template"):
+        PrimitiveVehicleAsset("police").vertices_for_dimensions((4.8, 1.9, 1.58), CarShapeParams())
+
+
+def test_body_tint_repaints_only_body_and_keeps_template():
+    asset = PrimitiveCarAsset()
+    template = asset.mesh.visual.vertex_colors.copy()
+    np.testing.assert_array_equal(asset.vertex_colors_for_tint(np.array(asset.BODY[:3]) / 255), template)
+    red = asset.vertex_colors_for_tint((.8, .1, .1))
+    np.testing.assert_array_equal(asset.mesh.visual.vertex_colors, template)
+    body = (asset._material_colors == asset.BODY).all(axis=1)
+    assert body.any() and not body.all()
+    np.testing.assert_array_equal(red[~body], template[~body])
+    assert np.all(red[body, 0] > 2 * red[body, 1])
+    assert red.dtype == template.dtype and red.shape == template.shape
+    # Black still shows shading; white does not clip at the template's top end.
+    black = asset.vertex_colors_for_tint((0., 0., 0.))[body, :3].astype(int)
+    white = asset.vertex_colors_for_tint((1., 1., 1.))[body, :3].astype(int)
+    assert black.min() >= 25 and black.max() - black.min() >= 5
+    assert white.max() <= 240
+    with pytest.raises(ValueError):
+        asset.vertex_colors_for_tint((1., 0.))
