@@ -108,6 +108,60 @@ def test_frame_snapshot_round_trips_persistent_track_id_and_requires_it():
         BoxPrompt.from_dict(values)
 
 
+def test_box_prompt_appearance_hints_round_trip_without_changing_legacy_hash():
+    legacy_box = frame().boxes[0]
+    legacy = FrameSnapshot(0, 0, "scene", "frame-0", IDENTITY_4, boxes=(legacy_box,))
+    legacy_box_dict = {
+        "track_id": "car-1", "xyxy": (10.0, 20.0, 110.0, 80.0),
+        "dimensions_lwh": (4.5, 1.8, 1.5), "world_T_object": IDENTITY_4,
+        "text_label": "car", "visibility": 0.9, "detection_confidence": 1.0,
+    }
+    assert legacy_box.to_dict() == legacy_box_dict
+    assert legacy.sha256 == hashlib.sha256(json.dumps(
+        {"sequence": 0, "timestamp_us": 0, "scene_generation": "scene", "frame_id": "frame-0",
+         "world_T_ego": IDENTITY_4, "boxes": [legacy_box_dict]},
+        sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")).hexdigest()
+
+    hinted_box = BoxPrompt(**{**legacy_box_dict, "vehicle_shape": [0.0, 0.25, 1],
+                              "body_color_rgb": [0.1, 0.2, 0.3], "color_confidence": 0.8})
+    assert hinted_box.vehicle_shape == (0.0, 0.25, 1.0)
+    assert hinted_box.body_color_rgb == (0.1, 0.2, 0.3)
+    shape_only = BoxPrompt(**{**legacy_box_dict, "vehicle_shape": (1.0,)})
+    assert "body_color_rgb" not in shape_only.to_dict()
+    assert "color_confidence" not in shape_only.to_dict()
+    codec = ProtocolCodec()
+    for box in (hinted_box, shape_only):
+        assert BoxPrompt.from_dict(json.loads(json.dumps(box.to_dict()))) == box
+        for message in (
+            FrameSnapshot(0, 0, "scene", "frame-0", IDENTITY_4, boxes=(box,)),
+            FrameObjectDetections(0, 0, "scene", "frame-0", boxes=(box,)),
+            FrameDetections(**{**frame().__dict__, "boxes": (box,)}),
+        ):
+            _, decoded = codec.decode(codec.encode(message))
+            assert decoded == message
+    hinted = FrameSnapshot(0, 0, "scene", "frame-0", IDENTITY_4, boxes=(hinted_box,))
+    assert hinted.sha256 != legacy.sha256
+
+
+@pytest.mark.parametrize(
+    ("hints", "error"),
+    [
+        ({"vehicle_shape": ()}, "vehicle_shape"),
+        ({"vehicle_shape": (0.0,) * 33}, "vehicle_shape"),
+        ({"vehicle_shape": (float("nan"),)}, "vehicle_shape"),
+        ({"vehicle_shape": "12"}, "vehicle_shape"),
+        ({"body_color_rgb": (0.1, 0.2)}, "body_color_rgb"),
+        ({"body_color_rgb": (0.1, 0.2, 1.5)}, "body_color_rgb"),
+        ({"body_color_rgb": (0.1, 0.2, 0.3), "color_confidence": -0.1}, "color_confidence"),
+        ({"color_confidence": 0.5}, "color_confidence"),
+    ],
+)
+def test_box_prompt_rejects_invalid_appearance_hints(hints, error):
+    with pytest.raises(ValueError, match=error):
+        BoxPrompt("car-1", (0, 0, 1, 1), (4.5, 1.8, 1.5), IDENTITY_4, **hints)
+
+
 @pytest.mark.parametrize(
     "message",
     [

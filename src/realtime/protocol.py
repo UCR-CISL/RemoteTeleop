@@ -168,6 +168,10 @@ class BoxPrompt:
     text_label: str = "object"
     visibility: float = 1.0
     detection_confidence: float = 1.0
+    # Optional compact appearance hints; omitted from the wire when unset.
+    vehicle_shape: tuple[float, ...] | None = None
+    body_color_rgb: tuple[float, float, float] | None = None
+    color_confidence: float = 0.0
 
     def __post_init__(self) -> None:
         _non_empty(self.track_id, "track_id")
@@ -189,9 +193,26 @@ class BoxPrompt:
             "detection_confidence",
             _unit_interval(self.detection_confidence, "detection_confidence"),
         )
+        for name in ("vehicle_shape", "body_color_rgb"):
+            if isinstance(getattr(self, name), (str, bytes)):
+                raise ValueError(f"{name} must be a sequence of numbers")
+        if self.vehicle_shape is not None:
+            shape = tuple(_finite(value, "vehicle_shape") for value in self.vehicle_shape)
+            if not 1 <= len(shape) <= 32:
+                raise ValueError("vehicle_shape must contain 1 to 32 values")
+            object.__setattr__(self, "vehicle_shape", shape)
+        if self.body_color_rgb is not None:
+            rgb = tuple(_unit_interval(value, "body_color_rgb") for value in self.body_color_rgb)
+            if len(rgb) != 3:
+                raise ValueError("body_color_rgb must contain 3 values")
+            object.__setattr__(self, "body_color_rgb", rgb)
+        confidence = _unit_interval(self.color_confidence, "color_confidence")
+        if self.body_color_rgb is None and confidence != 0.0:
+            raise ValueError("color_confidence requires body_color_rgb")
+        object.__setattr__(self, "color_confidence", confidence)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        values = {
             "track_id": self.track_id,
             "xyxy": self.xyxy,
             "dimensions_lwh": self.dimensions_lwh,
@@ -200,6 +221,13 @@ class BoxPrompt:
             "visibility": self.visibility,
             "detection_confidence": self.detection_confidence,
         }
+        # Omit unset hints to preserve legacy wire bytes and snapshot hashes.
+        if self.vehicle_shape is not None:
+            values["vehicle_shape"] = self.vehicle_shape
+        if self.body_color_rgb is not None:
+            values["body_color_rgb"] = self.body_color_rgb
+            values["color_confidence"] = self.color_confidence
+        return values
 
     @classmethod
     def from_dict(cls, values: Mapping[str, Any]) -> "BoxPrompt":
