@@ -257,5 +257,8 @@ def test_body_tint_repaints_only_body_and_keeps_template():
     white = asset.vertex_colors_for_tint((1., 1., 1.))[body, :3].astype(int)
     assert black.min() >= 25 and black.max() - black.min() >= 5
     assert white.max() <= 240
+    # Dark saturated paint is lifted without washing out its hue.
+    navy = asset.vertex_colors_for_tint((.02, .03, .12))[body, :3].astype(int)
+    assert np.all(navy[:, 2] > 2 * navy[:, 0])
     with pytest.raises(ValueError):
         asset.vertex_colors_for_tint((1., 0.))

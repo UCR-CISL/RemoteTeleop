@@ -362,10 +362,15 @@ class PrimitiveVehicleAsset:
         if rgb.shape != (3,) or not np.isfinite(rgb).all():
             raise ValueError("Body color must be three finite RGB values")
         rgb = np.clip(rgb, 0., 1.)
-        # Lift black paint so shading still reads as a solid; keep white from
-        # clipping. The default BODY paint lies inside this luma range.
-        luma = rgb @ (.299, .587, .114)
-        rgb = np.clip(rgb + max(.16 - luma, 0.), 0., 1.) * min(1., .92 / max(luma, .16))
+        # Lift dark paint to about L* 25 so shading still reads as a solid:
+        # scaling first keeps its hue (shaded navy stays blue), gray fills in
+        # near-black. Keep white from clipping. The default BODY paint lies
+        # inside this luma range.
+        luma, floor = rgb @ (.299, .587, .114), .23
+        if luma < floor:
+            gain = min(floor / max(luma, 1e-6), 4.)
+            rgb, luma = np.clip(rgb * gain + (floor - luma * gain), 0., 1.), floor
+        rgb = rgb * min(1., .92 / luma)
         colors = np.asarray(self._mesh.visual.vertex_colors).copy()
         body = (self._material_colors == self.BODY).all(axis=1)
         colors[body, :3] = np.rint(np.rint(rgb * 255) * self._shade[body, None])

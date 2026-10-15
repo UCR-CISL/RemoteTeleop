@@ -4,11 +4,14 @@ Track points in the body "belt" band (between wheels and glass) are projected in
 image, kept when the sparse LiDAR depth buffer and nearer tracks' boxes say they are visible, and
 sampled as small patch means.  The dominant Lab cluster's median is the per-frame observation and
 is fused per track over time.  Colors are sRGB floats in 0..1, RGB order (input images are BGR).
+With a depth buffer, the visible road ring around the box floor is the per-frame gray reference:
+a paint chroma that it explains as an illuminant cast (low sun) is reported as neutral.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, replace
 
 import cv2
 import numpy as np
@@ -36,11 +39,22 @@ class VehicleColorConfig:
     achromatic_chroma: float = 10.0  # cluster median chroma below which a cluster may be trim
     chromatic_saturation: float = 0.6  # dark paint has low chroma: also colored if C/sqrt(C^2+L^2) >= this
     chromatic_min_fraction: float = 0.2
+    # ... but only over a darker majority: a bright achromatic majority is white/silver paint, and its
+    # colored minority is tail lights and reflectors.
+    trim_max_lightness: float = 60.0
     luminance_percentile: float = 75.0  # reported L: shaded paint reads darker than lit paint
+    # Neutral paint: chroma below neutral_chroma is snapped to a = b = 0 unless it is a saturated dark
+    # color (chroma >= neutral_dark_chroma and >= neutral_saturation * sqrt(C^2 + L^2), e.g. navy).
+    neutral_chroma: float = 8.0
+    neutral_dark_chroma: float = 4.0
+    neutral_saturation: float = 0.45
+    road_ring_m: tuple[float, float] = (0.3, 1.5)  # road reference: floor-plane ring outside the box
+    min_road_samples: int = 20
+    road_lightness: tuple[float, float] = (10.0, 95.0)  # usable road L*: not black or clipped
     min_confidence: float = 0.5  # observations below this are reported but not fused
     min_observations: int = 3  # fused observations before a track color is published
-    chroma_alpha: float = 0.2
-    luminance_alpha: float = 0.1  # slower than chroma: exposure changes move L most
+    chroma_window: int = 10  # fused a, b: median of the last confident observations ...
+    luminance_window: int = 20  # ... and L over a longer window: exposure changes move L most
 
     def __post_init__(self) -> None:
         low, high = self.belt_band
@@ -51,7 +65,10 @@ class VehicleColorConfig:
                 or self.luminance_weight < 0 or self.merge_distance < 0 or not 0 <= self.min_confidence <= 1 \
                 or not 0 <= self.achromatic_chroma <= self.chromatic_chroma or not 0 < self.chromatic_saturation <= 1 \
                 or not 0 < self.chromatic_min_fraction <= 1 or not 0 <= self.luminance_percentile <= 100 \
-                or self.min_observations < 1 or not 0 < self.chroma_alpha <= 1 or not 0 < self.luminance_alpha <= 1:
+                or not 0 <= self.neutral_dark_chroma <= self.neutral_chroma or not 0 <= self.neutral_saturation <= 1 \
+                or not 0 <= self.road_ring_m[0] < self.road_ring_m[1] or self.min_road_samples < 1 \
+                or not 0 <= self.road_lightness[0] < self.road_lightness[1] <= 100 \
+                or self.min_observations < 1 or not 1 <= self.chroma_window <= self.luminance_window:
             raise ValueError("invalid vehicle color configuration")
 
 
@@ -133,9 +150,9 @@ class VehicleColorEstimator:
                                 scan_points_camera, occluder_xyxy, depth_buffer)
         if samples is None:
             return None
-        observation = self._dominant_color(samples)
+        observation = self._neutralized(self._dominant_color(samples[0]), samples[1])
         if observation.confidence >= self.config.min_confidence:
-            self._tracks.setdefault(str(track_id), _FusedColor()).update(observation, self.config)
+            self._tracks.setdefault(str(track_id), _FusedColor(self.config)).update(observation)
         return observation
 
     def color(self, track_id: str) -> VehicleColorEstimate | None:
@@ -143,14 +160,20 @@ class VehicleColorEstimator:
         fused = self._tracks.get(str(track_id))
         if fused is None or fused.count < self.config.min_observations:
             return None
-        return VehicleColorEstimate(_lab_to_rgb(fused.lab), float(fused.confidence), fused.count)
+        lab = fused.lab
+        if self._is_neutral(lab):
+            lab[1:] = 0.0
+        return VehicleColorEstimate(_lab_to_rgb(lab), fused.confidence, fused.count)
 
     def drop(self, track_id: str) -> None:
         self._tracks.pop(str(track_id), None)
 
     def _samples(self, image_bgr, K, camera_T_object, object_points, dims_lwh, scan_points_camera,
-                 occluder_xyxy, depth_buffer) -> np.ndarray | None:
-        """Return visible belt-band patch means as (N, 3) RGB floats in 0..1, or ``None``."""
+                 occluder_xyxy, depth_buffer) -> tuple[np.ndarray, np.ndarray] | None:
+        """Return visible belt-band patch means and road-ring pixels as (N, 3) RGB floats in 0..1.
+
+        ``None`` when the paint is unobservable; the road ring is empty without a depth buffer.
+        """
         config = self.config
         image = np.asarray(image_bgr)
         if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8:
@@ -202,15 +225,67 @@ class VehicleColorEstimator:
             patches = patches[~clipped]
         if len(patches) < config.min_samples:
             return None
-        return patches.mean(axis=1)[:, ::-1] / 255.0
+        road = np.empty((0, 3))
+        if depth_buffer is not None:
+            road = self._road_ring(image, K, camera_T_object, (length, box_width, box_height), depth_buffer,
+                                   occluders)
+        return patches.mean(axis=1)[:, ::-1] / 255.0, road
+
+    def _road_ring(self, image, K, camera_T_object, dims_lwh, depth_buffer, occluders) -> np.ndarray:
+        """Visible pixels of the box floor plane in a ring around the footprint (the road), RGB 0..1."""
+        length, width, height = dims_lwh
+        near, far = self.config.road_ring_m
+        x, y = (grid.ravel() for grid in np.meshgrid(np.linspace(-length / 2 - far, length / 2 + far, 40),
+                                                     np.linspace(-width / 2 - far, width / 2 + far, 24)))
+        outside = np.maximum(np.abs(x) - length / 2, np.abs(y) - width / 2)
+        ring = (outside > near) & (outside < far)
+        points = np.column_stack([x[ring], y[ring], np.full(ring.sum(), -height / 2)])
+        image_height, image_width = image.shape[:2]
+        uv, depth, valid = project_points_to_image(points @ camera_T_object[:3, :3].T + camera_T_object[:3, 3], K,
+                                                   (image_width, image_height))
+        uv, depth = uv[valid], depth[valid]
+        uv = uv[depth_buffer.visible(uv, depth, self.config.depth_tolerance_m)] if len(uv) else uv
+        if len(occluders) and len(uv):
+            uv = uv[~_inside_any(uv[:, 0], uv[:, 1], occluders)]
+        pixels = np.rint(uv).astype(np.int64)
+        return image[pixels[:, 1], pixels[:, 0]][:, ::-1] / 255.0
+
+    def _is_neutral(self, lab) -> bool:
+        config = self.config
+        chroma = float(np.hypot(lab[1], lab[2]))
+        return chroma < config.neutral_chroma and (
+            chroma < config.neutral_dark_chroma or chroma < config.neutral_saturation * np.hypot(chroma, lab[0]))
+
+    def _neutralized(self, observation: ColorObservation, road_rgb: np.ndarray) -> ColorObservation:
+        """Snap neutral paint to a = b = 0, after removing the road ring's illuminant cast.
+
+        The road is near-neutral, so its chroma, scaled by the paint/road lightness ratio, estimates
+        the cast. Only the paint chroma along the cast, up to its size, is removed, and only to test
+        for neutral paint: colored paint keeps its observed hue.
+        """
+        config = self.config
+        lab = np.asarray(observation.lab, dtype=np.float64)
+        residual = lab.copy()
+        if len(road_rgb) >= config.min_road_samples:
+            road = np.median(_rgb_to_lab(road_rgb), axis=0)
+            if config.road_lightness[0] <= road[0] <= config.road_lightness[1]:
+                cast = road[1:] * min(lab[0] / road[0], 2.0)
+                size = float(np.linalg.norm(cast))
+                along = float(lab[1:] @ cast) / size if size > 1e-6 else 0.0
+                if along > 0:
+                    residual[1:] -= min(along, size) * cast / size
+        if not self._is_neutral(residual) or not lab[1:].any():
+            return observation
+        lab[1:] = 0.0
+        return replace(observation, rgb=_lab_to_rgb(lab), lab=tuple(float(value) for value in lab))
 
     def _dominant_color(self, samples_rgb: np.ndarray) -> ColorObservation:
         """Cluster samples in luminance-down-weighted Lab (K=2) and summarize the paint cluster.
 
-        The paint cluster is the larger one, unless the larger is achromatic and the smaller is
-        colored (chroma, or saturation for dark paint) and holds at least ``chromatic_min_fraction``:
-        trim is achromatic, so the colored cluster is paint and the achromatic one is explained
-        away.  Its evidence is then scored
+        The paint cluster is the larger one, unless the larger is achromatic and darker than
+        ``trim_max_lightness`` and the smaller is colored (chroma, or saturation for dark paint) and
+        holds at least ``chromatic_min_fraction``: trim is dark and achromatic, so the colored
+        cluster is paint and the achromatic one is explained away.  Its evidence is then scored
         relative to that minimum, ``min_confidence * fraction / chromatic_min_fraction`` (capped
         at 1), so the smallest qualifying colored cluster just reaches the publish threshold.
         The color is the cluster's median a, b with an upper-percentile L (less shadow-biased).
@@ -232,8 +307,8 @@ class VehicleColorEstimator:
                 and chroma[smaller] >= config.chromatic_saturation * np.hypot(chroma[smaller], lightness[smaller]))
             members = labels == larger
             evidence = float(members.mean())
-            if chroma[larger] < config.achromatic_chroma and colored \
-                    and (labels == smaller).mean() >= config.chromatic_min_fraction:
+            if chroma[larger] < config.achromatic_chroma and lightness[larger] < config.trim_max_lightness \
+                    and colored and (labels == smaller).mean() >= config.chromatic_min_fraction:
                 members = labels != larger
                 evidence = min(1.0, config.min_confidence * members.mean() / config.chromatic_min_fraction)
         fraction = float(members.mean())
@@ -245,21 +320,29 @@ class VehicleColorEstimator:
 
 
 class _FusedColor:
-    """Confidence-weighted Lab EMA (a running mean until 1/count drops below alpha)."""
+    """Per-channel Lab medians over ring buffers of confident observations.
 
-    def __init__(self) -> None:
-        self.lab = np.zeros(3)
-        self.confidence = 0.0
+    Medians reject a minority of incompatible readings (tail lights, a shaded frame) instead of
+    averaging them into a color that was never observed; L uses the longer window.
+    """
+
+    def __init__(self, config: VehicleColorConfig) -> None:
+        self._observations: deque[tuple[tuple[float, float, float], float]] = deque(maxlen=config.luminance_window)
+        self._chroma_window = config.chroma_window
         self.count = 0
 
-    def update(self, observation: ColorObservation, config: VehicleColorConfig) -> None:
+    def update(self, observation: ColorObservation) -> None:
         self.count += 1
-        mean_rate = 1.0 / self.count
-        chroma = max(config.chroma_alpha * observation.confidence, mean_rate)
-        luminance = max(config.luminance_alpha * observation.confidence, mean_rate)
-        rates = np.array([luminance, chroma, chroma])
-        self.lab += rates * (np.asarray(observation.lab) - self.lab)
-        self.confidence += chroma * (observation.confidence - self.confidence)
+        self._observations.append((observation.lab, observation.confidence))
+
+    @property
+    def lab(self) -> np.ndarray:
+        lab = np.array([lab for lab, _ in self._observations])
+        return np.array([np.median(lab[:, 0]), *np.median(lab[-self._chroma_window:, 1:], axis=0)])
+
+    @property
+    def confidence(self) -> float:
+        return float(np.mean([confidence for _, confidence in self._observations][-self._chroma_window:]))
 
 
 def _two_means(features: np.ndarray, iterations: int = 10) -> tuple[np.ndarray, np.ndarray]:

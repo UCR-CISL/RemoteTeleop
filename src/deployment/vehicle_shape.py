@@ -133,14 +133,25 @@ class CarShapeFitter:
 
     Residuals run only from observed points to the model surface, so unseen
     panels cost nothing and keep their preset priors. Y is folded onto the
-    symmetric profile. Each body preset and both forward signs (tracker yaw is
-    ambiguous modulo 180 degrees) are fitted; the lowest robust cost wins, and
-    a previous body type or sign is kept unless beaten by ``switch_margin``.
+    symmetric profile. Each body preset is fitted; the lowest robust cost wins,
+    and a previous body type is kept unless beaten by ``switch_margin``. The box
+    heading is trusted (``forward_sign=+1``): one-sided rear-only evidence often
+    fits the reversed template better, so ``fit_forward_sign=True`` (also fitting
+    the 180-degree turned car) is only for headings that are ambiguous.
     Given ``incumbent_cost`` (the previous fit's ``robust_cost``), only the
-    previous body type and sign are refit unless their robust cost grew by more
-    than ``sweep_cost_growth``. The data term scales with occupied voxels
+    previous candidate is refit unless its robust cost grew by more than
+    ``sweep_cost_growth``. The data term scales with occupied voxels
     against a Gaussian preset prior, so sparse evidence stays near the preset.
+    One-sided returns rarely separate a sedan from an SUV by cost alone, so
+    candidates are compared after a box-height prior: a box ``height_prior_span_m``
+    taller than ``suv_height_m`` scales the hatch_suv cost by ``1 - height_prior``
+    and the sedan cost by ``1 + height_prior`` (reversed for shorter boxes).
+    The default threshold suits CooperScene-style boxes, which run about 0.3 m
+    taller than the cars' nominal heights.
     """
+
+    #: +1 for presets favored by taller boxes, -1 for those favored by lower ones.
+    TALL_PRESETS = {"sedan": -1., "hatch_suv": 1.}
 
     #: Optimization half-range around each preset value; keeps X anchors ordered.
     FIT_SPANS = {
@@ -152,11 +163,14 @@ class CarShapeFitter:
                  min_evidence_voxels: int = 35, evidence_voxel_m: float = .10, prior_weight: float = 1.,
                  switch_margin: float = .2, max_fit_points: int = 400,
                  max_rms_m: float = .25, margin_m: float = .15, ground_clearance_m: float = .15,
-                 max_nfev: int = 40, tolerance: float = 1e-2, sweep_cost_growth: float = .25) -> None:
+                 max_nfev: int = 40, tolerance: float = 1e-2, sweep_cost_growth: float = .25,
+                 fit_forward_sign: bool = False, height_prior: float = .15, suv_height_m: float = 1.87,
+                 height_prior_span_m: float = .1) -> None:
         if not body_types or any(body_type not in CarShapeParams.BODY_TYPES for body_type in body_types):
             raise ValueError(f"body_types must be drawn from {CarShapeParams.BODY_TYPES}")
         if (huber_m <= 0 or min_evidence_voxels < 1 or evidence_voxel_m <= 0 or prior_weight < 0
-                or not 0 <= switch_margin < 1 or max_fit_points < 1 or max_rms_m <= 0 or sweep_cost_growth < 0):
+                or not 0 <= switch_margin < 1 or max_fit_points < 1 or max_rms_m <= 0 or sweep_cost_growth < 0
+                or not 0 <= height_prior < 1 or height_prior_span_m <= 0):
             raise ValueError("invalid car shape fitter parameters")
         self.body_types, self.huber_m = tuple(body_types), huber_m
         self.min_evidence_voxels, self.evidence_voxel_m = min_evidence_voxels, evidence_voxel_m
@@ -164,6 +178,8 @@ class CarShapeFitter:
         self.max_fit_points, self.max_rms_m = max_fit_points, max_rms_m
         self.margin_m, self.ground_clearance_m = margin_m, ground_clearance_m
         self.max_nfev, self.tolerance, self.sweep_cost_growth = max_nfev, tolerance, sweep_cost_growth
+        self.forward_signs = (1., -1.) if fit_forward_sign else (1.,)
+        self.height_prior, self.suv_height_m, self.height_prior_span_m = height_prior, suv_height_m, height_prior_span_m
 
     def fit(self, points_object_frame_metric, dims_lwh, previous: CarShapeParams | None = None,
             *, weights=None, incumbent_cost: float | None = None) -> VehicleShapeFit:
@@ -184,7 +200,7 @@ class CarShapeFitter:
             points, weights = points[stride], weights[stride]
         # Unique voxels, not raw returns, set the data's strength against the prior.
         weights = weights * (evidence / weights.sum())
-        keys = [(body_type, sign) for body_type in self.body_types for sign in (1., -1.)]
+        keys = [(body_type, sign) for body_type in self.body_types for sign in self.forward_signs]
         incumbent = None if previous is None else (previous.body_type, previous.forward_sign)
         candidates = {}
         if incumbent in keys and incumbent_cost is not None:
@@ -194,9 +210,11 @@ class CarShapeFitter:
         for key in keys:
             if key not in candidates:
                 candidates[key] = self._fit_candidate(points, weights, dimensions, *key, previous)
-        best = min(candidates, key=lambda key: candidates[key][1])
-        if best != incumbent and incumbent in candidates \
-                and candidates[best][1] >= (1 - self.switch_margin) * candidates[incumbent][1]:
+        tallness = np.clip((dimensions[2] - self.suv_height_m) / self.height_prior_span_m, -1., 1.)
+        score = {key: candidates[key][1] * (1 - self.height_prior * tallness * self.TALL_PRESETS.get(key[0], 0.))
+                 for key in candidates}
+        best = min(score, key=score.get)
+        if best != incumbent and incumbent in score and score[best] >= (1 - self.switch_margin) * score[incumbent]:
             best = incumbent
         params, _, rms, robust_cost = candidates[best]
         accepted = bool(rms <= self.max_rms_m)

@@ -175,7 +175,7 @@ def test_temporal_fusion_publishes_after_min_observations_converges_and_is_stabl
     assert estimator.color("car") is None
 
 
-def test_fusion_moves_luminance_slower_than_chroma_and_skips_low_confidence():
+def test_fusion_rejects_outliers_moves_luminance_slower_than_chroma_and_skips_low_confidence():
     estimator = VehicleColorEstimator(VehicleColorConfig(min_observations=1))
     red, pose = _scene((30, 30, 200))
     for _ in range(10):
@@ -187,12 +187,41 @@ def test_fusion_moves_luminance_slower_than_chroma_and_skips_low_confidence():
     assert low is not None and low.confidence < 0.5
     assert estimator.color("car").observation_count == 10
 
-    observed = estimator.observe("car", blue, K, pose, _side_points(), DIMS)
-    fused = cv2.cvtColor(np.float32([[estimator.color("car").rgb]]), cv2.COLOR_RGB2Lab)[0, 0]
-    target = np.asarray(observed.lab)
-    luminance_step = abs(fused[0] - settled[0]) / abs(target[0] - settled[0])
-    chroma_step = np.linalg.norm(fused[1:] - settled[1:]) / np.linalg.norm(target[1:] - settled[1:])
-    assert luminance_step < chroma_step < 0.5
+    switched = {}
+    for count in range(1, 12):
+        target = np.asarray(estimator.observe("car", blue, K, pose, _side_points(), DIMS).lab)
+        fused = cv2.cvtColor(np.float32([[estimator.color("car").rgb]]), cv2.COLOR_RGB2Lab)[0, 0]
+        if count == 1:  # one incompatible reading is rejected, not averaged in
+            assert _delta_e(estimator.color("car").rgb, cv2.cvtColor(np.float32([[settled]]), cv2.COLOR_Lab2RGB)[0, 0]) < 1
+        if np.linalg.norm(fused[1:] - target[1:]) < np.linalg.norm(fused[1:] - settled[1:]):
+            switched.setdefault("chroma", count)
+        if abs(fused[0] - target[0]) < abs(fused[0] - settled[0]):
+            switched.setdefault("luminance", count)
+    assert 1 < switched["chroma"] < switched["luminance"]
+
+
+def test_neutral_paint_snaps_to_gray_but_saturated_dark_paint_keeps_its_hue():
+    estimator = VehicleColorEstimator()
+    for bgr in ((168, 172, 178), (40, 8, 4)):  # silver with a slight warm cast; deep navy in shade
+        image, pose = _scene(bgr)
+        observation = estimator.observe(str(bgr), image, K, pose, _side_points(), DIMS)
+        chroma = np.hypot(*observation.lab[1:])
+        assert (chroma == 0) == (bgr[0] > 100)
+
+
+def test_road_ring_cast_explains_warm_tint_on_silver_but_not_red_paint():
+    warm_road = (70, 105, 140)  # asphalt under low sun, BGR
+    for paint, neutral in (((150, 160, 175), True), ((40, 40, 150), False)):
+        pose = _pose()
+        image = np.full((SIZE[1], SIZE[0], 3), warm_road, np.uint8)
+        _fill_box(image, pose, paint)
+        scan = np.r_[_to_camera(_side_points(), pose)]
+        observation = VehicleColorEstimator().observe("car", image, K, pose, _side_points(), DIMS,
+                                                      scan_points_camera=scan)
+        assert observation is not None
+        assert (np.hypot(*observation.lab[1:]) == 0) == neutral
+        plain = VehicleColorEstimator().observe("car", image, K, pose, _side_points(), DIMS)
+        assert np.hypot(*plain.lab[1:]) > 8  # without a road reference the tint is kept
 
 
 def test_config_validation_rejects_bad_band():
@@ -209,6 +238,18 @@ def test_sunlit_white_paint_is_not_trimmed_as_highlight():
     observation = VehicleColorEstimator().observe("car", image, K, pose, _side_points(), DIMS)
 
     assert observation is not None and min(observation.rgb) > 0.95
+
+
+def test_colored_minority_cluster_does_not_win_over_bright_white_paint():
+    image, pose = _scene((240, 240, 240))
+    uv, _, _ = project_points_to_image(_to_camera(_side_points(), pose), K, SIZE)
+    left, right = uv[:, 0].min(), uv[:, 0].max()
+    image[:, int(left):int(left + 0.3 * (right - left))] = (40, 40, 200)  # tail lights / reflectors
+
+    observation = VehicleColorEstimator().observe("car", image, K, pose, _side_points(), DIMS)
+
+    assert observation is not None and observation.dominant_fraction > 0.6
+    assert observation.lab[0] > 90 and np.hypot(*observation.lab[1:]) < 3
 
 
 def test_colored_minority_cluster_wins_over_achromatic_trim():

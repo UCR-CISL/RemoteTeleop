@@ -133,17 +133,24 @@ def test_unseen_front_is_not_penalized():
                                    replace(CarShapeParams.default("hatch_suv"), forward_sign=-1.)])
 def test_body_type_and_forward_sign_recovered(truth):
     pytest.importorskip("trimesh")
-    fit = CarShapeFitter().fit(_sample(truth, 400, (0., -1., .4), seed=3), DIMENSIONS)
+    points = _sample(truth, 400, (0., -1., .4), seed=3)
+    fit = CarShapeFitter(fit_forward_sign=True).fit(points, DIMENSIONS)
     assert fit.accepted
     assert (fit.params.body_type, fit.params.forward_sign) == (truth.body_type, truth.forward_sign)
+    # By default the box heading is trusted: only body presets are candidates.
+    assert CarShapeFitter().fit(points, DIMENSIONS).params.forward_sign == 1
 
 
 def test_previous_body_type_is_kept_without_a_clear_margin():
     pytest.importorskip("trimesh")
     points = _sample(CarShapeParams(), 400, (0., -1., .4), seed=4)
     previous = replace(CarShapeParams(), forward_sign=-1.)
-    assert CarShapeFitter(switch_margin=.99).fit(points, DIMENSIONS, previous).params.forward_sign == -1
-    assert CarShapeFitter().fit(points, DIMENSIONS, previous).params.forward_sign == 1
+    assert CarShapeFitter(switch_margin=.99, fit_forward_sign=True).fit(points, DIMENSIONS, previous) \
+        .params.forward_sign == -1
+    assert CarShapeFitter(fit_forward_sign=True).fit(points, DIMENSIONS, previous).params.forward_sign == 1
+    suv = CarShapeParams.default("hatch_suv")
+    assert CarShapeFitter(switch_margin=.99).fit(points, DIMENSIONS, suv).params.body_type == "hatch_suv"
+    assert CarShapeFitter().fit(points, DIMENSIONS, suv).params.body_type == "sedan"
 
 
 def test_fit_latency_for_two_thousand_points():
@@ -219,7 +226,7 @@ def test_incumbent_refit_skips_the_sweep_unless_its_cost_grows():
     pytest.importorskip("trimesh")
     points = _sample(CarShapeParams(), 400, (0., -1., .4), seed=4)
     previous = replace(CarShapeParams(), forward_sign=-1.)
-    fitter = CarShapeFitter()
+    fitter = CarShapeFitter(fit_forward_sign=True)
     swept = fitter.fit(points, DIMENSIONS, previous)
     assert swept.params.forward_sign == 1 and np.isfinite(swept.robust_cost)
     # A trusted incumbent is refit alone, so the better reversed hypothesis is not even tried.
