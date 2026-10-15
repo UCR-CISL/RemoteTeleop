@@ -486,12 +486,14 @@ class OpacityThresholdDepth:
     the local ground: tilted and blob-shaped road fuzz would otherwise hide the
     wheels of vehicles 20+ m away.  Upright occluders (poles, trunks, walls)
     above that height and raised flat ones (awnings, ledges) remain.  The
-    low default ``threshold`` keeps semi-transparent splat occluders (glass,
-    foliage) hiding what is behind them.
+    default ``threshold`` of 0.5 ignores the low-opacity floaters hanging
+    0.3-2 m above driven lanes, which together reach 0.25 in front of cars
+    8+ m away; opaque poles, trunks and walls still occlude, while sparse
+    foliage may let a proxy show through.
     """
 
     def __init__(
-        self, *, threshold: float = 0.25, bins: int = 64, near_m: float = 1.0, far_m: float = 150.0,
+        self, *, threshold: float = 0.5, bins: int = 64, near_m: float = 1.0, far_m: float = 150.0,
         ground_max_tilt_deg: float | None = 30.0, ground_band_m: float | None = 0.6, ground_cell_m: float = 2.0,
         near_ground_m: float | None = 0.3,
     ) -> None:
