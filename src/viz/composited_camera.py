@@ -1053,9 +1053,9 @@ def _proxy_appearance(box: BoxPrompt) -> dict[str, object]:
     appearance: dict[str, object] = {}
     if box.vehicle_shape is not None:
         try:
-            from src.viz.primitive_vehicle import CarShapeParams
+            from src.viz.universal_vehicle import UniversalVehicleShape
 
-            appearance["shape"] = CarShapeParams.from_vector(box.vehicle_shape)
+            appearance["shape"] = UniversalVehicleShape.from_vector(box.vehicle_shape)
         except (ImportError, TypeError, ValueError):
             pass  # unknown shape encoding: keep the default primitive
     if box.body_color_rgb is not None:

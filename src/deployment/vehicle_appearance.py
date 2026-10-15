@@ -20,10 +20,10 @@ import numpy as np
 from src.common.vehicle_categories import vehicle_proxy_kind
 from src.deployment.lidar_ground_snap import _BevGrid
 from src.deployment.vehicle_color import SparseDepthBuffer, VehicleColorEstimator
-from src.deployment.vehicle_shape import CarShapeFitter, ObjectPointAccumulator, VehicleShapeFit
+from src.deployment.vehicle_shape import ObjectPointAccumulator, VehicleShapeFit, VehicleShapeFitter
 from src.reconstruction.models import VehicleDimensions
 from src.reconstruction.projection import project_vehicle_box
-from src.viz.primitive_vehicle import CarShapeParams
+from src.viz.universal_vehicle import BOUNDS, UniversalVehicleShape
 
 # Thin or rider-dominated vehicles have no reliable body panels to sample.
 _NO_PAINT_KINDS = frozenset({"motorcycle", "bicycle"})
@@ -43,18 +43,21 @@ class VehicleAppearanceConfig:
     max_fits_per_update: int = 2  # fits started per update (~2 ms incumbent refit, ~15 ms full sweep) ...
     fit_budget_ms: float = 60.  # ... and no further fit starts once this much was spent in one update
     fit_in_background: bool = True  # False fits synchronously, for deterministic tests and offline replay
-    sweep_every_refits: int = 5  # refit only the incumbent body type/sign except every Nth fit
+    sweep_every_refits: int = 5  # refit only the incumbent body type except every Nth fit
     max_color_tracks_per_update: int = 8
     min_param_change: float = .02  # fraction of a parameter's range that counts as a new shape
     freeze_after_stable_fits: int = 3
     unfreeze_dimension_change: float = .1
+    unfreeze_new_cells: int = 2  # ... or when a scan covers this many new coarse surface cells
+    publish_prior_shape: bool = True  # dimension-prior type mean until the first accepted fit
 
     def __post_init__(self) -> None:
         if (self.crop_margin_m < 0 or self.neighbor_margin_m < 0 or self.max_crop_points < 1
                 or self.refit_growth <= 0 or self.refit_every_scans < 1 or self.max_fits_per_update < 0
                 or self.fit_budget_ms < 0 or self.sweep_every_refits < 1
                 or self.max_color_tracks_per_update < 0 or self.min_param_change < 0
-                or self.freeze_after_stable_fits < 1 or self.unfreeze_dimension_change <= 0):
+                or self.freeze_after_stable_fits < 1 or self.unfreeze_dimension_change <= 0
+                or self.unfreeze_new_cells < 1):
             raise ValueError("invalid vehicle appearance configuration")
 
 
@@ -74,13 +77,14 @@ class _ShapeTrack:
     scans_since_fit: int = 0
     fit_evidence: int = 0
     last_fit_tick: int = -1
-    fitted: CarShapeParams | None = None
+    fitted: UniversalVehicleShape | None = None
     fit_cost: float | None = None  # robust cost of ``fitted`` for incumbent-only refits
     fits: int = 0
     fitting: bool = False
-    published: CarShapeParams | None = None
+    published: UniversalVehicleShape | None = None
     stable_fits: int = 0
     frozen_dimensions: np.ndarray | None = None
+    coverage: np.ndarray | None = None  # coarse surface cells covered by the frozen fit's evidence
 
 
 @dataclass(frozen=True)
@@ -92,10 +96,10 @@ class _FitRequest:
     points: np.ndarray  # metric object frame
     weights: np.ndarray
     dimensions: np.ndarray
-    previous: CarShapeParams | None
+    previous: UniversalVehicleShape | None
     incumbent_cost: float | None
 
-    def run(self, fitter: CarShapeFitter) -> VehicleShapeFit:
+    def run(self, fitter: VehicleShapeFitter) -> VehicleShapeFit:
         return fitter.fit(self.points, self.dimensions, self.previous, weights=self.weights,
                           incumbent_cost=self.incumbent_cost)
 
@@ -109,7 +113,7 @@ class ShapeFitWorker:
     immutable snapshots and the fitter holds no mutable state.
     """
 
-    def __init__(self, fitter: CarShapeFitter, *, max_pending: int = 8) -> None:
+    def __init__(self, fitter: VehicleShapeFitter, *, max_pending: int = 8) -> None:
         if max_pending < 1:
             raise ValueError("max_pending must be positive")
         self.fitter, self.max_pending = fitter, max_pending
@@ -173,8 +177,10 @@ class VehicleAppearanceEstimator:
     ``max_fits_per_update`` per update within ``fit_budget_ms``, published only
     on a meaningful change, and frozen after ``freeze_after_stable_fits``
     agreeing refits until the tracked dimensions move by
-    ``unfreeze_dimension_change``. Refits try only the incumbent body type and
-    sign except every ``sweep_every_refits``-th fit. With ``fit_in_background``
+    ``unfreeze_dimension_change`` or a scan covers ``unfreeze_new_cells`` coarse
+    surface cells the frozen evidence did not. Until the first accepted fit the
+    dimension-prior type mean is published (``publish_prior_shape``). Refits try
+    only the incumbent body type except every ``sweep_every_refits``-th fit. With ``fit_in_background``
     fits run on a ShapeFitWorker and finished fits are applied on a later
     update; call ``close`` on shutdown. State is dropped when a track dies
     or its identity is reacquired by a new tracker filter (the reacquisition
@@ -182,11 +188,11 @@ class VehicleAppearanceEstimator:
     """
 
     def __init__(self, config: VehicleAppearanceConfig | None = None, *,
-                 accumulator: ObjectPointAccumulator | None = None, fitter: CarShapeFitter | None = None,
+                 accumulator: ObjectPointAccumulator | None = None, fitter: VehicleShapeFitter | None = None,
                  color_estimator: VehicleColorEstimator | None = None) -> None:
         self.config = config or VehicleAppearanceConfig()
         self.accumulator = accumulator or ObjectPointAccumulator()
-        self.fitter = fitter or CarShapeFitter()
+        self.fitter = fitter or VehicleShapeFitter()
         self.color_estimator = color_estimator or VehicleColorEstimator()
         self._filters: dict[str, str] = {}  # published track id -> tracker filter id
         self._shapes: dict[str, _ShapeTrack] = {}
@@ -312,10 +318,14 @@ class VehicleAppearanceEstimator:
             state = self._shapes[track_id] = _ShapeTrack(dimensions, next(self._generations))
         state.dimensions = dimensions
         if state.frozen_dimensions is not None:
-            if np.max(np.abs(dimensions / state.frozen_dimensions - 1)) <= self.config.unfreeze_dimension_change:
+            new_cells = _coverage(points / dimensions, minimum_points=5) & ~state.coverage
+            if (np.max(np.abs(dimensions / state.frozen_dimensions - 1)) <= self.config.unfreeze_dimension_change
+                    and new_cells.sum() < self.config.unfreeze_new_cells):
                 return
             state.frozen_dimensions, state.stable_fits = None, 0
-        self.accumulator.add(track_id, points / dimensions, dimensions, timestamp_us)
+        if self.accumulator.add(track_id, points / dimensions, dimensions, timestamp_us) \
+                and state.fitted is None and self.config.publish_prior_shape:
+            state.published = self.fitter.prior_shape(dimensions)  # LiDAR-supported track, no fit yet
         state.scans_since_fit += 1
 
     def _refit_round_robin(self) -> None:
@@ -362,13 +372,13 @@ class VehicleAppearanceEstimator:
         state.stable_fits += 1
         if state.stable_fits >= self.config.freeze_after_stable_fits:
             state.frozen_dimensions = state.dimensions.copy()
+            state.coverage = _coverage(self.accumulator.points(request.track_id)[0], minimum_points=3)
 
-    def _changed(self, published: CarShapeParams, fitted: CarShapeParams) -> bool:
-        if (published.body_type, published.forward_sign) != (fitted.body_type, fitted.forward_sign):
+    def _changed(self, published: UniversalVehicleShape, fitted: UniversalVehicleShape) -> bool:
+        if published.body_type != fitted.body_type:
             return True
-        return any(abs(getattr(fitted, name) - getattr(published, name))
-                   > self.config.min_param_change * (upper - lower)
-                   for name, (lower, upper) in CarShapeParams.BOUNDS.items())
+        return bool(np.any(np.abs(fitted.array - published.array)
+                           > self.config.min_param_change * (BOUNDS[:, 1] - BOUNDS[:, 0])))
 
     def _color_round_robin(self, candidates: Sequence[Any], camera: AppearanceCamera | None) -> set[str]:
         if not self.config.color or camera is None:
@@ -377,6 +387,16 @@ class VehicleAppearanceEstimator:
                    if vehicle_proxy_kind(match.track.label) not in _NO_PAINT_KINDS]
         painted.sort(key=lambda track_id: self._color_ticks.get(track_id, -1))
         return set(painted[:self.config.max_color_tracks_per_update])
+
+
+def _coverage(points_normalized, *, minimum_points: int) -> np.ndarray:
+    """Occupied coarse surface cells (8 along X, center/side by |Y|, 4 in Z) of box-normalized points."""
+    points = np.asarray(points_normalized, dtype=float).reshape(-1, 3)
+    points = points[np.isfinite(points).all(axis=1)]
+    x = np.clip(((points[:, 0] + .5) * 8).astype(int), 0, 7)
+    side = (np.abs(points[:, 1]) > .3).astype(int)
+    z = np.clip(((points[:, 2] + .5) * 4).astype(int), 0, 3)
+    return np.bincount((x * 2 + side) * 4 + z, minlength=64) >= minimum_points
 
 
 class _CameraFrame:

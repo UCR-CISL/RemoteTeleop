@@ -5,7 +5,8 @@ import pytest
 
 pytest.importorskip("trimesh")
 from src.viz.vehicle_proxy import VehicleProxyRenderer
-from src.viz.primitive_vehicle import CarShapeParams, PrimitiveVehicleAsset
+from src.viz.primitive_vehicle import PrimitiveVehicleAsset
+from src.viz.universal_vehicle import UniversalVehicleMesh, UniversalVehicleShape
 
 
 def test_templates_cached_by_kind_but_instances_have_current_dimensions(tmp_path):
@@ -86,27 +87,37 @@ def test_other_primitive_kinds_preserve_two_sided_rendering(kind):
     assert renderer.render.call_args.kwargs == {"cull_backfaces": False}
 
 
-def test_shape_and_body_color_instance_without_touching_template():
+def test_shape_hint_uses_one_universal_template_and_per_instance_colors():
     renderer = Mock()
-    renderer.load_geometry.return_value = "car-handle"
+    renderer.load_geometry.return_value = "universal-handle"
     renderer.with_vertices.return_value = "instance"
     renderer.with_vertex_colors.return_value = "painted"
     proxy = VehicleProxyRenderer(renderer)
     camera = np.eye(4)
     camera[0, 3] = 10
-    shape = CarShapeParams.default("hatch_suv")
-    proxy.render("car", (4.5, 1.9, 1.7), np.eye(4), camera, np.eye(3), (32, 24),
-                 shape=shape, body_color_rgb=(.9, .5, .1))
-    asset, _ = proxy._templates["car"]
-    np.testing.assert_allclose(renderer.with_vertices.call_args.args[1],
-                               asset.vertices_for_dimensions((4.5, 1.9, 1.7), shape))
-    instance, colors = renderer.with_vertex_colors.call_args.args
-    assert instance == "instance"
-    np.testing.assert_array_equal(colors, asset.vertex_colors_for_tint((.9, .5, .1)))
-    assert renderer.render.call_args.args[0] == "painted"
+    mesh = UniversalVehicleMesh()
+    for body_type, rgb in (("pickup", (.9, .5, .1)), ("minivan", None)):
+        shape = UniversalVehicleShape.mean(body_type, (5.4, 2.3, 2.0))
+        proxy.render("car", (5.4, 2.3, 2.0), np.eye(4), camera, np.eye(3), (32, 24), shape=shape, body_color_rgb=rgb)
+        vertices, colors = mesh.instance(shape, (5.4, 2.3, 2.0), rgb)
+        assert renderer.with_vertices.call_args.args[0] == "universal-handle"
+        np.testing.assert_allclose(renderer.with_vertices.call_args.args[1], vertices)
+        instance, painted = renderer.with_vertex_colors.call_args.args
+        assert instance == "instance"
+        np.testing.assert_array_equal(painted, colors)
+        assert renderer.render.call_args.args[0] == "painted"
+        assert renderer.render.call_args.kwargs == {"cull_backfaces": True}
+    renderer.load_geometry.assert_called_once()
+    assert renderer.load_geometry.call_args.kwargs == {"preserve_topology": True}
+    # Without a shape hint the legacy primitive renders exactly as before.
     proxy.render("car", (4.5, 1.9, 1.7), np.eye(4), camera, np.eye(3), (32, 24))
-    assert renderer.with_vertex_colors.call_count == 1
+    asset, _ = proxy._templates["car"]
+    np.testing.assert_allclose(renderer.with_vertices.call_args.args[1], asset.vertices_for_dimensions((4.5, 1.9, 1.7)))
+    assert renderer.with_vertex_colors.call_count == 2
     assert renderer.render.call_args.args[0] == "instance"
+    proxy.render("car", (4.5, 1.9, 1.7), np.eye(4), camera, np.eye(3), (32, 24), body_color_rgb=(.1, .2, .3))
+    np.testing.assert_array_equal(renderer.with_vertex_colors.call_args.args[1],
+                                  asset.vertex_colors_for_tint((.1, .2, .3)))
 
 
 def test_shape_is_ignored_for_other_kinds_and_tint_needs_renderer_support():
@@ -114,7 +125,7 @@ def test_shape_is_ignored_for_other_kinds_and_tint_needs_renderer_support():
     proxy = VehicleProxyRenderer(renderer)
     size = PrimitiveVehicleAsset.SPECS["truck"][0]
     proxy.render("truck", size, np.eye(4), np.eye(4), np.eye(3), (32, 24),
-                 shape=CarShapeParams.default("hatch_suv"), body_color_rgb=(.1, .2, .3))
+                 shape=UniversalVehicleShape.mean("van"), body_color_rgb=(.1, .2, .3))
     asset, _ = proxy._templates["truck"]
     np.testing.assert_allclose(renderer.with_vertices.call_args.args[1], asset.vertices_for_dimensions(size))
     renderer.render.assert_called_once()

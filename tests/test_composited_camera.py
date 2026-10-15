@@ -645,7 +645,7 @@ class AppearanceVehicleProxies(FakeVehicleProxies):
 def test_vehicle_proxy_receives_decoded_shape_and_body_color_hints(monkeypatch):
     from dataclasses import replace
 
-    from src.viz.primitive_vehicle import CarShapeParams
+    from src.viz.universal_vehicle import UniversalVehicleShape
 
     renderer = FakeMeshRenderer()
     proxies = AppearanceVehicleProxies(renderer)
@@ -657,12 +657,12 @@ def test_vehicle_proxy_receives_decoded_shape_and_body_color_hints(monkeypatch):
     backend.render_pose(_pose(), (car,))
     assert proxies.appearance == {}  # no hints: identical call to legacy proxies
 
-    shape = CarShapeParams.default()
+    shape = UniversalVehicleShape.mean("pickup")
     hinted = replace(car, vehicle_shape=shape.to_vector(), body_color_rgb=(0.1, 0.2, 0.3),
                      color_confidence=0.9)
     result = backend.render_pose(_pose(), (hinted,))
     assert proxies.appearance == {
-        "shape": CarShapeParams.from_vector(shape.to_vector()), "body_color_rgb": (0.1, 0.2, 0.3),
+        "shape": shape, "body_color_rgb": (0.1, 0.2, 0.3),
     }
     # New-track highlighting still tints the colored proxy overlay.
     np.testing.assert_allclose(result.rgb[10:14, 14:18], np.tile([1.0, 0.35, 0.0], (4, 4, 1)))
@@ -670,7 +670,7 @@ def test_vehicle_proxy_receives_decoded_shape_and_body_color_hints(monkeypatch):
     def reject(_values):
         raise ValueError("unknown shape encoding")
 
-    monkeypatch.setattr(CarShapeParams, "from_vector", staticmethod(reject))
+    monkeypatch.setattr(UniversalVehicleShape, "from_vector", staticmethod(reject))
     result = backend.render_pose(_pose(1, 1), (hinted,))
     assert proxies.appearance == {"body_color_rgb": (0.1, 0.2, 0.3)}
     assert result.track_states == {"car": "mesh"}

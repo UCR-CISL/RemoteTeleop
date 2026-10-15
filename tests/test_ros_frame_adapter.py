@@ -936,8 +936,8 @@ class _SpyAppearance:
         self.calls.append((matches, live_tracks, kwargs))
 
     def prompt_fields(self, track_id):
-        from src.viz.primitive_vehicle import CarShapeParams
-        return {"vehicle_shape": CarShapeParams().to_vector(), "body_color_rgb": (.5, .25, .125),
+        from src.viz.universal_vehicle import UniversalVehicleShape
+        return {"vehicle_shape": UniversalVehicleShape.mean("sedan").to_vector(), "body_color_rgb": (.5, .25, .125),
                 "color_confidence": .75}
 
 

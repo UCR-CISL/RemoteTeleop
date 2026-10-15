@@ -7,178 +7,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 if TYPE_CHECKING:
     import trimesh
-
-
-# Authored car profile: X fraction of length (+X forward), half width as a
-# fraction of width, and bottom/top as fractions of height above the bbox floor.
-_CAR_BODY_SECTIONS = np.array([
-    (-.498, .35, .23, .47), (-.475, .43, .17, .55), (-.39, .475, .14, .60), (-.23, .495, .14, .62),
-    (.12, .495, .14, .60), (.31, .48, .16, .55), (.44, .43, .21, .48), (.498, .35, .29, .42),
-])
-_CAR_CABIN_SECTIONS = np.array([
-    (-.350, .360, .575, .600), (-.320, .373, .580, .700),
-    (-.260, .380, .580, .860), (-.200, .369, .590, .960),
-    (-.140, .355, .590, .990), (-.060, .353, .590, 1.000),
-    (.025, .350, .580, .995), (.090, .353, .575, .965),
-    (.160, .360, .565, .875), (.235, .365, .550, .715),
-    (.300, .360, .540, .560),
-])
-_CAR_PRESETS = {
-    "sedan": {},
-    "hatch_suv": dict(windshield_base_x=.28, roof_front_x=.02, roof_rear_x=-.33, rear_window_base_x=-.47,
-                      hood_z=.57, deck_z=.66, nose_half_width=.36, tail_half_width=.40, cabin_half_width=.40),
-}
-
-
-@dataclass(frozen=True)
-class CarShapeParams:
-    """Bbox-normalized car profile; defaults reproduce the authored sedan exactly.
-
-    X anchors are fractions of length (+X forward), Z values are fractions of
-    height above the bbox floor and half widths are fractions of width. The roof
-    stays pinned to the bbox top and the profile is left/right symmetric.
-    ``forward_sign=-1`` turns the car 180 degrees inside its (symmetric) bbox.
-    """
-
-    body_type: str = "sedan"
-    forward_sign: float = 1.
-    windshield_base_x: float = .300
-    roof_front_x: float = .025
-    roof_rear_x: float = -.140
-    rear_window_base_x: float = -.350
-    hood_z: float = .55
-    deck_z: float = .60
-    nose_half_width: float = .35
-    tail_half_width: float = .35
-    cabin_half_width: float = .38
-
-    BODY_TYPES: ClassVar[tuple[str, ...]] = tuple(_CAR_PRESETS)
-    BOUNDS: ClassVar[dict[str, tuple[float, float]]] = {
-        "windshield_base_x": (.15, .40), "roof_front_x": (-.20, .20), "roof_rear_x": (-.42, 0.),
-        "rear_window_base_x": (-.48, -.20), "hood_z": (.46, .72), "deck_z": (.48, .75),
-        "nose_half_width": (.25, .47), "tail_half_width": (.25, .47), "cabin_half_width": (.28, .45),
-    }
-    CONTINUOUS: ClassVar[tuple[str, ...]] = tuple(BOUNDS)
-
-    def __post_init__(self) -> None:
-        if self.body_type not in self.BODY_TYPES:
-            raise ValueError(f"Unsupported car body type: {self.body_type!r}")
-        if self.forward_sign not in (1., -1.):
-            raise ValueError("forward_sign must be +1 or -1")
-        for name, (lower, upper) in self.BOUNDS.items():
-            value = getattr(self, name)
-            if not np.isfinite(value) or not lower <= value <= upper:
-                raise ValueError(f"{name}={value!r} is outside [{lower}, {upper}]")
-        if not (self.rear_window_base_x + .02 <= self.roof_rear_x
-                and self.roof_rear_x + .02 <= self.roof_front_x
-                and self.roof_front_x + .05 <= self.windshield_base_x):
-            raise ValueError("Car profile X anchors must increase from rear window to windshield")
-
-    @classmethod
-    def default(cls, body_type: str = "sedan") -> CarShapeParams:
-        if body_type not in _CAR_PRESETS:
-            raise ValueError(f"Unsupported car body type: {body_type!r}")
-        return cls(body_type=body_type, **_CAR_PRESETS[body_type])
-
-    def to_vector(self) -> tuple[float, ...]:
-        """Fixed-length transport form: body type index, forward sign, CONTINUOUS."""
-        return (float(self.BODY_TYPES.index(self.body_type)), float(self.forward_sign),
-                *(float(getattr(self, name)) for name in self.CONTINUOUS))
-
-    @classmethod
-    def from_vector(cls, values) -> CarShapeParams:
-        values = [float(value) for value in values]
-        if len(values) != 2 + len(cls.CONTINUOUS) or not np.isfinite(values).all():
-            raise ValueError(f"Car shape vectors must hold {2 + len(cls.CONTINUOUS)} finite values")
-        index = values[0]
-        if index != int(index) or not 0 <= index < len(cls.BODY_TYPES):
-            raise ValueError(f"Unknown car body type index: {index!r}")
-        return cls(cls.BODY_TYPES[int(index)], values[1], **dict(zip(cls.CONTINUOUS, values[2:])))
-
-
-
-def car_section_tables(shape: CarShapeParams | None = None, *, roof: float = 1.) -> tuple[np.ndarray, np.ndarray]:
-    """Return (body, cabin) loft sections as (x, half width, bottom, top) rows.
-
-    Pure NumPy so vehicle-side shape fitting evaluates the same profile as the
-    rendered mesh. Every edit is an offset that vanishes at the defaults.
-    """
-    if shape is None:
-        body, cabin = _CAR_BODY_SECTIONS.copy(), _CAR_CABIN_SECTIONS.copy()
-    else:
-        body, cabin = (table[0] for table in car_section_table_batch(
-            [[getattr(shape, name) for name in CarShapeParams.CONTINUOUS]]))
-    cabin[:, 3] = cabin[:, 2] + (cabin[:, 3] - cabin[:, 2]) * ((roof - .59) / (1. - .59))
-    return body, cabin
-
-
-_CAR_DEFAULT = CarShapeParams()
-_CABIN_ANCHORS = ("rear_window_base_x", "roof_rear_x", "roof_front_x", "windshield_base_x")
-_ANCHOR_X = np.array([getattr(_CAR_DEFAULT, name) for name in _CABIN_ANCHORS])
-# np.interp is linear in its values: moving the anchors moves cabin sections by fixed weights.
-_CABIN_ANCHOR_WEIGHTS = np.stack([np.interp(_CAR_CABIN_SECTIONS[:, 0], _ANCHOR_X, unit) for unit in np.eye(4)], 1)
-
-
-def car_section_table_batch(continuous) -> tuple[np.ndarray, np.ndarray]:
-    """(P, 8, 4) body and (P, 11, 4) cabin sections for P rows of CONTINUOUS values.
-
-    Vectorized core of car_section_tables (roof at the bbox top) so the shape
-    fitter can evaluate many parameter vectors in one pass.
-    """
-    values = np.asarray(continuous, dtype=float).reshape(-1, len(CarShapeParams.CONTINUOUS))
-    shape = dict(zip(CarShapeParams.CONTINUOUS, values.T[..., None]))  # each (P, 1)
-    base = _CAR_DEFAULT
-    body = np.repeat(_CAR_BODY_SECTIONS[None], len(values), axis=0)
-    cabin = np.repeat(_CAR_CABIN_SECTIONS[None], len(values), axis=0)
-    for ends, name in ((_CAR_BODY_SECTIONS[:, 0] >= .31, "nose_half_width"),
-                       (_CAR_BODY_SECTIONS[:, 0] <= -.39, "tail_half_width")):
-        body[:, ends, 1] += (body[:, ends, 1] - .495) * ((.495 - shape[name]) / (.495 - getattr(base, name)) - 1)
-
-    def lift(x):  # np.interp(x, (-.23, .12), (deck offset, hood offset)) per row
-        along = np.clip((x + .23) / .35, 0., 1.)
-        return ((shape["deck_z"] - base.deck_z) * (1 - along)
-                + (shape["hood_z"] - base.hood_z) * along)
-
-    body[..., 3] += lift(body[..., 0])
-    cabin[..., 0] += (np.hstack([shape[name] for name in _CABIN_ANCHORS]) - _ANCHOR_X) @ _CABIN_ANCHOR_WEIGHTS.T
-    # Keep the greenhouse inside the body's plan view and seated on its
-    # shoulders; neither clamp is active for the authored profile.
-    shoulder_y, shoulder_z = (_interp_rows(cabin[..., 0], _CAR_BODY_SECTIONS[:, 0], body[..., column])
-                              for column in (1, 3))
-    cabin[..., 1] = np.minimum(cabin[..., 1] * (shape["cabin_half_width"] / base.cabin_half_width),
-                               shoulder_y - .02)
-    bottom = np.minimum(cabin[..., 2] + lift(cabin[..., 0]), np.maximum(cabin[..., 2], shoulder_z - .02))
-    cabin[..., 3] += (bottom - cabin[..., 2]) * (1 - cabin[..., 3]) / (1 - cabin[..., 2])
-    cabin[..., 2] = bottom
-    return body, cabin
-
-
-def _interp_rows(x, xp, fp):
-    """np.interp of each row of ``x`` against a shared ``xp`` and that row of ``fp``."""
-    index = np.clip(np.searchsorted(xp, x, side="right") - 1, 0, len(xp) - 2)
-    along = np.clip((x - xp[index]) / (xp[index + 1] - xp[index]), 0., 1.)
-    low = np.take_along_axis(fp, index, axis=-1)
-    return low + along * (np.take_along_axis(fp, index + 1, axis=-1) - low)
-
-
-def section_rings(sections) -> np.ndarray:
-    """Chamfered 12-point ring per (x, half width, bottom, top) section."""
-    x, width, bottom, top = np.asarray(sections, dtype=float).T
-    dz = (top - bottom) * .16
-    return np.stack([
-        np.stack([x, -width * .78, bottom], -1), np.stack([x, width * .78, bottom], -1),
-        np.stack([x, width * .95, bottom + dz * .4], -1), np.stack([x, width, bottom + dz], -1),
-        np.stack([x, width, top - dz], -1), np.stack([x, width * .95, top - dz * .4], -1),
-        np.stack([x, width * .78, top], -1), np.stack([x, -width * .78, top], -1),
-        np.stack([x, -width * .95, top - dz * .4], -1), np.stack([x, -width, top - dz], -1),
-        np.stack([x, -width, bottom + dz], -1), np.stack([x, -width * .95, bottom + dz * .4], -1),
-    ], axis=1).reshape(-1, 3)
 
 
 @dataclass(frozen=True)
@@ -239,7 +73,6 @@ class PrimitiveVehicleAsset:
         self._axle_links = []
         self._materials: list[np.ndarray] = []
         self._shading: list[np.ndarray] = []
-        self._profile_parts = []
         if kind in ("car", "police"):
             self._car()
         elif kind in ("truck", "ambulance"):
@@ -281,19 +114,25 @@ class PrimitiveVehicleAsset:
         """Nominal metric template. Copy before modifying geometry or colors."""
         return self._mesh
 
-    def vertices_for_dimensions(self, dimensions_lwh, shape: CarShapeParams | None = None) -> np.ndarray:
-        """Return updated metric vertices without rebuilding faces or colors.
-
-        ``shape`` (car only) reshapes the profile within the same topology.
-        """
+    def vertices_for_dimensions(self, dimensions_lwh) -> np.ndarray:
+        """Return updated metric vertices without rebuilding faces or colors."""
         dimensions = np.asarray(dimensions_lwh, dtype=float)
         if dimensions.shape != (3,) or not np.isfinite(dimensions).all() or np.any(dimensions <= 0):
             raise ValueError("Vehicle dimensions must be three finite positive LWH values")
-        base = self._body_vertices if shape is None else self._profile_vertices(shape)
-        vertices = base * (dimensions / self.nominal_dimensions)
+        vertices = self._body_vertices * (dimensions / self.nominal_dimensions)
         if self.kind in ("car", "police"):
-            vertices[:, 2] = self.car_profile_z(base[:, 2] / self.nominal_dimensions[2] + .5,
-                                                dimensions, self.kind) - dimensions[2] / 2
+            # A low bbox needs a shallow cabin, rather than a hood below the
+            # fixed-size tires. Raise the belt line only when wheel clearance
+            # requires it; nominal and taller cars retain the authored profile.
+            _, wheel_factor = self._wheel_placement(dimensions, self._wheels[0])
+            height = dimensions[2]
+            belt = min(.90 * height, max(.55 * height,
+                       2 * self._wheels[0].radius * wheel_factor + .02))
+            if belt > .55 * height:
+                z_fraction = self._body_vertices[:, 2] / self.nominal_dimensions[2] + .5
+                raised_z = np.where(z_fraction <= .55, z_fraction / .55 * belt,
+                                    belt + (z_fraction - .55) / .45 * (height - belt))
+                vertices[:, 2] = raised_z - height / 2
         centers = {}
         for wheel in self._wheels:
             center, factor = self._wheel_placement(dimensions, wheel)
@@ -311,53 +150,22 @@ class PrimitiveVehicleAsset:
             # Impossibly flat cycle boxes can put a thick fork above the roof
             # after hub attachment. Clip only the frame, never the round wheel.
             vertices[start:stop] = np.clip(vertices[start:stop], -dimensions / 2, dimensions / 2)
-        if shape is not None and shape.forward_sign < 0:
-            vertices[:, :2] *= -1  # a half turn, not a mirror: winding stays outward
-        return vertices
-
-    @classmethod
-    def car_profile_z(cls, z_fraction, dimensions_lwh, kind: str = "car"):
-        """Metric height above the bbox floor for car profile Z fractions.
-
-        A low bbox needs a shallow cabin, rather than a hood below the
-        fixed-size tires. Raise the belt line only when wheel clearance
-        requires it; nominal and taller cars retain the authored profile.
-        """
-        length, width, height = dimensions_lwh
-        _, radius, depth = cls.SPECS[kind]
-        # Same cap as _wheel_placement for two side axles.
-        factor = min(1., length / (radius * (2 + 2.05)), height / (2 * radius), width / 2 / depth)
-        belt = min(.90 * height, max(.55 * height, 2 * radius * factor + .02))
-        z_fraction = np.asarray(z_fraction, dtype=float)
-        if belt <= .55 * height:
-            return z_fraction * height
-        return np.where(z_fraction <= .55, z_fraction / .55 * belt,
-                        belt + (z_fraction - .55) / .45 * (height - belt))
-
-    def _profile_vertices(self, shape: CarShapeParams) -> np.ndarray:
-        """Nominal metric vertices with the car profile rebuilt from ``shape``."""
-        if self.kind != "car":
-            raise ValueError("Parametric shapes are only defined for the car template")
-        vertices = self._body_vertices.copy()
-        tables = car_section_tables(shape)
-        for start, stop, table, source in self._profile_parts:
-            vertices[start:stop] = self._coords(section_rings(tables[table]))[source]
-        # Lights stay on the nose/tail sections they are mounted on.
-        lights = vertices[self._light_vertices] / self.nominal_dimensions + [0., 0., .5]
-        end = np.where(lights[:, 0] > 0, -1, 0)
-        _, width, bottom, top = _CAR_BODY_SECTIONS[end].T
-        _, new_width, new_bottom, new_top = tables[0][end].T
-        lights[:, 1] *= new_width / width
-        lights[:, 2] = new_bottom + (lights[:, 2] - bottom) * (new_top - new_bottom) / (top - bottom)
-        vertices[self._light_vertices] = self._coords(lights)
         return vertices
 
     def vertex_colors_for_tint(self, body_rgb) -> np.ndarray:
         """Template RGBA colors with BODY paint replaced by ``body_rgb`` (0-1 sRGB).
 
         Baked shading is kept, and glass, tires and lights retain their colors.
-        Every body preset shares one topology, so colors do not depend on shape.
         """
+        rgb = self.paint_rgb(body_rgb)
+        colors = np.asarray(self._mesh.visual.vertex_colors).copy()
+        body = (self._material_colors == self.BODY).all(axis=1)
+        colors[body, :3] = np.rint(np.rint(rgb * 255) * self._shade[body, None])
+        return colors
+
+    @staticmethod
+    def paint_rgb(body_rgb) -> np.ndarray:
+        """Unshaded 0-1 body albedo rendered for paint ``body_rgb`` (0-1 sRGB)."""
         rgb = np.asarray(body_rgb, dtype=float)
         if rgb.shape != (3,) or not np.isfinite(rgb).all():
             raise ValueError("Body color must be three finite RGB values")
@@ -370,11 +178,7 @@ class PrimitiveVehicleAsset:
         if luma < floor:
             gain = min(floor / max(luma, 1e-6), 4.)
             rgb, luma = np.clip(rgb * gain + (floor - luma * gain), 0., 1.), floor
-        rgb = rgb * min(1., .92 / luma)
-        colors = np.asarray(self._mesh.visual.vertex_colors).copy()
-        body = (self._material_colors == self.BODY).all(axis=1)
-        colors[body, :3] = np.rint(np.rint(rgb * 255) * self._shade[body, None])
-        return colors
+        return rgb * min(1., .92 / luma)
 
     def _wheel_placement(self, dimensions, wheel):
         length, width, height = dimensions
@@ -416,17 +220,14 @@ class PrimitiveVehicleAsset:
         return path
 
     def _append(self, mesh, color, *, smooth=False, face_colors=None):
-        """Bake gentle shading; return each new vertex's index in ``mesh``."""
         mesh.fix_normals()
         light = np.array([.25, -.35, .90])
         light /= np.linalg.norm(light)
-        source = np.arange(len(mesh.vertices))
         if smooth and face_colors is None:
             normals = mesh.vertex_normals
         else:
             normals = (mesh.vertex_normals[mesh.faces].reshape(-1, 3) if smooth
                        else np.repeat(mesh.face_normals, 3, axis=0))
-            source = mesh.faces.reshape(-1).copy()
             vertices = mesh.triangles.reshape(-1, 3).copy()
             mesh = self._trimesh.Trimesh(vertices=vertices,
                                         faces=np.arange(len(vertices)).reshape(-1, 3), process=False)
@@ -439,7 +240,6 @@ class PrimitiveVehicleAsset:
         mesh.visual.vertex_colors = colors
         self._parts.append(mesh)
         self._vertex_count += len(mesh.vertices)
-        return source
 
     def _coords(self, points):
         points = np.asarray(points, dtype=float).copy()
@@ -447,8 +247,8 @@ class PrimitiveVehicleAsset:
         return points * self.nominal_dimensions
 
     def _poly(self, points, faces, color, *, smooth=False):
-        return self._append(self._trimesh.Trimesh(vertices=self._coords(points), faces=faces, process=False),
-                            color, smooth=smooth)
+        self._append(self._trimesh.Trimesh(vertices=self._coords(points), faces=faces, process=False),
+                     color, smooth=smooth)
 
     def _quad(self, points, color):
         self._poly(points, [[0, 1, 2], [0, 2, 3]], color)
@@ -461,8 +261,16 @@ class PrimitiveVehicleAsset:
 
     def _loft(self, sections, color, *, smooth=False):
         """Sections: X, half width, bottom, top; rounded rectangular shoulders."""
+        points = []
         # Chamfered 12-point section keeps horizontal hood and clean shoulder.
-        points = section_rings(sections)
+        for x, width, bottom, top in sections:
+            dz = (top - bottom) * .16
+            points.extend([(x, -width * .78, bottom), (x, width * .78, bottom),
+                           (x, width * .95, bottom + dz * .4), (x, width, bottom + dz),
+                           (x, width, top - dz), (x, width * .95, top - dz * .4),
+                           (x, width * .78, top), (x, -width * .78, top),
+                           (x, -width * .95, top - dz * .4), (x, -width, top - dz),
+                           (x, -width, bottom + dz), (x, -width * .95, bottom + dz * .4)])
         faces = []
         for section in range(len(sections) - 1):
             for corner in range(12):
@@ -471,7 +279,7 @@ class PrimitiveVehicleAsset:
         last = (len(sections) - 1) * 12
         for corner in range(1, 11):
             faces.extend([[0, corner + 1, corner], [last, last + corner, last + corner + 1]])
-        return self._poly(points, faces, color, smooth=smooth)
+        self._poly(points, faces, color, smooth=smooth)
 
     def _wheel(self, x_fraction, side, *, open_center=False):
         _, radius, depth = self.SPECS[self.kind]
@@ -529,17 +337,12 @@ class PrimitiveVehicleAsset:
     def _car(self):
         police = self.kind == "police"
         roof = .935 if police else 1.
-        # Remember where the profile's ring points land so CarShapeParams can
-        # move them later without rebuilding faces, colors or shading.
-        start = self._vertex_count
-        source = self._loft(car_section_tables(roof=roof)[0], self.BODY, smooth=True)
-        self._profile_parts = [(start, self._vertex_count, 0, source)]
-        start = self._vertex_count
-        source = self._car_cabin(roof)
-        self._profile_parts.append((start, self._vertex_count, 1, source))
-        start = self._vertex_count
+        self._loft([(-.498, .35, .23, .47), (-.475, .43, .17, .55),
+                    (-.39, .475, .14, .60), (-.23, .495, .14, .62),
+                    (.12, .495, .14, .60), (.31, .48, .16, .55),
+                    (.44, .43, .21, .48), (.498, .35, .29, .42)], self.BODY, smooth=True)
+        self._car_cabin(roof)
         self._lights(z=.36, car=True)
-        self._light_vertices = slice(start, self._vertex_count)
         if police:
             self._box((-.075, -.28, .94), (.035, .28, .975), self.TRIM)
             self._box((-.072, -.275, .975), (.032, -.01, 1.), self.BLUE)
@@ -556,8 +359,26 @@ class PrimitiveVehicleAsset:
         material boundaries are split for vertex coloring. There is no separate
         roof slab, overlapping trim, or B-pillar interrupting the side glass.
         """
-        sections = car_section_tables(roof=roof)[1]
-        points = section_rings(sections)
+        sections = [
+            (-.350, .360, .575, .600), (-.320, .373, .580, .700),
+            (-.260, .380, .580, .860), (-.200, .369, .590, .960),
+            (-.140, .355, .590, .990), (-.060, .353, .590, 1.000),
+            (.025, .350, .580, .995), (.090, .353, .575, .965),
+            (.160, .360, .565, .875), (.235, .365, .550, .715),
+            (.300, .360, .540, .560),
+        ]
+        points = []
+        for x, width, bottom, top in sections:
+            top = bottom + (top - bottom) * ((roof - .59) / (1. - .59))
+            bevel = (top - bottom) * .16
+            points.extend([
+                (x, -width * .78, bottom), (x, width * .78, bottom),
+                (x, width * .95, bottom + bevel * .4), (x, width, bottom + bevel),
+                (x, width, top - bevel), (x, width * .95, top - bevel * .4),
+                (x, width * .78, top), (x, -width * .78, top),
+                (x, -width * .95, top - bevel * .4), (x, -width, top - bevel),
+                (x, -width, bottom + bevel), (x, -width * .95, bottom + bevel * .4),
+            ])
         faces, colors = [], []
         for section in range(len(sections) - 1):
             for corner in range(12):
@@ -571,7 +392,7 @@ class PrimitiveVehicleAsset:
             faces.extend([[0, corner + 1, corner], [last, last + corner, last + corner + 1]])
             colors.extend([self.BODY] * 2)
         mesh = self._trimesh.Trimesh(vertices=self._coords(points), faces=faces, process=False)
-        return self._append(mesh, self.BODY, smooth=True, face_colors=colors)
+        self._append(mesh, self.BODY, smooth=True, face_colors=colors)
 
     def _truck(self):
         ambulance = self.kind == "ambulance"
