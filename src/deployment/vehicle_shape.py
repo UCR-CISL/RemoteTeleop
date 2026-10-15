@@ -126,10 +126,12 @@ class EndFaceRegistration:
     visible end (the end facing the sensor) is located in its belt band
     (``band`` x H above the box floor, |y| < ``half_width`` x W, within
     ``depth_m`` of the box end) as the 10th (rear) / 90th (front) x percentile.
-    The reference of each end is the median of its last ``window`` faces, so
-    scans are never chained to the previous scan and a stationary car does not
-    drift. A scan with fewer than ``min_points`` face returns or a correction
-    beyond ``max_shift_m`` is left unshifted.
+    The reference of each end is the median of its first ``window`` faces and
+    then stays locked, so every scan of the track is registered into one frame
+    (a reference that kept following the box would leave older scans behind
+    when the box bias changes) and a stationary car does not drift. A scan with
+    fewer than ``min_points`` face returns or a correction beyond
+    ``max_shift_m`` is left unshifted.
     """
 
     def __init__(self, *, min_points: int = 12, max_shift_m: float = .5, band=(.25, .6), half_width: float = .4,
@@ -162,13 +164,16 @@ class EndFaceRegistration:
         return float(np.percentile(points_m[band, 0], 50 + end * (50 - self.percentile)))
 
     def observe(self, face_m: float | None, end: int) -> None:
-        """Add a face position to the reference of ``end``."""
-        if face_m is None:
+        """Add a face position to the reference of ``end`` (until it is locked)."""
+        if face_m is None or self.locked(end):
             return
         faces = self._faces.setdefault(end, [])
         faces.append(face_m)
-        del faces[:-self.window]
         self._reference[end] = float(np.median(faces))
+
+    def locked(self, end: int) -> bool:
+        """True once ``end``'s reference is final (``window`` faces observed)."""
+        return len(self._faces.get(end, ())) >= self.window
 
     def shift(self, face_m: float | None, end: int) -> float:
         """Correction (m along +x) aligning a face to its end's reference; 0 when gated."""
@@ -187,20 +192,23 @@ class ObjectPointAccumulator:
     history valid as the tracked dimensions are refined. The caller crops points
     near other tracks and supplies coordinates from the track pose at the scan
     timestamp. Given the sensor position in the object frame, scans are shifted
-    along X onto an EndFaceRegistration reference (``register``); the last
-    ``buffer_scans`` scans stay raw, so they are re-voxelized when the reference
-    moves by more than ``rebuild_m``.
+    along X onto an EndFaceRegistration reference (``register``). Scans stay raw
+    (re-voxelized when the reference moves by more than ``rebuild_m``) until
+    their end's reference is locked, and at most ``buffer_scans`` scans are kept
+    raw once it is (``max_buffer_scans`` while it is not), so the merged voxels
+    stay in one registration frame.
     """
 
     def __init__(self, *, voxel_m: float = .08, max_voxels: int = 4000, max_hits: int = 3,
                  margin_m: float = .15, ground_clearance_m: float = .15, register: bool = True,
-                 buffer_scans: int = 10, rebuild_m: float = .01) -> None:
+                 buffer_scans: int = 10, max_buffer_scans: int = 40, rebuild_m: float = .01) -> None:
         if (voxel_m <= 0 or max_voxels < 1 or max_hits < 1 or margin_m < 0 or ground_clearance_m < 0
-                or buffer_scans < 1 or rebuild_m < 0):
+                or buffer_scans < 1 or max_buffer_scans < buffer_scans or rebuild_m < 0):
             raise ValueError("invalid object point accumulator parameters")
         self.voxel_m, self.max_voxels, self.max_hits = voxel_m, max_voxels, max_hits
         self.margin_m, self.ground_clearance_m = margin_m, ground_clearance_m
         self.register, self.buffer_scans, self.rebuild_m = register, buffer_scans, rebuild_m
+        self.max_buffer_scans = max_buffer_scans
         self._tracks: dict[str, _TrackVoxels] = {}
 
     def add(self, track_id: str, object_points_normalized, dims_lwh, timestamp_us: int,
@@ -239,7 +247,10 @@ class ObjectPointAccumulator:
             state.merged = state.base.merged(*(buffered.voxels for buffered in state.scans), max_voxels=self.max_voxels)
         else:
             state.merged = state.merged.merged(scan.voxels, max_voxels=self.max_voxels)
-        if len(state.scans) > self.buffer_scans:
+        # A scan leaves the raw buffer once its registration is final (or the buffer is full).
+        while len(state.scans) > self.buffer_scans and (
+                len(state.scans) > self.max_buffer_scans or state.scans[0].face_m is None
+                or registration.locked(state.scans[0].end)):
             state.base = state.base.merged(state.scans.pop(0).voxels, max_voxels=self.max_voxels)
         return len(state.keys)
 
@@ -317,6 +328,8 @@ class VehicleShapeFit:
     coverage_cells: int = 0
     rise_x_m: float = float("nan")
     max_rms_m: float = float("inf")  # acceptance bound of the fitter that made this fit
+    type_terms: dict = field(default_factory=dict, repr=False)  # per refined type: nats by term (diagnostics)
+    box_type: str | None = None  # most likely type for the box dimensions alone
 
     def for_type(self, body_type: str) -> VehicleShapeFit:
         """This fit with ``body_type``'s refined candidate as the result (same acceptance bound)."""
@@ -326,35 +339,39 @@ class VehicleShapeFit:
 
 
 class TypePosterior:
-    """Per-track body-type decision from a decayed log posterior over sweeps.
+    """Per-track body-type decision from a decayed log posterior over sweeps (the only switching policy).
 
-    Each informative sweep (evidence grew by ``min_growth`` or new coverage
-    cells; refits of the same accumulation are not independent votes) adds its
-    ``type_nats`` to the log posterior after decaying it by ``decay``. The first
-    sweep adopts the fitter's choice. Below ``min_type_evidence`` voxels the
-    type never changes. A tentative incumbent yields to the argmax once it leads
-    by ``tentative_margin_nats``; a confident one (posterior >= ``confidence``
-    after ``min_sweeps`` sweeps) only after the argmax leads by
-    ``switch_margin_nats`` on ``confirmations`` consecutive informative sweeps.
+    A sweep votes only when it is observable (at least ``min_type_evidence``
+    voxels over ``min_cells`` coverage cells) and informative (evidence grew by
+    ``min_growth`` or covers new cells; refits of the same accumulation are not
+    independent votes): its ``type_nats`` are added to the log posterior after
+    decaying it by ``decay``. Until a sweep has voted the incumbent is the
+    box-size type (``VehicleShapeFit.box_type``). A tentative incumbent yields
+    to the argmax once it leads by ``tentative_margin_nats``. Once confident
+    (posterior >= ``confidence`` after ``min_sweeps`` votes) the incumbent is
+    established for good: it yields only to the same challenger leading by
+    ``switch_margin_nats`` on ``confirmations`` consecutive votes.
     """
 
     def __init__(self, *, decay: float = .7, switch_margin_nats: float = 3., tentative_margin_nats: float = 1.,
                  confirmations: int = 2, confidence: float = .8, min_sweeps: int = 2, min_growth: float = .1,
-                 min_type_evidence: int = 150) -> None:
+                 min_type_evidence: int = 150, min_cells: int = 12) -> None:
         if not 0 <= decay <= 1 or switch_margin_nats < 0 or tentative_margin_nats < 0 or confirmations < 1:
             raise ValueError("invalid type posterior parameters")
         self.decay, self.switch_margin_nats, self.tentative_margin_nats = decay, switch_margin_nats, tentative_margin_nats
         self.confirmations, self.confidence, self.min_sweeps = confirmations, confidence, min_sweeps
-        self.min_growth, self.min_type_evidence = min_growth, min_type_evidence
+        self.min_growth, self.min_type_evidence, self.min_cells = min_growth, min_type_evidence, min_cells
         self.log_posterior: dict[str, float] = {}
         self.incumbent: str | None = None
+        self.established = False
         self.sweeps = self._streak = 0
+        self._challenger: str | None = None
         self._evidence = self._cells = 0
 
     @property
     def probability(self) -> float:
-        """Posterior probability of the incumbent type (0 before the first sweep)."""
-        if self.incumbent is None:
+        """Posterior probability of the incumbent type (0 before the first vote)."""
+        if self.incumbent is None or self.incumbent not in self.log_posterior:
             return 0.
         values = np.array(list(self.log_posterior.values()))
         return float(1 / np.exp(values - self.log_posterior[self.incumbent]).sum())
@@ -367,19 +384,21 @@ class TypePosterior:
         """Fold one fit in and return it re-targeted to the decided type (when that type was refined)."""
         if not fit.accepted and not fit.candidates:
             return fit
-        if len(fit.type_nats) > 1 and self._informative(fit):
-            confident = self.confident  # judged before this sweep's vote
+        if self.incumbent is None:
+            self.incumbent = fit.box_type if fit.box_type in fit.candidates else fit.params.body_type
+        if len(fit.type_nats) > 1 and self._observable(fit) and self._informative(fit):
             self.sweeps += 1
             worst = max(fit.type_nats.values())
             for body_type in set(self.log_posterior) | set(fit.type_nats):
                 self.log_posterior[body_type] = (self.decay * self.log_posterior.get(body_type, 0.)
                                                  - fit.type_nats.get(body_type, worst))
-            self._decide(fit, confident)
-        elif self.incumbent is None:
-            self.incumbent = fit.params.body_type
+            self._decide(fit)
         if self.incumbent in fit.candidates and fit.params.body_type != self.incumbent:
             return fit.for_type(self.incumbent)
         return fit
+
+    def _observable(self, fit: VehicleShapeFit) -> bool:
+        return fit.evidence_voxels >= self.min_type_evidence and fit.coverage_cells >= self.min_cells
 
     def _informative(self, fit: VehicleShapeFit) -> bool:
         informative = (self.sweeps == 0 or fit.evidence_voxels >= (1 + self.min_growth) * self._evidence
@@ -388,22 +407,23 @@ class TypePosterior:
             self._evidence, self._cells = fit.evidence_voxels, fit.coverage_cells
         return informative
 
-    def _decide(self, fit: VehicleShapeFit, confident: bool) -> None:
-        if self.incumbent is None or self.incumbent not in self.log_posterior:
-            self.incumbent, self._streak = fit.params.body_type, 0
-            return
-        best = max(self.log_posterior, key=self.log_posterior.get)
-        lead = self.log_posterior[best] - self.log_posterior[self.incumbent]
-        if best == self.incumbent or best not in fit.candidates or fit.evidence_voxels < self.min_type_evidence:
-            self._streak = 0
-            return
-        if not confident:
+    def _decide(self, fit: VehicleShapeFit) -> None:
+        best = max((body_type for body_type in self.log_posterior if body_type in fit.candidates),
+                   key=self.log_posterior.get, default=self.incumbent)
+        lead = self.log_posterior[best] - self.log_posterior.get(self.incumbent, -np.inf)
+        if best == self.incumbent:
+            self._challenger, self._streak = None, 0
+        elif not self.established:
             if lead >= self.tentative_margin_nats:
-                self.incumbent, self._streak = best, 0
-            return
-        self._streak = self._streak + 1 if lead >= self.switch_margin_nats else 0
-        if self._streak >= self.confirmations:
-            self.incumbent, self._streak = best, 0
+                self.incumbent, self._challenger, self._streak = best, None, 0
+        elif lead >= self.switch_margin_nats:
+            self._streak = self._streak + 1 if best == self._challenger else 1
+            self._challenger = best
+            if self._streak >= self.confirmations:
+                self.incumbent, self._challenger, self._streak = best, None, 0
+        else:
+            self._challenger, self._streak = None, 0
+        self.established = self.established or self.confident
 
 
 class VehicleShapeFitter:
@@ -427,15 +447,13 @@ class VehicleShapeFitter:
     surface cells (at most ``max_coverage_cells``; accumulated voxels share pose
     errors and are not independent), plus ``dimension_weight`` x the box
     dimension NLL (with the type log prior) and ``rank_prior_weight`` x the
-    parameter prior. An incumbent type is kept unless beaten by
-    ``switch_margin_nats``; below ``min_type_evidence`` voxels the incumbent is
-    never switched and a new track takes the box-dimension type unless another
-    type beats it by that margin; below ``min_shape_evidence`` only size
-    parameters are fit. Given the sensor position, the visible end adds a
-    TopProfile rise likelihood per type, and model center-line tops above the
-    observed upper envelope where the roof would have been in view cost
-    ``envelope_weight`` of the data weight (beyond ``envelope_slack_m``). A road
-    layer left above the box floor is dropped first (above_ground_layer). Each
+    parameter prior. The fit returns the best-ranked type; whether a track
+    switches to it is decided by its TypePosterior. Below ``min_type_evidence``
+    voxels an incumbent is refit alone (never swept); below
+    ``min_shape_evidence`` only size parameters are fit. Given the sensor
+    position, the visible end adds a TopProfile rise likelihood per type,
+    capped in proportion to the coverage cells (full from ``rise_full_cells``).
+    A road layer left above the box floor is dropped first (above_ground_layer). Each
     type is fit inside ``trust_sigmas`` of its prior so types stay distinct. The loss is clamped: returns deeper than
     ``inside_cap_m`` inside the body (interior surfaces seen through glass) or
     farther than ``outside_cap_m`` outside it (motion smear, clutter) stop
@@ -457,8 +475,8 @@ class VehicleShapeFitter:
                  screen_iterations: int = 2, screen_points: int = 150, outside_cap_m: float = .3,
                  max_coverage_cells: int = 48, coverage_points: int = 3, rank_prior_weight: float = .1,
                  dimension_window_nats: float = 3., min_type_evidence: int = 150,
-                 min_shape_evidence: int = 150, envelope_weight: float = .3, envelope_slack_m: float = .1,
-                 envelope_view_margin_m: float = .2) -> None:
+                 min_shape_evidence: int = 150, rise_full_cells: int = 20,
+                 warm_iterations: int = 4) -> None:
         if not body_types or any(body_type not in VEHICLE_TYPES for body_type in body_types):
             raise ValueError(f"body_types must be drawn from {TYPE_NAMES}")
         if (huber_m <= 0 or min_evidence_voxels < 1 or evidence_voxel_m <= 0 or prior_weight <= 0
@@ -468,7 +486,8 @@ class VehicleShapeFitter:
                 or trust_sigmas <= 0 or max_effective_evidence <= 0 or inside_cap_m <= 0
                 or not 0 <= screen_iterations < max_iterations or outside_cap_m <= 0 or max_coverage_cells < 1
                 or coverage_points < 1 or rank_prior_weight < 0 or dimension_window_nats < 0 or min_type_evidence < 0
-                or min_shape_evidence < 0 or envelope_weight < 0 or envelope_slack_m < 0):
+                or min_shape_evidence < 0 or rise_full_cells < 0
+                or not 1 <= warm_iterations <= max_iterations):
             raise ValueError("invalid vehicle shape fitter parameters")
         self.body_types, self.huber_m = tuple(body_types), huber_m
         self.min_evidence_voxels, self.evidence_voxel_m = min_evidence_voxels, evidence_voxel_m
@@ -489,8 +508,8 @@ class VehicleShapeFitter:
         self.rank_prior_weight, self.dimension_window_nats = rank_prior_weight, dimension_window_nats
         self.min_type_evidence = min_type_evidence
         self.min_shape_evidence = min_shape_evidence
-        self.envelope_weight, self.envelope_slack_m = envelope_weight, envelope_slack_m
-        self.envelope_view_margin_m = envelope_view_margin_m
+        self.rise_full_cells = rise_full_cells
+        self.warm_iterations = warm_iterations  # incumbent refits start from the last fit
 
     # ---- priors ----------------------------------------------------------
     def dimension_nll(self, dims_lwh) -> dict[str, float]:
@@ -548,18 +567,22 @@ class VehicleShapeFitter:
         nll = self.dimension_nll(dimensions)
         end = EndFaceRegistration.visible_end(sensor_origin, dimensions)
         profile = TopProfile(local, dimensions, end, sensor_origin)
-        options = dict(sparse=evidence < self.min_shape_evidence, envelope=profile if self.envelope_weight > 0 else None)
+        # Rise evidence grows with the surface seen (full weight from rise_full_cells coverage cells).
+        rise_cap = profile.max_nats * (min(1., coverage / self.rise_full_cells) if self.rise_full_cells else 1.)
+        options = dict(sparse=evidence < self.min_shape_evidence)
         # Box size and visible-end shape features, per type (nats).
-        context = _LazyTypeValues(lambda body_type: self.dimension_weight * nll[body_type] + (
-            profile.nats(self._type_rise(body_type, dimensions, profile)) if profile.valid else 0.))
+        context = _LazyTypeValues(lambda body_type: (self.dimension_weight * nll[body_type], (
+            profile.nats(self._type_rise(body_type, dimensions, profile), rise_cap) if profile.valid else 0.)))
         incumbent = None if previous is None else previous.body_type
         candidates: dict[str, _Candidate] = {}
         if incumbent is not None and (incumbent_cost is not None or evidence < self.min_type_evidence):
-            candidates[incumbent] = self._fit_candidate(local, weights, dimensions, incumbent, previous, **options)
+            candidates[incumbent] = self._fit_candidate(local, weights, dimensions, incumbent, previous,
+                                                        max_iterations=self.warm_iterations, **options)
             # Sparse evidence never switches an incumbent type; a trusted incumbent skips the sweep.
             if incumbent_cost is None or \
                     candidates[incumbent].robust_cost <= (1 + self.sweep_cost_growth) * incumbent_cost + .05:
-                return self._result(candidates, incumbent, evidence, fallback, context, coverage, profile)
+                return self._result(candidates, incumbent, evidence, fallback, context, coverage, profile,
+                                    min(nll, key=nll.get))
         # Sweep: a short fit of every type ranks them; the best alternatives, the types the box size
         # supports and the incumbent are refined. Screening runs on a subsample; refinements and the
         # reported costs use every point.
@@ -578,45 +601,57 @@ class VehicleShapeFitter:
                                                         max_iterations=self.max_iterations - self.screen_iterations,
                                                         **options)
         nats = self._type_nats(candidates, context, coverage)
-        best = min(nats, key=nats.get)
-        if incumbent is not None and best != incumbent and nats[incumbent] - nats[best] < self.switch_margin_nats:
-            best = incumbent
-        if incumbent is None and evidence < self.min_type_evidence:
-            # Sparse: the box size decides unless the shape evidence is decisive.
-            box_type = min(nll, key=nll.get)
-            if box_type in nats and nats[box_type] - nats[best] < self.switch_margin_nats:
-                best = box_type
-        return self._result(candidates, best, evidence, fallback, context, coverage, profile)
+        # The best-ranked type; TypePosterior decides whether a track switches to it.
+        return self._result(candidates, min(nats, key=nats.get), evidence, fallback, context, coverage, profile,
+                            min(nll, key=nll.get), screen)
 
     def _type_rise(self, body_type: str, dimensions, profile: TopProfile) -> tuple[float, float]:
         """(rear, front) rise distances (m) of a type's mean in this box."""
         mean = sanitize(self.prior_moments(body_type, dimensions)[0])
         stations, rings, _ = UniversalBodyProfile.rings(mean, dimensions, VEHICLE_TYPES[body_type])
-        return profile.model_rise(stations[0], rings[0, :, 7, 1], -1), profile.model_rise(stations[0], rings[0, :, 7, 1], 1)
+        top = rings[0, :, 7, 1]  # roof edge (a pickup's bed rail), like the observed 95th-percentile top
+        return profile.model_rise(stations[0], top, -1), profile.model_rise(stations[0], top, 1)
 
-    def _type_nats(self, candidates: dict, context: dict, coverage: int) -> dict[str, float]:
-        """Relative negative log posterior of each candidate type (0 = best), in nats."""
+    def _type_terms(self, candidates: dict, context: dict, coverage: int) -> dict[str, dict[str, float]]:
+        """Negative log posterior terms of each candidate type (nats): surface data, box dimensions,
+        visible-end rise and parameter prior."""
         floor = max(min(candidate.robust_cost for candidate in candidates.values()), 1e-9)
-        score = {body_type: .5 * coverage * np.log(max(candidate.robust_cost, floor) / floor)
-                 + context[body_type] + self.rank_prior_weight * candidate.prior_objective
-                 for body_type, candidate in candidates.items()}
+        terms = {}
+        for body_type, candidate in candidates.items():
+            dims, rise = context[body_type]
+            terms[body_type] = dict(data=float(.5 * coverage * np.log(max(candidate.robust_cost, floor) / floor)),
+                                    dims=float(dims), rise=float(rise),
+                                    prior=float(self.rank_prior_weight * candidate.prior_objective))
+        return terms
+
+    def _type_nats(self, candidates: dict, context: dict, coverage: int, terms: dict | None = None) -> dict[str, float]:
+        """Relative negative log posterior of each candidate type (0 = best), in nats."""
+        terms = self._type_terms(candidates, context, coverage) if terms is None else terms
+        score = {body_type: sum(values.values()) for body_type, values in terms.items()}
         low = min(score.values())
         return {body_type: float(value - low) for body_type, value in score.items()}
 
     def _result(self, candidates: dict, best: str, evidence: int, fallback: UniversalVehicleShape, context: dict,
-                coverage: int, profile: TopProfile) -> VehicleShapeFit:
+                coverage: int, profile: TopProfile, box_type: str, screen: dict | None = None) -> VehicleShapeFit:
         candidate = candidates[best]
         accepted = bool(candidate.rms <= self.max_rms_m)
+        terms = self._type_terms(candidates, context, coverage)
+        nats = self._type_nats(candidates, context, coverage, terms)
+        if screen is not None:
+            # Types the sweep screened out keep their screen nats (at least the worst refined type's),
+            # so they lose posterior mass instead of keeping it.
+            worst = max(nats.values())
+            nats.update({body_type: max(value, worst) for body_type, value in screen.items() if body_type not in nats})
         return VehicleShapeFit(candidate.shape if accepted else fallback, candidate.rms, evidence, accepted,
-                               candidate.robust_cost, type_nats=self._type_nats(candidates, context, coverage),
+                               candidate.robust_cost, type_nats=nats,
                                candidates=dict(candidates),
-                               coverage_cells=coverage, rise_x_m=profile.rise_x_m, max_rms_m=self.max_rms_m)
+                               coverage_cells=coverage, rise_x_m=profile.rise_x_m, max_rms_m=self.max_rms_m,
+                               type_terms=terms, box_type=box_type)
 
     def _fit_candidate(self, local, weights, dimensions, body_type, previous, *,
-                       max_iterations: int | None = None, sparse: bool = False,
-                       envelope: TopProfile | None = None) -> _Candidate:
+                       max_iterations: int | None = None, sparse: bool = False) -> _Candidate:
         mean, std = self.prior_moments(body_type, dimensions)
-        residuals = _Residuals(local, weights, dimensions, body_type, mean, std, self, envelope=envelope)
+        residuals = _Residuals(local, weights, dimensions, body_type, mean, std, self)
         # A trust region on the silhouette keeps each type recognizable, so type objectives stay
         # comparable; size (ground, clearance, ends, half widths) only has the prior. Sparse evidence
         # fits size only.
@@ -658,7 +693,7 @@ class VehicleShapeFitter:
 
 
 class TopProfile:
-    """Observed upper envelope of a track's returns seen from its visible end, and its rise distance.
+    """Observed top profile of a track's returns seen from its visible end, and its rise distance.
 
     Points are folded (X, |Y|, Z above the box floor). Returns are binned every
     ``bin_m`` along X; a bin with at least ``min_points`` returns has a top
@@ -672,21 +707,30 @@ class TopProfile:
     ``beyond_m`` past the rise (the roof was seen, not just the end face). Only
     bins contiguous with the end (gaps up to ``max_gap_m``) and returns below
     the box top count, so clutter above or beyond the car does not fake a roof.
-    ``nats`` scores a type's own rise (``model_rise``, the same rule on its
-    profile) against it.
+    The rise is also unknown unless the upper body was seen (``upper_bins``
+    bins with 3+ returns above ``upper_fraction`` x H), and a bin needs
+    ``far_min_points`` returns when the sensor is beyond ``far_m``. ``nats``
+    scores a type's own rise (``model_rise``, the same rule on its profile)
+    against it.
     """
 
     def __init__(self, local, dimensions, end: int, sensor_origin=None, *, bin_m: float = .25, min_points: int = 3,
-                 rise_fraction: float = .5, end_m: float = .5, min_step_m: float = .15, end_reach_m: float = .75,
-                 beyond_m: float = .5, max_gap_m: float = .75, sigma_m: float = .3, max_nats: float = 8.) -> None:
+                 far_min_points: int = 5, far_m: float = 15., rise_fraction: float = .5, end_m: float = .5,
+                 min_step_m: float = .15, end_reach_m: float = .75, beyond_m: float = .5, max_gap_m: float = .75,
+                 sigma_m: float = .3, max_nats: float = 8., upper_fraction: float = .7, upper_bins: int = 2) -> None:
         self.end, self.sigma_m, self.max_nats = end, sigma_m, max_nats
         self.rise_fraction, self.end_m, self.min_step_m = rise_fraction, end_m, min_step_m
         self.rise_x_m = float("nan")
-        self.envelope_x, self.envelope_top, self.envelope_shadow, self.bins = np.empty(0), np.empty(0), np.empty(0), 0
-        self.sensor_height_m = None if sensor_origin is None else float(sensor_origin[2]) + dimensions[2] / 2
+        if sensor_origin is not None and np.hypot(*np.asarray(sensor_origin, dtype=float)[:2]) > far_m:
+            min_points = far_min_points  # sparse far returns: a top needs more support
         if end == 0 or len(local) < min_points:
             return
         local = local[local[:, 2] <= dimensions[2]]  # clutter above the (inflated) box top
+        # The upper body (roof or cab) must be seen, or a low side panel would read as a flat (rise 0) top.
+        upper = local[local[:, 2] >= upper_fraction * dimensions[2], 0]
+        upper_counts = np.unique(np.floor(upper / bin_m), return_counts=True)[1]
+        if (upper_counts >= 3).sum() < upper_bins:
+            return
         x, z = local[:, 0], local[:, 2]
         bins = np.floor(x / bin_m).astype(int)
         order, inverse, counts = np.unique(bins, return_inverse=True, return_counts=True)
@@ -698,7 +742,7 @@ class TopProfile:
         gaps = np.flatnonzero(np.abs(np.diff(order[observed])) * bin_m > max_gap_m + 1e-9)
         observed = observed[:gaps[0] + 1] if len(gaps) else observed
         body = np.isin(inverse, observed)
-        top = np.array([np.percentile(z[inverse == index], 95) for index in observed])
+        top = _group_percentile(inverse, z, 95)[observed]
         end_x = float(np.percentile(x[body], 50 + end * 49))
         if end * end_x < dimensions[0] / 2 - end_reach_m:
             return
@@ -713,16 +757,6 @@ class TopProfile:
         if (-end * (x[body] - rise_x)).max() < beyond_m:
             return
         self.rise_x_m = max(-end * (rise_x - end_x), 0.)
-        # Bins between the end and the rise bound the body from above where the roof would be in view.
-        self.envelope_x, self.envelope_top = (order[observed[:rise]] + .5) * bin_m, top[:rise]
-        self.bins = len(observed)
-        if self.sensor_height_m is not None:
-            # Height below which each bin is shadowed by nearer tops (rays from the sensor in the X-Z plane).
-            sensor = np.asarray(sensor_origin, dtype=float)
-            reach = np.hypot(self.envelope_x - sensor[0], sensor[1])
-            drop = (self.sensor_height_m - self.envelope_top) / reach  # ray descent over each bin's top
-            # The most grazing ray over any nearer top bounds what a bin could show.
-            self.envelope_shadow = self.sensor_height_m - reach * np.minimum.accumulate(np.r_[np.inf, drop[:-1]])
 
     def _level(self, end_top: float, max_top: float) -> float | None:
         """Top height that marks the rise, or None when the profile has no step."""
@@ -734,12 +768,13 @@ class TopProfile:
     def valid(self) -> bool:
         return bool(np.isfinite(self.rise_x_m))
 
-    def nats(self, model_rise: tuple[float, float]) -> float:
+    def nats(self, model_rise: tuple[float, float], max_nats: float | None = None) -> float:
         """Gaussian NLL (capped) of the observed rise given a type's (rear, front) rise; 0 when unobserved."""
         if not self.valid:
             return 0.
         expected = model_rise[0] if self.end < 0 else model_rise[1]
-        return float(min(.5 * ((self.rise_x_m - expected) / self.sigma_m) ** 2, self.max_nats))
+        return float(min(.5 * ((self.rise_x_m - expected) / self.sigma_m) ** 2,
+                         self.max_nats if max_nats is None else max_nats))
 
     def model_rise(self, stations_m, top_m, end: int) -> float:
         """The rise rule on a model profile (piecewise linear top over station X), from its ``end``."""
@@ -751,6 +786,19 @@ class TopProfile:
         profile = np.interp(fine, distance, top)
         level = self._level(profile[fine <= self.end_m].max(), profile.max())
         return 0. if level is None else float(fine[np.argmax(profile >= level)])
+
+
+def _group_percentile(groups: np.ndarray, values: np.ndarray, q: float) -> np.ndarray:
+    """``np.percentile(values[groups == g], q)`` (linear) for every group g in 0..groups.max()."""
+    order = np.lexsort((values, groups))
+    ordered = values[order]
+    counts = np.bincount(groups)
+    starts = np.r_[0, np.cumsum(counts)[:-1]]
+    position = (counts - 1) * q / 100
+    low = np.floor(position).astype(int)
+    high = np.minimum(low + 1, np.maximum(counts - 1, 0))
+    with np.errstate(invalid="ignore"):
+        return ordered[starts + low] + (ordered[starts + high] - ordered[starts + low]) * (position - low)
 
 
 class _LazyTypeValues(dict):
@@ -779,8 +827,7 @@ class _Residuals:
 
     STEP = 1e-5
 
-    def __init__(self, local, weights, dimensions, body_type, mean, std, fitter: VehicleShapeFitter, *,
-                 envelope: TopProfile | None = None) -> None:
+    def __init__(self, local, weights, dimensions, body_type, mean, std, fitter: VehicleShapeFitter) -> None:
         self.local, self.weights, self.dimensions = local, weights, dimensions
         self.root_weights = np.sqrt(weights)
         self.mean, self.prior_scale = mean, np.sqrt(fitter.prior_weight) / std
@@ -788,14 +835,6 @@ class _Residuals:
         self.inside_cap = fitter.inside_cap_m
         self.outside_cap = fitter.outside_cap_m
         self.prior = VEHICLE_TYPES[body_type]
-        # Upper envelope: where the roof would be in view, a model top above the observed top costs.
-        self.envelope = None
-        if envelope is not None and len(envelope.envelope_x) and envelope.sensor_height_m is not None:
-            weight = fitter.envelope_weight * weights.sum() / envelope.bins
-            self.envelope = (envelope.envelope_x, envelope.envelope_top, envelope.sensor_height_m,
-                             envelope.envelope_shadow, np.sqrt(weight))
-        self.envelope_slack_m, self.view_margin_m = fitter.envelope_slack_m, fitter.envelope_view_margin_m
-        self._top = None
 
     def distance(self, theta, *, jacobian: bool = False, columns=None):
         """Distances and, with ``jacobian``, their (len(columns), N) parameter derivatives."""
@@ -808,15 +847,10 @@ class _Residuals:
         rows = sanitize(rows)
         stations, rings, _ = UniversalBodyProfile.rings(rows, self.dimensions, self.prior)
         surface = RingSurfaceDistance(self.local, stations[0], rings[0])
-        if self.envelope is not None:
-            # Center-line top (roof center, or a pickup's bed floor): thin bed rails may go unseen.
-            top = np.stack([np.interp(self.envelope[0], station, ring[:, 10, 1]) for station, ring in zip(stations, rings)])
         if not jacobian:
-            self._top = None if self.envelope is None else (top[0], None)
             return surface.distance, None
         step = rows[1:, columns].diagonal() - rows[0, columns]
         step = np.where(np.abs(step) > 0, step, np.inf)  # a sanitize-pinned parameter has no effect
-        self._top = None if self.envelope is None else (top[0], (top[1:] - top[0]) / step[:, None])
         d_stations = (stations[1:] - stations[0]) / step[:, None]
         d_rings = (rings[1:] - rings[0]) / step[:, None, None, None]
         return surface.distance, surface.jacobian(d_stations, d_rings)
@@ -833,36 +867,19 @@ class _Residuals:
         magnitude = np.abs(scaled)
         robust = np.where(magnitude <= 1, scaled, np.sign(scaled) * np.sqrt(np.maximum(2 * magnitude - 1, 1.)))
         root_weights = self.root_weights
-        envelope, d_envelope = self._envelope_rows()
-        value = np.concatenate([root_weights * robust, envelope, self.prior_scale * (theta - self.mean)])
+        value = np.concatenate([root_weights * robust, self.prior_scale * (theta - self.mean)])
         if not jacobian:
             return value
         columns = np.arange(len(theta)) if columns is None else np.asarray(columns)
         slope = root_weights / self.huber_m / np.sqrt(np.maximum(2 * magnitude - 1, 1.))
         prior = np.zeros((len(theta), len(columns)))
         prior[columns, np.arange(len(columns))] = self.prior_scale[columns]
-        if d_envelope is None or not len(envelope):
-            d_envelope = np.empty((0, len(columns)))
-        return value, np.vstack([slope[:, None] * d_distance.T, d_envelope, prior])
-
-    def _envelope_rows(self):
-        """Upper-envelope residuals (Huber units) and their (bins, columns) Jacobian from the last distance()."""
-        if self._top is None:
-            return np.empty(0), np.empty((0, 0))
-        _, observed, sensor, shadow, root = self.envelope
-        top, d_top = self._top
-        excess = top - observed - self.envelope_slack_m
-        # Only model tops the sensor would have seen: above the sensor-height margin and nearer shadows.
-        active = (excess > 0) & (sensor > top + self.view_margin_m) & (top > shadow)
-        rows = root * np.where(active, excess, 0.) / self.huber_m
-        if d_top is None:
-            return rows, None
-        return rows, (root * np.where(active, 1., 0.) / self.huber_m)[:, None] * d_top.T
+        return value, np.vstack([slope[:, None] * d_distance.T, prior])
 
     def candidate(self, theta) -> _Candidate:
         distance, _ = self.distance(theta)
         value = self.evaluate(theta)
-        data = value[:len(distance) + len(self._envelope_rows()[0])]  # surface and envelope rows
+        data = value[:len(distance)]
         total = self.weights.sum()
         return _Candidate(UniversalVehicleShape(self.body_type, tuple(theta)), float(.5 * data @ data),
                           float(.5 * (value @ value - data @ data)),

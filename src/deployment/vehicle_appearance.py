@@ -50,7 +50,10 @@ class VehicleAppearanceConfig:
     freeze_after_stable_fits: int = 3
     unfreeze_dimension_change: float = .1
     unfreeze_new_cells: int = 2  # ... or when a scan covers this many new coarse surface cells
-    publish_prior_shape: bool = True  # dimension-prior type mean until the first accepted fit
+    publish_prior_shape: bool = False  # dimension-prior type mean until the first accepted fit
+    # Below this many evidence voxels, or after a rejected fit, no shape is published (legacy primitive):
+    # weak or inconsistent fits and type means render worse than the legacy primitive at range.
+    min_publish_evidence: int = 100
 
     def __post_init__(self) -> None:
         if (self.crop_margin_m < 0 or self.neighbor_margin_m < 0 or self.max_crop_points < 1
@@ -58,7 +61,7 @@ class VehicleAppearanceConfig:
                 or self.fit_budget_ms < 0 or self.sweep_every_refits < 1
                 or self.max_color_tracks_per_update < 0 or self.min_param_change < 0
                 or self.freeze_after_stable_fits < 1 or self.unfreeze_dimension_change <= 0
-                or self.unfreeze_new_cells < 1):
+                or self.unfreeze_new_cells < 1 or self.min_publish_evidence < 0):
             raise ValueError("invalid vehicle appearance configuration")
 
 
@@ -181,8 +184,11 @@ class VehicleAppearanceEstimator:
     on a meaningful change, and frozen after ``freeze_after_stable_fits``
     agreeing refits once the track's TypePosterior is confident, until the tracked dimensions move by
     ``unfreeze_dimension_change`` or a scan covers ``unfreeze_new_cells`` coarse
-    surface cells the frozen evidence did not. Until the first accepted fit the
-    dimension-prior type mean is published (``publish_prior_shape``). Refits try
+    surface cells the frozen evidence did not. A fit is published only from
+    ``min_publish_evidence`` voxels on and a rejected fit unpublishes the shape, so
+    weak or inconsistent evidence renders the legacy primitive; optionally the
+    dimension-prior type mean is published until the first accepted fit
+    (``publish_prior_shape``). Refits try
     only the incumbent body type except every ``sweep_every_refits``-th fit; sweeps feed the
     per-track TypePosterior, which decides the published body type. Scans carry the sensor
     position so the accumulator registers them along the track. With ``fit_in_background``
@@ -373,8 +379,13 @@ class VehicleAppearanceEstimator:
         fit = state.types.update(fit)
         if not fit.accepted:
             state.fit_cost, state.stable_fits = None, 0
+            if np.isfinite(fit.cost) and self.config.min_publish_evidence:
+                state.published = None  # rejected (inconsistent) fit: legacy primitive
             return
         state.fitted, state.fit_cost = fit.params, fit.robust_cost
+        if fit.evidence_voxels < self.config.min_publish_evidence:
+            state.published, state.stable_fits = None, 0  # weak evidence: legacy primitive
+            return
         if state.published is None or self._changed(state.published, fit.params):
             state.published, state.stable_fits = fit.params, 0
             return

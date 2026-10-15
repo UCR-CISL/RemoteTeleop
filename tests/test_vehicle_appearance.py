@@ -202,14 +202,14 @@ def test_stable_shape_freezes_until_tracked_dimensions_change():
     estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(
         color=False, refit_every_scans=1, min_param_change=.5, freeze_after_stable_fits=2, fit_in_background=False,
         unfreeze_new_cells=64, sweep_every_refits=1))
-    _drive(estimator, 4, camera=False)
+    _drive(estimator, 6, camera=False)
     assert estimator._shapes["bevfusion:car:0"].types.confident  # freezing also needs a settled body type
     state = estimator._shapes["bevfusion:car:0"]
     assert state.frozen_dimensions is not None
     published, fits = state.published, estimator.fit_count
-    _drive(estimator, 3, camera=False, start=4)
+    _drive(estimator, 3, camera=False, start=6)
     assert estimator.fit_count == fits and state.published == published
-    _drive(estimator, 1, camera=False, start=7, dimensions=(5.2, 1.8, 1.5))  # > 10% longer
+    _drive(estimator, 1, camera=False, start=9, dimensions=(5.2, 1.8, 1.5))  # > 10% longer
     assert state.frozen_dimensions is None and estimator.fit_count == fits + 1
 
 
@@ -249,8 +249,9 @@ def test_small_shape_changes_keep_the_published_params():
     assert estimator._changed(published, UniversalVehicleShape("hatchback", published.values))
 
 
-def test_prior_shape_is_published_until_the_first_accepted_fit():
-    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, fit_in_background=False))
+def test_weak_evidence_publishes_no_shape_unless_the_prior_shape_is_wanted():
+    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, fit_in_background=False,
+                                                                   publish_prior_shape=True))
     pose = _lidar_T_object(40.)  # far: a handful of returns, no fit yet
     box = _box("far", pose, dimensions=(6.2, 2.45, 2.15))
     estimator.update([_match(box)], [box], timestamp_us=0, world_T_lidar=WORLD_T_LIDAR,
@@ -258,8 +259,7 @@ def test_prior_shape_is_published_until_the_first_accepted_fit():
     shape = UniversalVehicleShape.from_vector(estimator.prompt_fields("far")["vehicle_shape"])
     assert estimator.fit_count == 0 and shape == estimator.fitter.prior_shape((6.2, 2.45, 2.15))
     assert shape.body_type == "pickup"
-    quiet = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, fit_in_background=False,
-                                                               publish_prior_shape=False))
+    quiet = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, fit_in_background=False))  # default
     quiet.update([_match(box)], [box], timestamp_us=0, world_T_lidar=WORLD_T_LIDAR,
                  lidar_points=_scan([pose], count=8))
     assert quiet.prompt_fields("far") == {}
@@ -360,3 +360,13 @@ def test_refits_sweep_all_candidates_only_periodically():
     _drive(estimator, 7, camera=False)
     assert all(thread == threading.current_thread().name for thread, _ in fitter.calls)
     assert [cost is None for _, cost in fitter.calls] == [True, False, False, True, False, False, True]
+
+
+def test_rejected_fits_fall_back_to_the_legacy_primitive():
+    strict = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, fit_in_background=False),
+                                        fitter=VehicleShapeFitter(max_rms_m=1e-3))  # every fit is rejected
+    _drive(strict, 4, camera=False)
+    assert strict.fit_count >= 1 and "vehicle_shape" not in strict.prompt_fields("bevfusion:car:0")
+    lenient = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, fit_in_background=False))
+    _drive(lenient, 4, camera=False)
+    assert "vehicle_shape" in lenient.prompt_fields("bevfusion:car:0")
