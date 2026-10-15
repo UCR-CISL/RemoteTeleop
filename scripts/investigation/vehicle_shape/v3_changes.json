@@ -1,0 +1,143 @@
+{
+ "changes": [
+  "- Universal deformable vehicle mesh replaces the legacy-loft `CarShapeParams` presets in the hint path: one fixed-topology, left/right-symmetric body (18 stations x 20-vertex rings, planar bevelled end caps, an open bed cavity) whose side silhouette is piecewise linear between semantic landmarks (tail, rear-window base, roof rear, roof front, windshield base, nose). Shape hints are 30 floats: schema 2.0, type index, 28 profile values.",
+  "- Seven body types (sedan, hatchback, crossover, full_suv, minivan, van, pickup) with metric archetype priors normalized per box. Detector boxes are modeled as vehicle + (0.30, 0.36, 0.32) m, so roofs and sides are no longer pinned to the inflated box.",
+  "- `VehicleShapeFitter`: ring-plane residual with planar caps and a slope correction (held-out scoring here uses true point-to-triangle distance); Huber 8 cm clamped at 25 cm inside / 30 cm outside (through-glass interior returns, motion smear); each type fit within 2 sigma of its prior; data strength saturates at 300 voxels; unconstrained parameters frozen. Sweeps screen every type with a 2-iteration fit, refine the best 3 plus the incumbent, and compare 0.25 x data + parameter prior + box-dimension NLL with a 15% switch margin; other refits only refit the incumbent (as live).",
+  "- Underside rises 0.2 m over each overhang (bumpers above rockers), so wheels show from behind and ahead.",
+  "- Before the first accepted fit the dimension-prior type mean is published (\"prior only\"), so sparse far vehicles get a type-appropriate proxy instead of the legacy primitive.",
+  "- Renders: legacy primitive, type mean and fitted shape all carry the same published tint.",
+  "- Known data issue: moving cars' accumulated returns are smeared ~0.5 m along x, and in agent-2 frames the frame-t LiDAR belt samples project ahead of the car in the image (camera/LiDAR sync in the dataset, not the harness)."
+ ],
+ "callouts": [
+  {
+   "frame_key": "take05_a1_524085",
+   "track_id": "6",
+   "note": "VW Tiguan: boxy rear expected"
+  },
+  {
+   "frame_key": "take05_a1_524085",
+   "track_id": "18",
+   "note": "SUV"
+  },
+  {
+   "frame_key": "take05_a1_524085",
+   "track_id": "41",
+   "note": "SUV, far"
+  },
+  {
+   "frame_key": "take05_a1_524085",
+   "track_id": "114514",
+   "note": "SUV, far"
+  },
+  {
+   "frame_key": "take05_a1_524085",
+   "track_id": "5",
+   "note": "Silverado: cab + open bed expected"
+  },
+  {
+   "frame_key": "take05_a1_524085",
+   "track_id": "7",
+   "note": "red Tesla sedan: must not regress"
+  },
+  {
+   "frame_key": "take08_a2_537370",
+   "track_id": "2",
+   "note": "Tucson crossover"
+  },
+  {
+   "frame_key": "take08_a2_537370",
+   "track_id": "49",
+   "note": "red pickup"
+  },
+  {
+   "frame_key": "take01_a1_481325",
+   "track_id": "82",
+   "note": "minivan"
+  },
+  {
+   "frame_key": "take01_a1_481325",
+   "track_id": "104",
+   "note": "hatchback"
+  },
+  {
+   "frame_key": "take01_a1_481325",
+   "track_id": "53",
+   "note": "hatchback"
+  },
+  {
+   "frame_key": "take07_a2_534390",
+   "track_id": "57",
+   "note": "minivan"
+  },
+  {
+   "frame_key": "take09_a2_540610",
+   "track_id": "30",
+   "note": "minivan"
+  },
+  {
+   "frame_key": "take06_a2_527890",
+   "track_id": "61",
+   "note": "full SUV"
+  },
+  {
+   "frame_key": "take06_a2_527890",
+   "track_id": "55",
+   "note": "compact SUV"
+  },
+  {
+   "frame_key": "take13_a3_552390",
+   "track_id": "132",
+   "note": "full SUV"
+  },
+  {
+   "frame_key": "take13_a3_552390",
+   "track_id": "16",
+   "note": "full SUV"
+  },
+  {
+   "frame_key": "take06_a1_527905",
+   "track_id": "73",
+   "note": "hatchback"
+  },
+  {
+   "frame_key": "take06_a1_527905",
+   "track_id": "74",
+   "note": "white Tesla sedan"
+  },
+  {
+   "frame_key": "take03_a2_497165",
+   "track_id": "75",
+   "note": "pickup"
+  },
+  {
+   "frame_key": "take12_a3_549200",
+   "track_id": "10",
+   "note": "6.5 m vehicle; heading/motion disagreement (was rejected)"
+  },
+  {
+   "frame_key": "take10_a3_543585",
+   "track_id": "48",
+   "note": "Jeep with spare wheel"
+  },
+  {
+   "frame_key": "take10_a3_543585",
+   "track_id": "67",
+   "note": "white taxi at night"
+  },
+  {
+   "frame_key": "take10_a3_543585",
+   "track_id": "50",
+   "note": "sedan"
+  },
+  {
+   "frame_key": "take03_a3_497215",
+   "track_id": "11",
+   "note": "shaded white sedan"
+  },
+  {
+   "frame_key": "take03_a3_497215",
+   "track_id": "21",
+   "note": "black Audi sedan"
+  }
+ ]
+}

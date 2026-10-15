@@ -1,83 +1,4247 @@
 [
- {"frame_key": "take01_a1_481325", "track_id": "104", "body": "sedan"},
- {"frame_key": "take06_a1_527905", "track_id": "54", "body": "sedan"},
- {"frame_key": "take10_a1_543470", "track_id": "30", "body": "sedan"},
- {"frame_key": "take11_a1_546565", "track_id": "248", "body": "sedan"},
- {"frame_key": "take09_a3_540705", "track_id": "42", "body": "sedan"},
- {"frame_key": "take10_a1_543535", "track_id": "53", "body": "sedan"},
- {"frame_key": "take10_a1_543535", "track_id": "43", "body": "sedan"},
- {"frame_key": "take13_a1_552310", "track_id": "98", "body": "sedan"},
- {"frame_key": "take14_a2_556435", "track_id": "84", "body": "sedan"},
- {"frame_key": "take07_a1_534295", "track_id": "15", "body": "sedan"},
- {"frame_key": "take07_a1_534380", "track_id": "15", "body": "sedan"},
- {"frame_key": "take01_a3_481680", "track_id": "35", "body": "sedan"},
- {"frame_key": "take06_a1_527905", "track_id": "73", "body": "sedan"},
- {"frame_key": "take06_a1_527905", "track_id": "74", "body": "sedan"},
- {"frame_key": "take03_a3_497215", "track_id": "21", "body": "sedan"},
- {"frame_key": "take14_a2_556435", "track_id": "49", "body": "sedan"},
- {"frame_key": "take11_a3_546490", "track_id": "214", "body": "sedan"},
- {"frame_key": "take10_a1_543470", "track_id": "55", "body": "sedan"},
- {"frame_key": "take06_a1_527905", "track_id": "78", "body": "sedan"},
- {"frame_key": "take10_a1_543535", "track_id": "9", "body": "sedan"},
- {"frame_key": "take12_a1_549265", "track_id": "23", "body": "sedan"},
- {"frame_key": "take10_a1_543470", "track_id": "9", "body": "sedan"},
- {"frame_key": "take03_a2_497165", "track_id": "70", "body": "sedan"},
- {"frame_key": "take01_a1_481675", "track_id": "104", "body": "sedan"},
- {"frame_key": "take06_a1_527905", "track_id": "28", "body": "sedan"},
- {"frame_key": "take11_a2_546035", "track_id": "63", "body": "sedan"},
- {"frame_key": "take01_a2_481675", "track_id": "103", "body": "sedan"},
- {"frame_key": "take03_a3_497215", "track_id": "11", "body": "sedan"},
- {"frame_key": "take06_a3_527885", "track_id": "85", "body": "sedan"},
- {"frame_key": "take06_a2_527890", "track_id": "55", "body": "sedan"},
- {"frame_key": "take14_a1_556270", "track_id": "35", "body": "sedan"},
- {"frame_key": "take03_a1_497235", "track_id": "178", "body": "sedan"},
- {"frame_key": "take14_a3_556420", "track_id": "120", "body": "sedan"},
- {"frame_key": "take01_a3_481680", "track_id": "149", "body": "sedan"},
- {"frame_key": "take13_a3_552390", "track_id": "44", "body": "sedan"},
- {"frame_key": "take08_a2_537595", "track_id": "50", "body": "sedan"},
- {"frame_key": "take14_a1_556230", "track_id": "35", "body": "sedan"},
- {"frame_key": "take02_a3_488615", "track_id": "84", "body": "suv_hatch"},
- {"frame_key": "take08_a2_537595", "track_id": "2", "body": "suv_hatch"},
- {"frame_key": "take14_a2_556435", "track_id": "83", "body": "sedan"},
- {"frame_key": "take07_a3_534305", "track_id": "29", "body": "sedan"},
- {"frame_key": "take09_a2_540610", "track_id": "42", "body": "sedan"},
- {"frame_key": "take11_a2_546035", "track_id": "67", "body": "pickup"},
- {"frame_key": "take06_a3_527885", "track_id": "34", "body": "suv_hatch"},
- {"frame_key": "take08_a1_537610", "track_id": "2", "body": "suv_hatch"},
- {"frame_key": "take08_a3_537615", "track_id": "48", "body": "sedan"},
- {"frame_key": "take10_a2_543605", "track_id": "41", "body": "suv_hatch"},
- {"frame_key": "take07_a3_534305", "track_id": "28", "body": "sedan"},
- {"frame_key": "take01_a1_481325", "track_id": "12", "body": "sedan"},
- {"frame_key": "take05_a1_524085", "track_id": "7", "body": "sedan"},
- {"frame_key": "take08_a1_537610", "track_id": "25", "body": "sedan"},
- {"frame_key": "take05_a1_524085", "track_id": "18", "body": "suv_hatch"},
- {"frame_key": "take09_a3_540705", "track_id": "37", "body": "sedan"},
- {"frame_key": "take01_a2_481675", "track_id": "85", "body": "suv_hatch"},
- {"frame_key": "take06_a2_527890", "track_id": "79", "body": "suv_hatch"},
- {"frame_key": "take08_a2_537370", "track_id": "50", "body": "sedan"},
- {"frame_key": "take13_a2_552340", "track_id": "38", "body": "sedan"},
- {"frame_key": "take12_a3_549200", "track_id": "2", "body": "sedan"},
- {"frame_key": "take07_a2_534390", "track_id": "58", "body": "suv_hatch"},
- {"frame_key": "take05_a1_524130", "track_id": "18", "body": "suv_hatch"},
- {"frame_key": "take05_a2_524120", "track_id": "18", "body": "suv_hatch"},
- {"frame_key": "take07_a2_534390", "track_id": "57", "body": "suv_hatch"},
- {"frame_key": "take14_a1_556230", "track_id": "33", "body": "suv_hatch"},
- {"frame_key": "take14_a1_556270", "track_id": "33", "body": "suv_hatch"},
- {"frame_key": "take11_a1_546510", "track_id": "36", "body": "suv_hatch"},
- {"frame_key": "take08_a2_537370", "track_id": "2", "body": "suv_hatch"},
- {"frame_key": "take11_a1_546565", "track_id": "36", "body": "suv_hatch"},
- {"frame_key": "take10_a2_543605", "track_id": "103", "body": "suv_hatch"},
- {"frame_key": "take10_a1_543470", "track_id": "69", "body": "suv_hatch"},
- {"frame_key": "take05_a1_524085", "track_id": "6", "body": "suv_hatch"},
- {"frame_key": "take11_a1_546565", "track_id": "270", "body": "suv_hatch"},
- {"frame_key": "take01_a1_481325", "track_id": "46", "body": "suv_hatch"},
- {"frame_key": "take14_a1_556230", "track_id": "61", "body": "suv_hatch"},
- {"frame_key": "take01_a2_481675", "track_id": "81", "body": "suv_hatch"},
- {"frame_key": "take01_a1_481325", "track_id": "24", "body": "suv_hatch"},
- {"frame_key": "take14_a3_556420", "track_id": "85", "body": "suv_hatch"},
- {"frame_key": "take02_a3_488615", "track_id": "56", "body": "suv_hatch"},
- {"frame_key": "take07_a3_534305", "track_id": "30", "body": "suv_hatch"},
- {"frame_key": "take08_a2_537595", "track_id": "49", "body": "pickup"},
- {"frame_key": "take05_a1_524085", "track_id": "5", "body": "pickup"},
- {"frame_key": "take08_a2_537370", "track_id": "49", "body": "pickup"}
+ {
+  "frame_key": "take01_a1_481325",
+  "track_id": "12",
+  "range_m": 7.13,
+  "gt_lwh": [
+   4.882,
+   2.151,
+   1.872
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "Nissan Altima; separate trunk step visible"
+ },
+ {
+  "frame_key": "take01_a1_481325",
+  "track_id": "104",
+  "range_m": 8.3,
+  "gt_lwh": [
+   4.859,
+   2.071,
+   1.667
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 0.6,
+  "evidence": "Mercedes C300 badge; trunk step visible; cut at right edge"
+ },
+ {
+  "frame_key": "take01_a1_481325",
+  "track_id": "24",
+  "range_m": 21.85,
+  "gt_lwh": [
+   5.354,
+   2.274,
+   2.037
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "rear-right",
+  "visible_fraction_est": 0.6,
+  "evidence": "Dodge Durango-like 3-row unibody SUV; lower body occluded by #104"
+ },
+ {
+  "frame_key": "take01_a1_481325",
+  "track_id": "46",
+  "range_m": 23.3,
+  "gt_lwh": [
+   5.144,
+   2.234,
+   1.985
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "front-right",
+  "visible_fraction_est": 0.9,
+  "evidence": "Honda CR-V (5th gen) profile, SUV ride height + liftgate"
+ },
+ {
+  "frame_key": "take01_a1_481325",
+  "track_id": "58",
+  "range_m": 25.51,
+  "gt_lwh": [
+   5.044,
+   2.217,
+   1.942
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "front-right",
+  "visible_fraction_est": 0.8,
+  "evidence": "Mercedes GLE midsize SUV profile; pedestrian/white car partly occlude"
+ },
+ {
+  "frame_key": "take01_a1_481325",
+  "track_id": "114512",
+  "range_m": 36.01,
+  "gt_lwh": [
+   5.205,
+   2.296,
+   1.988
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.1,
+  "evidence": "hidden behind #58 GLE; only a sliver of a light vehicle visible"
+ },
+ {
+  "frame_key": "take01_a2_481675",
+  "track_id": "103",
+  "range_m": 8.16,
+  "gt_lwh": [
+   5.023,
+   2.189,
+   1.791
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.95,
+  "evidence": "Acura TLX; trunk step visible"
+ },
+ {
+  "frame_key": "take01_a2_481675",
+  "track_id": "81",
+  "range_m": 9.34,
+  "gt_lwh": [
+   5.177,
+   2.259,
+   2.021
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear-right",
+  "visible_fraction_est": 0.6,
+  "evidence": "Mercedes GLE (W166) liftgate, SUV height; cut at left edge"
+ },
+ {
+  "frame_key": "take01_a2_481675",
+  "track_id": "85",
+  "range_m": 18.15,
+  "gt_lwh": [
+   5.05,
+   2.215,
+   1.898
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "rear-left",
+  "visible_fraction_est": 0.5,
+  "evidence": "dark compact/midsize SUV (BMW X3-like); front half occluded by #81"
+ },
+ {
+  "frame_key": "take01_a2_481675",
+  "track_id": "35",
+  "range_m": 33.06,
+  "gt_lwh": [
+   4.975,
+   2.158,
+   1.759
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.1,
+  "evidence": "occluded behind #81; same id is a dark Elantra sedan in take01_a3_481680"
+ },
+ {
+  "frame_key": "take01_a2_481675",
+  "track_id": "178",
+  "range_m": 34.79,
+  "gt_lwh": [
+   5.122,
+   2.266,
+   1.949
+  ],
+  "body": "hatchback",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "Toyota Corolla hatchback profile, short rear overhang, roof rack"
+ },
+ {
+  "frame_key": "take01_a2_481675",
+  "track_id": "149",
+  "range_m": 36.92,
+  "gt_lwh": [
+   5.058,
+   2.215,
+   1.893
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.1,
+  "evidence": "only roof + sensor rack visible over #81; same id is white Corolla sedan in take01_a3_481680"
+ },
+ {
+  "frame_key": "take01_a2_481675",
+  "track_id": "37",
+  "range_m": 41.54,
+  "gt_lwh": [
+   4.94,
+   2.158,
+   1.814
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 0.9,
+  "evidence": "Hyundai Elantra profile with trunk"
+ },
+ {
+  "frame_key": "take01_a2_481675",
+  "track_id": "104",
+  "range_m": 44.09,
+  "gt_lwh": [
+   4.899,
+   2.144,
+   1.788
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Mercedes C-class; trunk step"
+ },
+ {
+  "frame_key": "take01_a2_481675",
+  "track_id": "72",
+  "range_m": 45.05,
+  "gt_lwh": [
+   5.042,
+   2.195,
+   1.862
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 0.8,
+  "evidence": "Honda CR-V (3rd gen) profile"
+ },
+ {
+  "frame_key": "take01_a3_481680",
+  "track_id": "35",
+  "range_m": 18.88,
+  "gt_lwh": [
+   4.975,
+   2.158,
+   1.759
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark Hyundai Elantra (6th gen facelift) front; sedan model"
+ },
+ {
+  "frame_key": "take01_a3_481680",
+  "track_id": "149",
+  "range_m": 19.8,
+  "gt_lwh": [
+   4.957,
+   2.157,
+   1.811
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "front-right",
+  "visible_fraction_est": 0.5,
+  "evidence": "white Toyota Corolla (11th gen) w/ roof sensor rack; trunk visible; cut at right edge"
+ },
+ {
+  "frame_key": "take01_a3_481680",
+  "track_id": "85",
+  "range_m": 23.84,
+  "gt_lwh": [
+   5.119,
+   2.231,
+   1.95
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.05,
+  "evidence": "sliver at left image edge"
+ },
+ {
+  "frame_key": "take01_a3_481680",
+  "track_id": "66",
+  "range_m": 29.61,
+  "gt_lwh": [
+   5.029,
+   2.195,
+   1.87
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.15,
+  "evidence": "hidden behind #35"
+ },
+ {
+  "frame_key": "take01_a3_481680",
+  "track_id": "52",
+  "range_m": 33.09,
+  "gt_lwh": [
+   4.831,
+   2.137,
+   1.829
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 0.9,
+  "evidence": "dark Buick Encore-like small SUV, tall hood"
+ },
+ {
+  "frame_key": "take01_a3_481680",
+  "track_id": "50",
+  "range_m": 34.69,
+  "gt_lwh": [
+   4.876,
+   2.105,
+   1.793
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.8,
+  "evidence": "tall champagne vehicle front-on at 35 m; crossover vs minivan indeterminate"
+ },
+ {
+  "frame_key": "take01_a3_481680",
+  "track_id": "8",
+  "range_m": 40.21,
+  "gt_lwh": [
+   5.149,
+   2.317,
+   1.928
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.7,
+  "evidence": "small white car front-on at 40 m; sedan vs hatchback indeterminate"
+ },
+ {
+  "frame_key": "take01_a3_481680",
+  "track_id": "189",
+  "range_m": 43.84,
+  "gt_lwh": [
+   5.113,
+   2.233,
+   1.87
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.1,
+  "evidence": "hidden behind #35"
+ },
+ {
+  "frame_key": "take02_a1_488660",
+  "track_id": "237",
+  "range_m": 23.99,
+  "gt_lwh": [
+   5.198,
+   2.287,
+   2.001
+  ],
+  "body": "hatchback",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark gray Corolla w/ roof sensor rack (same agent car seen in profile as Corolla hatchback in take01)"
+ },
+ {
+  "frame_key": "take02_a1_488660",
+  "track_id": "213",
+  "range_m": 30.69,
+  "gt_lwh": [
+   5.296,
+   2.283,
+   1.956
+  ],
+  "body": "minivan",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "Toyota Sienna; sliding door track, tall roof"
+ },
+ {
+  "frame_key": "take02_a1_488660",
+  "track_id": "84",
+  "range_m": 31.28,
+  "gt_lwh": [
+   5.024,
+   2.183,
+   1.855
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "Nissan Rogue (2nd gen) front"
+ },
+ {
+  "frame_key": "take02_a1_488660",
+  "track_id": "189",
+  "range_m": 31.39,
+  "gt_lwh": [
+   5.139,
+   2.193,
+   1.827
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "VW Tiguan (2nd gen) front"
+ },
+ {
+  "frame_key": "take02_a1_488660",
+  "track_id": "188",
+  "range_m": 38.14,
+  "gt_lwh": [
+   5.321,
+   2.292,
+   2.01
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.7,
+  "evidence": "red tall truck-like front behind #84; pickup vs SUV indeterminate"
+ },
+ {
+  "frame_key": "take02_a1_488660",
+  "track_id": "208",
+  "range_m": 45.97,
+  "gt_lwh": [
+   5.174,
+   2.249,
+   1.895
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.1,
+  "evidence": "hidden behind #188/#84"
+ },
+ {
+  "frame_key": "take02_a2_488225",
+  "track_id": "273",
+  "range_m": 8.92,
+  "gt_lwh": [
+   4.532,
+   2.061,
+   2.327
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Toyota Corolla (10th gen) w/ roof sensor rack; trunk step"
+ },
+ {
+  "frame_key": "take02_a2_488225",
+  "track_id": "87",
+  "range_m": 10.54,
+  "gt_lwh": [
+   4.893,
+   2.15,
+   1.94
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front-left",
+  "visible_fraction_est": 0.2,
+  "evidence": "white vehicle cut off at right edge"
+ },
+ {
+  "frame_key": "take02_a2_488225",
+  "track_id": "44",
+  "range_m": 25.93,
+  "gt_lwh": [
+   5.054,
+   2.146,
+   1.786
+  ],
+  "body": "coupe",
+  "confidence": "medium",
+  "view": "right",
+  "visible_fraction_est": 0.8,
+  "evidence": "white Mercedes CLK; single long door, 2-door profile; rear partly hidden"
+ },
+ {
+  "frame_key": "take02_a2_488225",
+  "track_id": "117",
+  "range_m": 30.5,
+  "gt_lwh": [
+   6.319,
+   2.476,
+   2.267
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "front-right",
+  "visible_fraction_est": 1.0,
+  "evidence": "Toyota Tacoma double cab; open bed visible"
+ },
+ {
+  "frame_key": "take02_a2_488225",
+  "track_id": "36",
+  "range_m": 32.44,
+  "gt_lwh": [
+   5.174,
+   2.198,
+   1.954
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front-right",
+  "visible_fraction_est": 0.9,
+  "evidence": "black Ford Explorer (unibody 3-row midsize SUV)"
+ },
+ {
+  "frame_key": "take02_a2_488225",
+  "track_id": "135",
+  "range_m": 36.55,
+  "gt_lwh": [
+   5.174,
+   2.241,
+   1.913
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.1,
+  "evidence": "hidden behind #117 Tacoma"
+ },
+ {
+  "frame_key": "take02_a3_488615",
+  "track_id": "84",
+  "range_m": 10.88,
+  "gt_lwh": [
+   4.853,
+   2.117,
+   1.838
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 0.8,
+  "evidence": "Nissan Rogue liftgate; red truck occludes right"
+ },
+ {
+  "frame_key": "take02_a3_488615",
+  "track_id": "189",
+  "range_m": 12.07,
+  "gt_lwh": [
+   5.046,
+   2.175,
+   1.891
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.05,
+  "evidence": "sliver at right edge"
+ },
+ {
+  "frame_key": "take02_a3_488615",
+  "track_id": "56",
+  "range_m": 12.84,
+  "gt_lwh": [
+   5.226,
+   2.248,
+   2.075
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "Mercedes GLE Coupe: sloped liftgate, SUV ride height"
+ },
+ {
+  "frame_key": "take02_a3_488615",
+  "track_id": "222",
+  "range_m": 29.81,
+  "gt_lwh": [
+   4.778,
+   2.373,
+   2.456
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Toyota Corolla (9th gen); trunk step"
+ },
+ {
+  "frame_key": "take03_a1_497235",
+  "track_id": "178",
+  "range_m": 17.45,
+  "gt_lwh": [
+   5.138,
+   2.216,
+   1.804
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "right",
+  "visible_fraction_est": 1.0,
+  "evidence": "Ford Fusion profile; trunk step"
+ },
+ {
+  "frame_key": "take03_a1_497235",
+  "track_id": "11",
+  "range_m": 32.07,
+  "gt_lwh": [
+   4.792,
+   2.078,
+   1.766
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "Mitsubishi Lancer profile w/ trunk spoiler"
+ },
+ {
+  "frame_key": "take03_a1_497235",
+  "track_id": "21",
+  "range_m": 34.99,
+  "gt_lwh": [
+   5.018,
+   2.189,
+   1.865
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "black Audi A4 profile; trunk step"
+ },
+ {
+  "frame_key": "take03_a1_497235",
+  "track_id": "158",
+  "range_m": 43.45,
+  "gt_lwh": [
+   5.004,
+   2.144,
+   1.881
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 0.5,
+  "evidence": "gray Lexus RX/NX SUV; cut at right edge"
+ },
+ {
+  "frame_key": "take03_a2_497165",
+  "track_id": "70",
+  "range_m": 15.08,
+  "gt_lwh": [
+   5.044,
+   2.194,
+   1.786
+  ],
+  "body": "hatchback",
+  "confidence": "high",
+  "view": "rear-right",
+  "visible_fraction_est": 1.0,
+  "evidence": "Toyota Prius liftback, Kammback rear"
+ },
+ {
+  "frame_key": "take03_a2_497165",
+  "track_id": "75",
+  "range_m": 30.57,
+  "gt_lwh": [
+   5.792,
+   2.372,
+   2.105
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "Toyota Tacoma tailgate lettering"
+ },
+ {
+  "frame_key": "take03_a2_497165",
+  "track_id": "149",
+  "range_m": 33.89,
+  "gt_lwh": [
+   5.004,
+   2.161,
+   1.73
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Hyundai Elantra (7th gen) profile with trunk"
+ },
+ {
+  "frame_key": "take03_a2_497165",
+  "track_id": "72",
+  "range_m": 44.31,
+  "gt_lwh": [
+   5.507,
+   2.282,
+   2.169
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "blue Toyota Tacoma; tailgate and bed"
+ },
+ {
+  "frame_key": "take03_a2_497165",
+  "track_id": "11",
+  "range_m": 45.51,
+  "gt_lwh": [
+   4.836,
+   2.104,
+   1.802
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 0.5,
+  "evidence": "white Lancer front, lower half occluded; same id is Lancer sedan in take03_a1/a3"
+ },
+ {
+  "frame_key": "take03_a2_497165",
+  "track_id": "21",
+  "range_m": 46.02,
+  "gt_lwh": [
+   4.906,
+   2.116,
+   1.753
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 0.9,
+  "evidence": "black Audi sedan front; same id profile in take03_a1_497235 shows sedan"
+ },
+ {
+  "frame_key": "take03_a3_497215",
+  "track_id": "11",
+  "range_m": 8.96,
+  "gt_lwh": [
+   5.006,
+   2.173,
+   1.793
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "Mitsubishi Lancer; trunk with spoiler"
+ },
+ {
+  "frame_key": "take03_a3_497215",
+  "track_id": "21",
+  "range_m": 10.96,
+  "gt_lwh": [
+   4.938,
+   2.143,
+   1.764
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 0.85,
+  "evidence": "Audi A4; trunk step visible"
+ },
+ {
+  "frame_key": "take03_a3_497215",
+  "track_id": "87",
+  "range_m": 33.82,
+  "gt_lwh": [
+   5.319,
+   2.29,
+   1.975
+  ],
+  "body": "minivan",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "black Toyota Sienna; sliding door track, tall roof"
+ },
+ {
+  "frame_key": "take03_a3_497215",
+  "track_id": "178",
+  "range_m": 47.79,
+  "gt_lwh": [
+   5.032,
+   2.211,
+   1.802
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark Ford Fusion-like sedan at 48 m; same id profile in take03_a1_497235 shows sedan"
+ },
+ {
+  "frame_key": "take04_a1_515565",
+  "track_id": "50",
+  "range_m": 28.41,
+  "gt_lwh": [
+   5.138,
+   2.237,
+   1.862
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "rear",
+  "visible_fraction_est": 0.3,
+  "evidence": "white Nissan Sentra rear; trunk lid visible; cut at left edge"
+ },
+ {
+  "frame_key": "take04_a1_515565",
+  "track_id": "83",
+  "range_m": 29.91,
+  "gt_lwh": [
+   5.502,
+   2.366,
+   2.101
+  ],
+  "body": "pickup",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "black Chevy Silverado front; bed seen in take04_a2_515575 profile"
+ },
+ {
+  "frame_key": "take04_a1_515565",
+  "track_id": "75",
+  "range_m": 31.65,
+  "gt_lwh": [
+   4.967,
+   2.171,
+   1.901
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark BMW X-series SUV front, tall hood"
+ },
+ {
+  "frame_key": "take04_a1_515565",
+  "track_id": "68",
+  "range_m": 31.75,
+  "gt_lwh": [
+   5.167,
+   2.298,
+   1.969
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "black Ford F-150 regular cab; open bed visible"
+ },
+ {
+  "frame_key": "take04_a1_515565",
+  "track_id": "69",
+  "range_m": 32.01,
+  "gt_lwh": [
+   4.837,
+   2.161,
+   1.878
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver Honda Accord (8th gen) sedan front"
+ },
+ {
+  "frame_key": "take04_a1_515565",
+  "track_id": "61",
+  "range_m": 38.96,
+  "gt_lwh": [
+   5.198,
+   2.211,
+   1.977
+  ],
+  "body": "crossover",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.6,
+  "evidence": "dark SUV front behind #69, partly occluded"
+ },
+ {
+  "frame_key": "take04_a1_515565",
+  "track_id": "78",
+  "range_m": 41.11,
+  "gt_lwh": [
+   4.775,
+   2.082,
+   1.76
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.1,
+  "evidence": "hidden behind #83 Silverado"
+ },
+ {
+  "frame_key": "take04_a1_515565",
+  "track_id": "76",
+  "range_m": 46.52,
+  "gt_lwh": [
+   4.82,
+   2.1,
+   1.847
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.6,
+  "evidence": "dark low car front at 46 m; sedan vs hatchback indeterminate"
+ },
+ {
+  "frame_key": "take04_a1_515565",
+  "track_id": "47",
+  "range_m": 48.17,
+  "gt_lwh": [
+   4.905,
+   2.137,
+   1.925
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.1,
+  "evidence": "hidden behind #75"
+ },
+ {
+  "frame_key": "take04_a2_515575",
+  "track_id": "83",
+  "range_m": 34.29,
+  "gt_lwh": [
+   5.186,
+   2.291,
+   1.978
+  ],
+  "body": "pickup",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "Chevy Silverado front; cab roof ends with lower bed rail behind"
+ },
+ {
+  "frame_key": "take04_a2_515575",
+  "track_id": "25",
+  "range_m": 36.44,
+  "gt_lwh": [
+   6.112,
+   2.554,
+   2.328
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "Chevy Silverado tailgate"
+ },
+ {
+  "frame_key": "take04_a2_515575",
+  "track_id": "69",
+  "range_m": 37.61,
+  "gt_lwh": [
+   5.113,
+   2.26,
+   1.876
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 0.3,
+  "evidence": "silver Honda Accord sedan; cut at left edge"
+ },
+ {
+  "frame_key": "take04_a2_515575",
+  "track_id": "75",
+  "range_m": 37.81,
+  "gt_lwh": [
+   5.048,
+   2.219,
+   1.893
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark BMW X-series SUV"
+ },
+ {
+  "frame_key": "take04_a2_515575",
+  "track_id": "94",
+  "range_m": 43.9,
+  "gt_lwh": [
+   4.897,
+   2.127,
+   1.805
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.1,
+  "evidence": "hidden behind #83"
+ },
+ {
+  "frame_key": "take04_a2_515575",
+  "track_id": "61",
+  "range_m": 44.11,
+  "gt_lwh": [
+   5.258,
+   2.221,
+   2.003
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.1,
+  "evidence": "hidden behind #69/#75"
+ },
+ {
+  "frame_key": "take04_a2_515575",
+  "track_id": "78",
+  "range_m": 44.75,
+  "gt_lwh": [
+   4.804,
+   2.089,
+   1.764
+  ],
+  "body": "sedan",
+  "confidence": "low",
+  "view": "front-left",
+  "visible_fraction_est": 0.8,
+  "evidence": "silver Honda Civic (8th gen) front-left at 45 m; 4-door assumed, rear not visible"
+ },
+ {
+  "frame_key": "take04_a2_515575",
+  "track_id": "72",
+  "range_m": 48.15,
+  "gt_lwh": [
+   5.012,
+   2.222,
+   2.057
+  ],
+  "body": "hatchback",
+  "confidence": "medium",
+  "view": "right",
+  "visible_fraction_est": 0.8,
+  "evidence": "white Lexus CT200h profile; short sloped hatch"
+ },
+ {
+  "frame_key": "take05_a1_524085",
+  "track_id": "18",
+  "range_m": 5.97,
+  "gt_lwh": [
+   5.019,
+   2.168,
+   1.895
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.05,
+  "evidence": "sliver at left edge (same id is Subaru Outback in take05_a1_524130)"
+ },
+ {
+  "frame_key": "take05_a1_524085",
+  "track_id": "6",
+  "range_m": 16.24,
+  "gt_lwh": [
+   5.147,
+   2.267,
+   1.967
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear-right",
+  "visible_fraction_est": 0.75,
+  "evidence": "VW Tiguan (2nd gen) w/ roof rack; liftgate"
+ },
+ {
+  "frame_key": "take05_a1_524085",
+  "track_id": "5",
+  "range_m": 16.42,
+  "gt_lwh": [
+   6.197,
+   2.46,
+   2.158
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "CHEVROLET tailgate, Silverado"
+ },
+ {
+  "frame_key": "take05_a1_524085",
+  "track_id": "7",
+  "range_m": 16.52,
+  "gt_lwh": [
+   5.003,
+   2.197,
+   1.872
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-right",
+  "visible_fraction_est": 1.0,
+  "evidence": "red Lexus ES; trunk step"
+ },
+ {
+  "frame_key": "take05_a1_524085",
+  "track_id": "8",
+  "range_m": 29.31,
+  "gt_lwh": [
+   5.406,
+   2.327,
+   2.032
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.05,
+  "evidence": "hidden behind #5 Silverado"
+ },
+ {
+  "frame_key": "take05_a1_524085",
+  "track_id": "41",
+  "range_m": 34.2,
+  "gt_lwh": [
+   5.239,
+   2.293,
+   1.964
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.2,
+  "evidence": "mostly hidden behind #6 Tiguan"
+ },
+ {
+  "frame_key": "take05_a1_524085",
+  "track_id": "114514",
+  "range_m": 40.49,
+  "gt_lwh": [
+   5.282,
+   2.32,
+   2.036
+  ],
+  "body": "crossover",
+  "confidence": "low",
+  "view": "rear",
+  "visible_fraction_est": 0.7,
+  "evidence": "silver SUV rear at 40 m (tall liftgate, roof rails); small"
+ },
+ {
+  "frame_key": "take05_a2_524120",
+  "track_id": "18",
+  "range_m": 11.96,
+  "gt_lwh": [
+   5.155,
+   2.253,
+   1.924
+  ],
+  "body": "wagon",
+  "confidence": "medium",
+  "view": "rear-left",
+  "visible_fraction_est": 0.95,
+  "evidence": "Subaru Outback lifted wagon; could be called crossover"
+ },
+ {
+  "frame_key": "take05_a2_524120",
+  "track_id": "50",
+  "range_m": 22.09,
+  "gt_lwh": [
+   5.762,
+   2.403,
+   2.177
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 0.6,
+  "evidence": "GMC Sierra crew cab, bed rail visible; pole occludes, cut at left edge"
+ },
+ {
+  "frame_key": "take05_a2_524120",
+  "track_id": "5",
+  "range_m": 31.27,
+  "gt_lwh": [
+   5.939,
+   2.476,
+   2.252
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 0.9,
+  "evidence": "Chevy Silverado; bed and tailgate visible"
+ },
+ {
+  "frame_key": "take05_a2_524120",
+  "track_id": "7",
+  "range_m": 31.88,
+  "gt_lwh": [
+   5.003,
+   2.197,
+   1.872
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "red Lexus ES; trunk step"
+ },
+ {
+  "frame_key": "take05_a2_524120",
+  "track_id": "8",
+  "range_m": 46.79,
+  "gt_lwh": [
+   5.345,
+   2.353,
+   2.093
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "rear-left",
+  "visible_fraction_est": 0.7,
+  "evidence": "silver midsize SUV rear-left, liftgate; partly hidden by #7"
+ },
+ {
+  "frame_key": "take05_a2_524120",
+  "track_id": "514114",
+  "range_m": 49.19,
+  "gt_lwh": [
+   5.333,
+   2.356,
+   2.025
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark Tesla front at 49 m; Model 3 vs Model Y indeterminate"
+ },
+ {
+  "frame_key": "take02_a2_488690",
+  "track_id": "273",
+  "range_m": 17.53,
+  "gt_lwh": [
+   4.532,
+   2.061,
+   2.327
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Corolla sedan; trunk step"
+ },
+ {
+  "frame_key": "take02_a2_488690",
+  "track_id": "213",
+  "range_m": 33.41,
+  "gt_lwh": [
+   5.212,
+   2.239,
+   1.92
+  ],
+  "body": "minivan",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "Toyota Sienna; sliding door track"
+ },
+ {
+  "frame_key": "take02_a2_488690",
+  "track_id": "84",
+  "range_m": 33.84,
+  "gt_lwh": [
+   4.932,
+   2.167,
+   1.876
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "Nissan Rogue front"
+ },
+ {
+  "frame_key": "take02_a2_488690",
+  "track_id": "189",
+  "range_m": 33.98,
+  "gt_lwh": [
+   4.988,
+   2.21,
+   1.865
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "VW Tiguan front"
+ },
+ {
+  "frame_key": "take02_a2_488690",
+  "track_id": "188",
+  "range_m": 40.9,
+  "gt_lwh": [
+   5.108,
+   2.215,
+   1.945
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.6,
+  "evidence": "red truck-like front partly hidden by #84; pickup vs SUV indeterminate"
+ },
+ {
+  "frame_key": "take02_a2_488690",
+  "track_id": "56",
+  "range_m": 44.98,
+  "gt_lwh": [
+   5.721,
+   2.401,
+   2.236
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "rear",
+  "visible_fraction_est": 0.6,
+  "evidence": "white Mercedes GLE Coupe rear (sloped liftgate, SUV height); same id clear in take02_a3_488615"
+ },
+ {
+  "frame_key": "take01_a1_481675",
+  "track_id": "104",
+  "range_m": 19.85,
+  "gt_lwh": [
+   4.899,
+   2.144,
+   1.788
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Mercedes C-class; trunk step visible"
+ },
+ {
+  "frame_key": "take01_a1_481675",
+  "track_id": "178",
+  "range_m": 25.64,
+  "gt_lwh": [
+   5.122,
+   2.266,
+   1.949
+  ],
+  "body": "hatchback",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark Corolla w/ roof rack, front view here; same id seen in profile in take01_a2_481675 as Corolla hatchback"
+ },
+ {
+  "frame_key": "take01_a1_481675",
+  "track_id": "72",
+  "range_m": 33.62,
+  "gt_lwh": [
+   5.042,
+   2.195,
+   1.862
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "front",
+  "visible_fraction_est": 0.9,
+  "evidence": "Honda CR-V (3rd gen) front, tall SUV body"
+ },
+ {
+  "frame_key": "take01_a1_481675",
+  "track_id": "37",
+  "range_m": 33.79,
+  "gt_lwh": [
+   4.94,
+   2.158,
+   1.814
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 0.9,
+  "evidence": "Hyundai Elantra (7th gen) front; side profile in take01_a2_481675 shows sedan"
+ },
+ {
+  "frame_key": "take01_a1_481675",
+  "track_id": "182",
+  "range_m": 39.81,
+  "gt_lwh": [
+   5.023,
+   2.221,
+   1.907
+  ],
+  "body": "crossover",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.6,
+  "evidence": "dark SUV front with tall hood behind #178; small/partly occluded"
+ },
+ {
+  "frame_key": "take01_a1_481675",
+  "track_id": "69",
+  "range_m": 41.29,
+  "gt_lwh": [
+   4.956,
+   2.167,
+   1.857
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.3,
+  "evidence": "mostly hidden behind #37"
+ },
+ {
+  "frame_key": "take01_a1_481675",
+  "track_id": "68",
+  "range_m": 42.62,
+  "gt_lwh": [
+   5.072,
+   2.28,
+   1.982
+  ],
+  "body": "crossover",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.8,
+  "evidence": "dark midsize SUV front, vertical-slat grille (Jeep Grand Cherokee?); crossover vs full_suv uncertain"
+ },
+ {
+  "frame_key": "take05_a1_524130",
+  "track_id": "18",
+  "range_m": 11.66,
+  "gt_lwh": [
+   5.073,
+   2.197,
+   1.922
+  ],
+  "body": "wagon",
+  "confidence": "medium",
+  "view": "rear-right",
+  "visible_fraction_est": 1.0,
+  "evidence": "Subaru Outback (6th gen) lifted wagon, roof rails; could be called crossover"
+ },
+ {
+  "frame_key": "take05_a1_524130",
+  "track_id": "5",
+  "range_m": 32.85,
+  "gt_lwh": [
+   5.753,
+   2.398,
+   2.184
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "Chevy Silverado tailgate"
+ },
+ {
+  "frame_key": "take05_a1_524130",
+  "track_id": "7",
+  "range_m": 34.58,
+  "gt_lwh": [
+   5.003,
+   2.197,
+   1.872
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "red Lexus ES; trunk step"
+ },
+ {
+  "frame_key": "take05_a1_524130",
+  "track_id": "514114",
+  "range_m": 39.69,
+  "gt_lwh": [
+   5.079,
+   2.191,
+   1.839
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front-left",
+  "visible_fraction_est": 0.9,
+  "evidence": "dark Tesla front at 40 m; Model 3 (sedan) vs Model Y (crossover) indeterminate"
+ },
+ {
+  "frame_key": "take05_a1_524130",
+  "track_id": "55",
+  "range_m": 41.13,
+  "gt_lwh": [
+   5.195,
+   2.225,
+   1.925
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.05,
+  "evidence": "hidden behind #18 Outback"
+ },
+ {
+  "frame_key": "take05_a1_524130",
+  "track_id": "8",
+  "range_m": 48.79,
+  "gt_lwh": [
+   5.345,
+   2.353,
+   2.093
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.1,
+  "evidence": "sliver behind #5 Silverado"
+ },
+ {
+  "frame_key": "take05_a3_524070",
+  "track_id": "114514",
+  "range_m": 23.17,
+  "gt_lwh": [
+   5.283,
+   2.289,
+   1.99
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 0.75,
+  "evidence": "silver Nissan Pathfinder front, tall unibody SUV; same physical vehicle as #8 (likely duplicate track)"
+ },
+ {
+  "frame_key": "take05_a3_524070",
+  "track_id": "8",
+  "range_m": 31.59,
+  "gt_lwh": [
+   5.391,
+   2.332,
+   2.023
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 0.9,
+  "evidence": "silver Nissan Pathfinder front, tall unibody SUV; same vehicle as #114514"
+ },
+ {
+  "frame_key": "take05_a3_524070",
+  "track_id": "6",
+  "range_m": 34.67,
+  "gt_lwh": [
+   5.374,
+   2.301,
+   2.086
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 0.9,
+  "evidence": "dark VW Atlas/Tiguan-style SUV front, tall hood and greenhouse"
+ },
+ {
+  "frame_key": "take05_a3_524070",
+  "track_id": "7",
+  "range_m": 40.08,
+  "gt_lwh": [
+   4.852,
+   2.092,
+   1.731
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "red Toyota Camry front, low roofline sedan profile"
+ },
+ {
+  "frame_key": "take05_a3_524070",
+  "track_id": "5",
+  "range_m": 42.05,
+  "gt_lwh": [
+   6.0,
+   2.386,
+   2.185
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "grey Chevy Silverado grille, cab with bed rail behind, L 6.0 m"
+ },
+ {
+  "frame_key": "take05_a3_524070",
+  "track_id": "0",
+  "range_m": 46.28,
+  "gt_lwh": [
+   6.283,
+   2.517,
+   2.217
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 0.1,
+  "evidence": "only a sliver at image edge behind pole"
+ },
+ {
+  "frame_key": "take06_a1_527905",
+  "track_id": "54",
+  "range_m": 7.71,
+  "gt_lwh": [
+   4.796,
+   2.072,
+   1.689
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "rear-left",
+  "visible_fraction_est": 0.3,
+  "evidence": "silver compact car, roofline drops into short trunk deck"
+ },
+ {
+  "frame_key": "take06_a1_527905",
+  "track_id": "78",
+  "range_m": 10.85,
+  "gt_lwh": [
+   4.824,
+   2.093,
+   1.779
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "rear-right",
+  "visible_fraction_est": 0.15,
+  "evidence": "dark sliver at image edge"
+ },
+ {
+  "frame_key": "take06_a1_527905",
+  "track_id": "74",
+  "range_m": 11.69,
+  "gt_lwh": [
+   4.835,
+   2.123,
+   1.763
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "white 11th-gen Honda Civic rear, trunk lid with ducktail; hatch variant not fully excluded"
+ },
+ {
+  "frame_key": "take06_a1_527905",
+  "track_id": "28",
+  "range_m": 17.96,
+  "gt_lwh": [
+   5.049,
+   2.203,
+   1.789
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark Honda Accord rear, clear trunk step"
+ },
+ {
+  "frame_key": "take06_a1_527905",
+  "track_id": "73",
+  "range_m": 20.79,
+  "gt_lwh": [
+   4.985,
+   2.169,
+   1.76
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-right",
+  "visible_fraction_est": 1.0,
+  "evidence": "blue BMW 3-series, clear trunk step"
+ },
+ {
+  "frame_key": "take06_a1_527905",
+  "track_id": "93",
+  "range_m": 28.93,
+  "gt_lwh": [
+   5.001,
+   2.167,
+   1.764
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver Toyota Corolla side, three-box profile"
+ },
+ {
+  "frame_key": "take06_a1_527905",
+  "track_id": "84",
+  "range_m": 34.21,
+  "gt_lwh": [
+   5.084,
+   2.249,
+   2.022
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "rear-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark grey compact SUV, vertical rear hatch, roof rails"
+ },
+ {
+  "frame_key": "take06_a1_527905",
+  "track_id": "34",
+  "range_m": 36.88,
+  "gt_lwh": [
+   4.865,
+   2.131,
+   1.841
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 0.15,
+  "evidence": "sliver behind sign at image edge"
+ },
+ {
+  "frame_key": "take06_a1_527905",
+  "track_id": "88",
+  "range_m": 42.3,
+  "gt_lwh": [
+   4.914,
+   2.115,
+   1.76
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "right",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver sedan side at 42 m, trunk step visible"
+ },
+ {
+  "frame_key": "take06_a1_527905",
+  "track_id": "55",
+  "range_m": 43.94,
+  "gt_lwh": [
+   4.949,
+   2.137,
+   1.792
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.2,
+  "evidence": "mostly occluded behind blue BMW #73"
+ },
+ {
+  "frame_key": "take06_a2_527890",
+  "track_id": "55",
+  "range_m": 9.52,
+  "gt_lwh": [
+   4.939,
+   2.145,
+   1.803
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 0.25,
+  "evidence": "black car, only front half visible; rear shape not visible"
+ },
+ {
+  "frame_key": "take06_a2_527890",
+  "track_id": "79",
+  "range_m": 24.13,
+  "gt_lwh": [
+   5.042,
+   2.188,
+   1.898
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "blue Honda Pilot, vertical rear hatch, 3-row unibody SUV"
+ },
+ {
+  "frame_key": "take06_a2_527890",
+  "track_id": "61",
+  "range_m": 33.9,
+  "gt_lwh": [
+   5.101,
+   2.277,
+   2.003
+  ],
+  "body": "unknown",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver Hyundai Accent front only; sedan and hatch variants share this front"
+ },
+ {
+  "frame_key": "take06_a2_527890",
+  "track_id": "95",
+  "range_m": 34.95,
+  "gt_lwh": [
+   5.046,
+   2.24,
+   1.956
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark Toyota Venza front with full-width light bar, SUV ride height"
+ },
+ {
+  "frame_key": "take06_a2_527890",
+  "track_id": "59",
+  "range_m": 35.29,
+  "gt_lwh": [
+   5.361,
+   2.307,
+   2.022
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "front",
+  "visible_fraction_est": 0.35,
+  "evidence": "dark truck-like front partly cut off; pickup vs full-size SUV not determinable"
+ },
+ {
+  "frame_key": "take06_a3_527885",
+  "track_id": "34",
+  "range_m": 6.43,
+  "gt_lwh": [
+   4.897,
+   2.162,
+   1.856
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.7,
+  "evidence": "silver Toyota RAV4 rear, vertical hatch"
+ },
+ {
+  "frame_key": "take06_a3_527885",
+  "track_id": "85",
+  "range_m": 14.97,
+  "gt_lwh": [
+   5.012,
+   2.155,
+   1.799
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark blue sedan, trunk step visible"
+ },
+ {
+  "frame_key": "take06_a3_527885",
+  "track_id": "93",
+  "range_m": 28.52,
+  "gt_lwh": [
+   5.1,
+   2.201,
+   1.783
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver Toyota Corolla side, three-box profile"
+ },
+ {
+  "frame_key": "take06_a3_527885",
+  "track_id": "55",
+  "range_m": 30.57,
+  "gt_lwh": [
+   4.917,
+   2.133,
+   1.806
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.25,
+  "evidence": "mostly occluded by nearby RAV4 roof; only trunk corner"
+ },
+ {
+  "frame_key": "take06_a3_527885",
+  "track_id": "92",
+  "range_m": 34.09,
+  "gt_lwh": [
+   5.866,
+   2.375,
+   2.219
+  ],
+  "body": "unknown",
+  "confidence": "medium",
+  "view": "left",
+  "visible_fraction_est": 0.5,
+  "evidence": "dark SUV upper body behind blue sedan; size class unclear"
+ },
+ {
+  "frame_key": "take06_a3_527885",
+  "track_id": "79",
+  "range_m": 46.99,
+  "gt_lwh": [
+   5.143,
+   2.202,
+   1.922
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.3,
+  "evidence": "dark, blurry, mostly cut off at 47 m"
+ },
+ {
+  "frame_key": "take07_a1_534295",
+  "track_id": "15",
+  "range_m": 8.02,
+  "gt_lwh": [
+   4.697,
+   2.022,
+   1.757
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "grey BMW 3-series rear, clear trunk step"
+ },
+ {
+  "frame_key": "take07_a1_534295",
+  "track_id": "49",
+  "range_m": 16.14,
+  "gt_lwh": [
+   4.866,
+   2.118,
+   1.931
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.6,
+  "evidence": "white BMW X-series SUV, vertical rear hatch; partly occluded by BMW sedan"
+ },
+ {
+  "frame_key": "take07_a1_534295",
+  "track_id": "26",
+  "range_m": 16.79,
+  "gt_lwh": [
+   5.948,
+   2.382,
+   2.182
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "black Ford Super Duty, tailgate and bed"
+ },
+ {
+  "frame_key": "take07_a1_534295",
+  "track_id": "36",
+  "range_m": 26.21,
+  "gt_lwh": [
+   5.103,
+   2.188,
+   1.945
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark Honda CR-V"
+ },
+ {
+  "frame_key": "take07_a1_534295",
+  "track_id": "38",
+  "range_m": 43.59,
+  "gt_lwh": [
+   5.256,
+   2.278,
+   1.933
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "front",
+  "visible_fraction_est": 0.08,
+  "evidence": "sliver at image edge"
+ },
+ {
+  "frame_key": "take07_a1_534380",
+  "track_id": "15",
+  "range_m": 23.02,
+  "gt_lwh": [
+   5.022,
+   2.155,
+   1.757
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "grey BMW 3-series rear, trunk step"
+ },
+ {
+  "frame_key": "take07_a1_534380",
+  "track_id": "58",
+  "range_m": 27.63,
+  "gt_lwh": [
+   5.008,
+   2.212,
+   1.845
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 0.5,
+  "evidence": "dark midsize SUV with roof rails, partly cut off"
+ },
+ {
+  "frame_key": "take07_a1_534380",
+  "track_id": "46",
+  "range_m": 28.16,
+  "gt_lwh": [
+   5.079,
+   2.172,
+   1.784
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "red Lexus IS rear, trunk step"
+ },
+ {
+  "frame_key": "take07_a1_534380",
+  "track_id": "57",
+  "range_m": 30.69,
+  "gt_lwh": [
+   5.131,
+   2.25,
+   1.962
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Infiniti QX60 front"
+ },
+ {
+  "frame_key": "take07_a1_534380",
+  "track_id": "50",
+  "range_m": 34.71,
+  "gt_lwh": [
+   5.27,
+   2.297,
+   2.044
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark VW Tiguan front, boxy SUV"
+ },
+ {
+  "frame_key": "take07_a1_534380",
+  "track_id": "49",
+  "range_m": 46.46,
+  "gt_lwh": [
+   5.134,
+   2.235,
+   2.041
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.2,
+  "evidence": "occluded behind BMW sedan #15"
+ },
+ {
+  "frame_key": "take07_a2_534390",
+  "track_id": "57",
+  "range_m": 18.62,
+  "gt_lwh": [
+   5.065,
+   2.214,
+   1.928
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Infiniti QX60 rear, vertical hatch"
+ },
+ {
+  "frame_key": "take07_a2_534390",
+  "track_id": "58",
+  "range_m": 22.73,
+  "gt_lwh": [
+   5.164,
+   2.289,
+   1.907
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "rear-right",
+  "visible_fraction_est": 0.7,
+  "evidence": "dark midsize SUV rear hatch, partly occluded by QX60"
+ },
+ {
+  "frame_key": "take07_a2_534390",
+  "track_id": "54",
+  "range_m": 27.3,
+  "gt_lwh": [
+   5.095,
+   2.447,
+   1.928
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "white 10th-gen Toyota Corolla, sedan profile"
+ },
+ {
+  "frame_key": "take07_a2_534390",
+  "track_id": "31",
+  "range_m": 34.74,
+  "gt_lwh": [
+   4.884,
+   2.117,
+   1.736
+  ],
+  "body": "unknown",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "red Nissan Versa front only; sedan vs Versa Note hatch not determinable"
+ },
+ {
+  "frame_key": "take07_a2_534390",
+  "track_id": "29",
+  "range_m": 40.96,
+  "gt_lwh": [
+   5.163,
+   2.255,
+   1.846
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 0.1,
+  "evidence": "sliver at image edge"
+ },
+ {
+  "frame_key": "take07_a2_534390",
+  "track_id": "52",
+  "range_m": 44.49,
+  "gt_lwh": [
+   5.024,
+   2.172,
+   1.804
+  ],
+  "body": "sedan",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark 1st-gen Chevy Cruze front (sedan-only in US); trunk not visible"
+ },
+ {
+  "frame_key": "take07_a3_534305",
+  "track_id": "30",
+  "range_m": 8.63,
+  "gt_lwh": [
+   5.303,
+   2.313,
+   2.137
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver Ford Explorer rear hatch; unibody midsize 3-row SUV"
+ },
+ {
+  "frame_key": "take07_a3_534305",
+  "track_id": "28",
+  "range_m": 8.69,
+  "gt_lwh": [
+   5.062,
+   2.212,
+   1.866
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 0.7,
+  "evidence": "dark Kia Forte, trunk step"
+ },
+ {
+  "frame_key": "take07_a3_534305",
+  "track_id": "29",
+  "range_m": 9.34,
+  "gt_lwh": [
+   5.116,
+   2.241,
+   1.852
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 0.4,
+  "evidence": "dark sedan side, sedan roofline; rear partly cut off"
+ },
+ {
+  "frame_key": "take07_a3_534305",
+  "track_id": "49",
+  "range_m": 41.02,
+  "gt_lwh": [
+   4.979,
+   2.156,
+   1.987
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "left",
+  "visible_fraction_est": 0.8,
+  "evidence": "silver Nissan Pathfinder side (seen in compare.png; vehicles crop cut at roof)"
+ },
+ {
+  "frame_key": "take07_a3_534305",
+  "track_id": "26",
+  "range_m": 43.95,
+  "gt_lwh": [
+   6.062,
+   2.43,
+   2.271
+  ],
+  "body": "pickup",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 0.6,
+  "evidence": "dark Ford F-150 crew cab front, bed hidden behind Pathfinder; L 6.06 m"
+ },
+ {
+  "frame_key": "take08_a1_537610",
+  "track_id": "2",
+  "range_m": 9.73,
+  "gt_lwh": [
+   4.915,
+   2.163,
+   1.857
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.4,
+  "evidence": "Hyundai Tucson rear, logo in rear glass, full-width light bar"
+ },
+ {
+  "frame_key": "take08_a1_537610",
+  "track_id": "25",
+  "range_m": 17.48,
+  "gt_lwh": [
+   5.15,
+   2.223,
+   1.876
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "left",
+  "visible_fraction_est": 0.85,
+  "evidence": "black Tesla Model S side, sedan silhouette (technically liftback)"
+ },
+ {
+  "frame_key": "take08_a1_537610",
+  "track_id": "67",
+  "range_m": 29.29,
+  "gt_lwh": [
+   4.947,
+   2.156,
+   1.89
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "blue Toyota Highlander"
+ },
+ {
+  "frame_key": "take08_a1_537610",
+  "track_id": "48",
+  "range_m": 34.64,
+  "gt_lwh": [
+   4.908,
+   2.119,
+   1.743
+  ],
+  "body": "sedan",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "2020+ Corolla with LE/sedan-style grille; trunk not visible"
+ },
+ {
+  "frame_key": "take08_a1_537610",
+  "track_id": "27",
+  "range_m": 43.56,
+  "gt_lwh": [
+   4.942,
+   2.154,
+   1.842
+  ],
+  "body": "unknown",
+  "confidence": "medium",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark compact car rear at 44 m; sedan vs hatch unclear"
+ },
+ {
+  "frame_key": "take08_a1_537610",
+  "track_id": "56",
+  "range_m": 45.37,
+  "gt_lwh": [
+   5.244,
+   2.315,
+   2.084
+  ],
+  "body": "sedan",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.9,
+  "evidence": "dark Toyota Corolla with roof sensor rig, front only"
+ },
+ {
+  "frame_key": "take08_a1_537610",
+  "track_id": "40",
+  "range_m": 48.14,
+  "gt_lwh": [
+   5.071,
+   2.23,
+   1.866
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark compact SUV front, partly washed out by sun glare"
+ },
+ {
+  "frame_key": "take08_a2_537370",
+  "track_id": "2",
+  "range_m": 8.39,
+  "gt_lwh": [
+   5.09,
+   2.258,
+   1.957
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.85,
+  "evidence": "blue Hyundai Tucson rear, vertical hatch"
+ },
+ {
+  "frame_key": "take08_a2_537370",
+  "track_id": "49",
+  "range_m": 14.65,
+  "gt_lwh": [
+   6.086,
+   2.459,
+   2.231
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 0.55,
+  "evidence": "red Toyota Tacoma, open bed visible"
+ },
+ {
+  "frame_key": "take08_a2_537370",
+  "track_id": "50",
+  "range_m": 15.24,
+  "gt_lwh": [
+   5.098,
+   2.201,
+   1.898
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "white 10th-gen Corolla with roof sensor rig, trunk step"
+ },
+ {
+  "frame_key": "take08_a2_537370",
+  "track_id": "26",
+  "range_m": 16.04,
+  "gt_lwh": [
+   5.139,
+   2.26,
+   1.993
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.15,
+  "evidence": "occluded by Hyundai Tucson ahead"
+ },
+ {
+  "frame_key": "take08_a2_537370",
+  "track_id": "24",
+  "range_m": 28.54,
+  "gt_lwh": [
+   5.176,
+   2.183,
+   1.767
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 0.4,
+  "evidence": "dark car, only front half visible past the Corolla"
+ },
+ {
+  "frame_key": "take08_a2_537370",
+  "track_id": "31",
+  "range_m": 31.68,
+  "gt_lwh": [
+   5.067,
+   2.221,
+   1.928
+  ],
+  "body": "full_suv",
+  "confidence": "medium",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "grey Jeep Grand Cherokee side, boxy upright SUV"
+ },
+ {
+  "frame_key": "take08_a2_537595",
+  "track_id": "50",
+  "range_m": 9.83,
+  "gt_lwh": [
+   4.879,
+   2.11,
+   1.826
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 0.9,
+  "evidence": "white Corolla with roof sensor rig, trunk step"
+ },
+ {
+  "frame_key": "take08_a2_537595",
+  "track_id": "49",
+  "range_m": 10.28,
+  "gt_lwh": [
+   5.854,
+   2.354,
+   2.141
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 0.05,
+  "evidence": "sliver of red truck at image edge"
+ },
+ {
+  "frame_key": "take08_a2_537595",
+  "track_id": "2",
+  "range_m": 12.75,
+  "gt_lwh": [
+   5.029,
+   2.177,
+   1.85
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "blue Hyundai Tucson rear"
+ },
+ {
+  "frame_key": "take08_a2_537595",
+  "track_id": "26",
+  "range_m": 29.98,
+  "gt_lwh": [
+   5.091,
+   2.239,
+   1.893
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark Toyota Venza rear, vertical hatch"
+ },
+ {
+  "frame_key": "take08_a2_537595",
+  "track_id": "25",
+  "range_m": 33.02,
+  "gt_lwh": [
+   5.109,
+   2.237,
+   1.916
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.1,
+  "evidence": "occluded by Hyundai Tucson"
+ },
+ {
+  "frame_key": "take08_a2_537595",
+  "track_id": "27",
+  "range_m": 47.54,
+  "gt_lwh": [
+   5.007,
+   2.149,
+   1.823
+  ],
+  "body": "hatchback",
+  "confidence": "low",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "black 10th-gen Civic side, short rear overhang with hatch-top spoiler; tiny at 47 m"
+ },
+ {
+  "frame_key": "take08_a2_537595",
+  "track_id": "67",
+  "range_m": 48.43,
+  "gt_lwh": [
+   5.135,
+   2.219,
+   1.94
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.1,
+  "evidence": "occluded by Hyundai Tucson"
+ },
+ {
+  "frame_key": "take08_a3_537615",
+  "track_id": "48",
+  "range_m": 13.33,
+  "gt_lwh": [
+   5.013,
+   2.189,
+   1.857
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "grey 2020+ Toyota Corolla, trunk step"
+ },
+ {
+  "frame_key": "take08_a3_537615",
+  "track_id": "25",
+  "range_m": 34.13,
+  "gt_lwh": [
+   5.216,
+   2.22,
+   1.831
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 0.0,
+  "evidence": "not visible"
+ },
+ {
+  "frame_key": "take08_a3_537615",
+  "track_id": "2",
+  "range_m": 34.84,
+  "gt_lwh": [
+   4.943,
+   2.164,
+   1.861
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "right",
+  "visible_fraction_est": 1.0,
+  "evidence": "blue Hyundai Tucson side"
+ },
+ {
+  "frame_key": "take08_a3_537615",
+  "track_id": "50",
+  "range_m": 45.36,
+  "gt_lwh": [
+   5.182,
+   2.28,
+   1.985
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "white 10th-gen Corolla (sedan-only) with roof sensor rig"
+ },
+ {
+  "frame_key": "take08_a3_537615",
+  "track_id": "45",
+  "range_m": 45.54,
+  "gt_lwh": [
+   4.954,
+   2.194,
+   1.947
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 0.6,
+  "evidence": "dark VW SUV front, partly occluded by Tucson"
+ },
+ {
+  "frame_key": "take08_a3_537615",
+  "track_id": "49",
+  "range_m": 46.8,
+  "gt_lwh": [
+   5.424,
+   2.317,
+   2.033
+  ],
+  "body": "pickup",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "red Toyota Tacoma front, bed not visible"
+ },
+ {
+  "frame_key": "take09_a2_540610",
+  "track_id": "42",
+  "range_m": 8.32,
+  "gt_lwh": [
+   5.261,
+   2.299,
+   1.854
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 0.4,
+  "evidence": "grey 8th-gen Toyota Camry, trunk step"
+ },
+ {
+  "frame_key": "take09_a2_540610",
+  "track_id": "10",
+  "range_m": 29.95,
+  "gt_lwh": [
+   5.095,
+   2.44,
+   1.855
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "white 10th-gen Corolla, trunk deck visible"
+ },
+ {
+  "frame_key": "take09_a2_540610",
+  "track_id": "1",
+  "range_m": 37.54,
+  "gt_lwh": [
+   5.436,
+   2.307,
+   2.083
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 0.65,
+  "evidence": "grey Toyota Tacoma with camper shell on bed"
+ },
+ {
+  "frame_key": "take09_a3_540705",
+  "track_id": "42",
+  "range_m": 11.11,
+  "gt_lwh": [
+   5.178,
+   2.204,
+   1.728
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark Toyota Camry side, three-box profile"
+ },
+ {
+  "frame_key": "take09_a3_540705",
+  "track_id": "37",
+  "range_m": 16.24,
+  "gt_lwh": [
+   5.055,
+   2.202,
+   1.896
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "right",
+  "visible_fraction_est": 0.85,
+  "evidence": "dark VW Tiguan side"
+ },
+ {
+  "frame_key": "take09_a3_540705",
+  "track_id": "24",
+  "range_m": 44.63,
+  "gt_lwh": [
+   5.277,
+   2.268,
+   1.906
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "front",
+  "visible_fraction_est": 0.7,
+  "evidence": "dark car front at 45 m, top cut off in crop"
+ },
+ {
+  "frame_key": "take09_a3_540705",
+  "track_id": "9",
+  "range_m": 46.29,
+  "gt_lwh": [
+   5.238,
+   2.292,
+   1.936
+  ],
+  "body": "sedan",
+  "confidence": "low",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver 3rd-gen Acura TL front (sedan-only model); rear not visible"
+ },
+ {
+  "frame_key": "take10_a1_543470",
+  "track_id": "9",
+  "range_m": 7.84,
+  "gt_lwh": [
+   5.038,
+   2.174,
+   1.782
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver Nissan Sentra, trunk step"
+ },
+ {
+  "frame_key": "take10_a1_543470",
+  "track_id": "30",
+  "range_m": 9.73,
+  "gt_lwh": [
+   4.881,
+   2.076,
+   1.691
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 0.15,
+  "evidence": "sliver at image edge"
+ },
+ {
+  "frame_key": "take10_a1_543470",
+  "track_id": "55",
+  "range_m": 15.54,
+  "gt_lwh": [
+   4.912,
+   2.118,
+   1.777
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.15,
+  "evidence": "occluded by Sentra ahead"
+ },
+ {
+  "frame_key": "take10_a1_543470",
+  "track_id": "69",
+  "range_m": 16.96,
+  "gt_lwh": [
+   5.085,
+   2.199,
+   1.963
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark VW Tiguan rear, vertical hatch"
+ },
+ {
+  "frame_key": "take10_a1_543470",
+  "track_id": "12",
+  "range_m": 31.37,
+  "gt_lwh": [
+   5.518,
+   2.462,
+   2.064
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver Toyota Avalon, trunk step"
+ },
+ {
+  "frame_key": "take10_a1_543535",
+  "track_id": "53",
+  "range_m": 14.85,
+  "gt_lwh": [
+   4.8,
+   2.072,
+   1.738
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-right",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark Toyota Camry, trunk step"
+ },
+ {
+  "frame_key": "take10_a1_543535",
+  "track_id": "9",
+  "range_m": 17.88,
+  "gt_lwh": [
+   5.038,
+   2.174,
+   1.782
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver Nissan Sentra, trunk step"
+ },
+ {
+  "frame_key": "take10_a1_543535",
+  "track_id": "43",
+  "range_m": 18.68,
+  "gt_lwh": [
+   4.85,
+   2.092,
+   1.745
+  ],
+  "body": "hatchback",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver 3rd-gen Toyota Prius liftback, split rear glass"
+ },
+ {
+  "frame_key": "take10_a1_543535",
+  "track_id": "77",
+  "range_m": 29.51,
+  "gt_lwh": [
+   4.902,
+   2.098,
+   1.821
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.15,
+  "evidence": "occluded by Sentra ahead"
+ },
+ {
+  "frame_key": "take10_a1_543535",
+  "track_id": "66",
+  "range_m": 33.82,
+  "gt_lwh": [
+   5.23,
+   2.268,
+   1.831
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "grey Nissan Altima, 4-door sedan profile; sun glare"
+ },
+ {
+  "frame_key": "take10_a1_543535",
+  "track_id": "69",
+  "range_m": 43.11,
+  "gt_lwh": [
+   5.005,
+   2.17,
+   1.954
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark SUV rear at 43 m, upright hatch"
+ },
+ {
+  "frame_key": "take10_a1_543535",
+  "track_id": "74",
+  "range_m": 45.12,
+  "gt_lwh": [
+   5.137,
+   2.237,
+   1.897
+  ],
+  "body": "unknown",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 0.2,
+  "evidence": "behind #66; crop shows only #66 Altima"
+ },
+ {
+  "frame_key": "take10_a2_543605",
+  "track_id": "41",
+  "range_m": 18.12,
+  "gt_lwh": [
+   4.82,
+   2.12,
+   1.86
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "right",
+  "visible_fraction_est": 0.85,
+  "evidence": "3rd-gen Honda CR-V side; tall greenhouse, vertical rear hatch; pedestrian occludes rear corner"
+ },
+ {
+  "frame_key": "take10_a2_543605",
+  "track_id": "103",
+  "range_m": 22.1,
+  "gt_lwh": [
+   5.08,
+   2.25,
+   1.96
+  ],
+  "body": "hatchback",
+  "confidence": "high",
+  "view": "right",
+  "visible_fraction_est": 1.0,
+  "evidence": "gray Corolla hatchback with roof sensor rack; sloped liftgate, short rear overhang, no trunk step"
+ },
+ {
+  "frame_key": "take10_a2_543605",
+  "track_id": "95",
+  "range_m": 31.1,
+  "gt_lwh": [
+   4.87,
+   2.12,
+   1.75
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Corolla sedan, trunk step visible; GT crop leads car by ~50px (moving), id matched via consistent offset"
+ },
+ {
+  "frame_key": "take10_a2_543605",
+  "track_id": "82",
+  "range_m": 34.88,
+  "gt_lwh": [
+   5.04,
+   2.21,
+   1.85
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "rear-left",
+  "visible_fraction_est": 0.6,
+  "evidence": "silver 2nd-gen Nissan Rogue partly behind white Corolla; liftgate, SUV ride height; id via consistent motion offset"
+ },
+ {
+  "frame_key": "take10_a2_543605",
+  "track_id": "67",
+  "range_m": 35.83,
+  "gt_lwh": [
+   4.98,
+   2.17,
+   1.84
+  ],
+  "body": "sedan",
+  "confidence": "low",
+  "view": "rear-left",
+  "visible_fraction_est": 0.35,
+  "evidence": "white car behind gray hatch, mostly occluded; flat trunk deck behind rear window"
+ },
+ {
+  "frame_key": "take10_a3_543585",
+  "track_id": "41",
+  "range_m": 7.62,
+  "gt_lwh": [
+   4.87,
+   2.12,
+   1.81
+  ],
+  "body": "crossover",
+  "confidence": "low",
+  "view": "front-left",
+  "visible_fraction_est": 0.4,
+  "evidence": "dark SUV front half at image edge (dark); high hood, tall greenhouse; rear out of view"
+ },
+ {
+  "frame_key": "take10_a3_543585",
+  "track_id": "67",
+  "range_m": 29.64,
+  "gt_lwh": [
+   5.08,
+   2.23,
+   1.89
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 0.95,
+  "evidence": "white Corolla sedan with roof rack; trunk step visible"
+ },
+ {
+  "frame_key": "take10_a3_543585",
+  "track_id": "82",
+  "range_m": 39.39,
+  "gt_lwh": [
+   5.12,
+   2.25,
+   1.89
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 0.9,
+  "evidence": "dark 1st-gen Nissan Rogue front 3/4"
+ },
+ {
+  "frame_key": "take10_a3_543585",
+  "track_id": "48",
+  "range_m": 41.46,
+  "gt_lwh": [
+   5.04,
+   2.21,
+   1.95
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.9,
+  "evidence": "red 3rd-gen Toyota RAV4, spare tire on side-hinged rear door"
+ },
+ {
+  "frame_key": "take10_a3_543585",
+  "track_id": "50",
+  "range_m": 42.28,
+  "gt_lwh": [
+   4.93,
+   2.14,
+   1.73
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "rear",
+  "visible_fraction_est": 0.9,
+  "evidence": "dark car rear; plate on trunk lid, short deck below sloped rear window"
+ },
+ {
+  "frame_key": "take10_a3_543585",
+  "track_id": "95",
+  "range_m": 47.76,
+  "gt_lwh": [
+   5.04,
+   2.19,
+   1.8
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.9,
+  "evidence": "white Toyota seen head-on only; body type not determinable"
+ },
+ {
+  "frame_key": "take11_a1_546510",
+  "track_id": "36",
+  "range_m": 7.5,
+  "gt_lwh": [
+   4.94,
+   2.16,
+   1.95
+  ],
+  "body": "hatchback",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.95,
+  "evidence": "gray Corolla hatchback rear with roof rack; liftgate, no trunk"
+ },
+ {
+  "frame_key": "take11_a1_546510",
+  "track_id": "226",
+  "range_m": 21.25,
+  "gt_lwh": [
+   5.2,
+   2.24,
+   2.02
+  ],
+  "body": "crossover",
+  "confidence": "low",
+  "view": "left",
+  "visible_fraction_est": 0.6,
+  "evidence": "black SUV-coupe (GLE Coupe/X6-like): tall body, big wheels, fastback rear; front occluded by rack"
+ },
+ {
+  "frame_key": "take11_a1_546510",
+  "track_id": "238",
+  "range_m": 31.54,
+  "gt_lwh": [
+   5.17,
+   2.3,
+   1.99
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 0.85,
+  "evidence": "black sedan side profile, trunk step visible"
+ },
+ {
+  "frame_key": "take11_a1_546510",
+  "track_id": "208",
+  "range_m": 34.99,
+  "gt_lwh": [
+   5.11,
+   2.25,
+   1.97
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.15,
+  "evidence": "red car behind ego roof rack, mostly occluded"
+ },
+ {
+  "frame_key": "take11_a1_546510",
+  "track_id": "237",
+  "range_m": 36.39,
+  "gt_lwh": [
+   5.2,
+   2.26,
+   1.92
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front-left",
+  "visible_fraction_est": 0.05,
+  "evidence": "only a sliver at right image edge"
+ },
+ {
+  "frame_key": "take11_a1_546565",
+  "track_id": "36",
+  "range_m": 7.51,
+  "gt_lwh": [
+   4.97,
+   2.2,
+   1.96
+  ],
+  "body": "hatchback",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.95,
+  "evidence": "gray Corolla hatchback rear with roof rack; liftgate"
+ },
+ {
+  "frame_key": "take11_a1_546565",
+  "track_id": "248",
+  "range_m": 14.57,
+  "gt_lwh": [
+   4.91,
+   2.11,
+   1.72
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 0.85,
+  "evidence": "white 2015-17 Toyota Camry turning; LiDAR on it; rear partly hidden by ego hatch"
+ },
+ {
+  "frame_key": "take11_a1_546565",
+  "track_id": "270",
+  "range_m": 18.6,
+  "gt_lwh": [
+   5.08,
+   2.25,
+   1.97
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.0,
+  "evidence": "no vehicle visible at projected location (static, 0 LiDAR pts)"
+ },
+ {
+  "frame_key": "take11_a1_546565",
+  "track_id": "264",
+  "range_m": 34.28,
+  "gt_lwh": [
+   5.06,
+   2.22,
+   1.81
+  ],
+  "body": "hatchback",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Lexus CT200h, sloped rear hatch"
+ },
+ {
+  "frame_key": "take11_a1_546565",
+  "track_id": "265",
+  "range_m": 35.95,
+  "gt_lwh": [
+   5.07,
+   2.21,
+   1.88
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.05,
+  "evidence": "sliver at right image edge"
+ },
+ {
+  "frame_key": "take11_a2_546035",
+  "track_id": "63",
+  "range_m": 6.65,
+  "gt_lwh": [
+   4.99,
+   2.16,
+   1.79
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front-left",
+  "visible_fraction_est": 0.4,
+  "evidence": "dark 2nd-gen Chevy Cruze front half only; sedan vs hatch not visible"
+ },
+ {
+  "frame_key": "take11_a2_546035",
+  "track_id": "3",
+  "range_m": 8.08,
+  "gt_lwh": [
+   4.88,
+   2.15,
+   1.86
+  ],
+  "body": "hatchback",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver 2nd-gen Honda Insight liftback, split rear glass"
+ },
+ {
+  "frame_key": "take11_a2_546035",
+  "track_id": "67",
+  "range_m": 14.25,
+  "gt_lwh": [
+   5.05,
+   2.19,
+   1.85
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 0.9,
+  "evidence": "blue 1st-gen Toyota Tacoma, bed visible"
+ },
+ {
+  "frame_key": "take11_a2_546035",
+  "track_id": "65",
+  "range_m": 33.37,
+  "gt_lwh": [
+   5.11,
+   2.25,
+   1.94
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "rear",
+  "visible_fraction_est": 0.9,
+  "evidence": "silver compact SUV rear (Escape/Tribute-like); liftgate, vertical tail lamps"
+ },
+ {
+  "frame_key": "take11_a2_546035",
+  "track_id": "70",
+  "range_m": 34.48,
+  "gt_lwh": [
+   5.22,
+   2.27,
+   2.06
+  ],
+  "body": "full_suv",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 0.9,
+  "evidence": "dark 3rd-gen Dodge Durango front; large boxy SUV"
+ },
+ {
+  "frame_key": "take11_a3_546490",
+  "track_id": "214",
+  "range_m": 9.78,
+  "gt_lwh": [
+   5.08,
+   2.33,
+   1.77
+  ],
+  "body": "crossover",
+  "confidence": "low",
+  "view": "left",
+  "visible_fraction_est": 0.9,
+  "evidence": "dark Subaru Crosstrek-like with roof rails; raised hatch body (could be Impreza 5-door)"
+ },
+ {
+  "frame_key": "take11_a3_546490",
+  "track_id": "170",
+  "range_m": 25.25,
+  "gt_lwh": [
+   5.59,
+   2.36,
+   2.05
+  ],
+  "body": "pickup",
+  "confidence": "medium",
+  "view": "rear-left",
+  "visible_fraction_est": 0.7,
+  "evidence": "gray crew-cab pickup with bed; a3 crops shifted ~45px right/30px down, matched by label"
+ },
+ {
+  "frame_key": "take11_a3_546490",
+  "track_id": "222",
+  "range_m": 28.44,
+  "gt_lwh": [
+   5.11,
+   2.22,
+   1.81
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "right",
+  "visible_fraction_est": 0.6,
+  "evidence": "white car (Prius-like), rear hidden behind pickup; crop misaligned"
+ },
+ {
+  "frame_key": "take11_a3_546490",
+  "track_id": "213",
+  "range_m": 41.0,
+  "gt_lwh": [
+   5.08,
+   2.21,
+   1.81
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "white full-size sedan (Avalon-like), trunk step; crop misaligned, matched via id label/offset"
+ },
+ {
+  "frame_key": "take11_a3_546490",
+  "track_id": "3",
+  "range_m": 42.39,
+  "gt_lwh": [
+   4.96,
+   2.17,
+   1.91
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.5,
+  "evidence": "crop shows road only (misaligned); likely far white SUV head-on"
+ },
+ {
+  "frame_key": "take11_a3_546490",
+  "track_id": "63",
+  "range_m": 43.4,
+  "gt_lwh": [
+   4.98,
+   2.16,
+   1.8
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.1,
+  "evidence": "crop shows road/wheel only; occluded behind white car/pickup"
+ },
+ {
+  "frame_key": "take11_a3_546490",
+  "track_id": "168",
+  "range_m": 45.29,
+  "gt_lwh": [
+   4.85,
+   2.13,
+   1.82
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.05,
+  "evidence": "occluded behind pickup"
+ },
+ {
+  "frame_key": "take12_a1_549265",
+  "track_id": "23",
+  "range_m": 22.16,
+  "gt_lwh": [
+   5.11,
+   2.2,
+   1.78
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "right",
+  "visible_fraction_est": 0.9,
+  "evidence": "white Lexus IS sedan, trunk step"
+ },
+ {
+  "frame_key": "take12_a1_549265",
+  "track_id": "52",
+  "range_m": 34.07,
+  "gt_lwh": [
+   4.95,
+   2.2,
+   1.86
+  ],
+  "body": "full_suv",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 0.85,
+  "evidence": "dark Jeep Grand Cherokee L, long boxy 3-row SUV"
+ },
+ {
+  "frame_key": "take12_a1_549265",
+  "track_id": "40",
+  "range_m": 45.89,
+  "gt_lwh": [
+   5.44,
+   2.47,
+   2.23
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front-left",
+  "visible_fraction_est": 0.5,
+  "evidence": "white SUV partly hidden by pedestrians and #52; crossover vs full_suv unclear"
+ },
+ {
+  "frame_key": "take12_a2_549360",
+  "track_id": "73",
+  "range_m": 20.08,
+  "gt_lwh": [
+   5.04,
+   2.18,
+   1.81
+  ],
+  "body": "hatchback",
+  "confidence": "high",
+  "view": "right",
+  "visible_fraction_est": 0.9,
+  "evidence": "red 3rd-gen Toyota Prius liftback"
+ },
+ {
+  "frame_key": "take12_a2_549360",
+  "track_id": "78",
+  "range_m": 32.52,
+  "gt_lwh": [
+   5.31,
+   2.29,
+   2.0
+  ],
+  "body": "full_suv",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 0.6,
+  "evidence": "dark Jeep Grand Cherokee front, boxy; rear cut by image edge"
+ },
+ {
+  "frame_key": "take12_a2_549360",
+  "track_id": "80",
+  "range_m": 43.52,
+  "gt_lwh": [
+   5.7,
+   2.48,
+   2.17
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark Ford F-150 crew cab, bed visible"
+ },
+ {
+  "frame_key": "take12_a3_549200",
+  "track_id": "2",
+  "range_m": 9.37,
+  "gt_lwh": [
+   5.06,
+   2.22,
+   1.9
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver Nissan Sentra rear, trunk lid"
+ },
+ {
+  "frame_key": "take12_a3_549200",
+  "track_id": "6",
+  "range_m": 25.03,
+  "gt_lwh": [
+   5.41,
+   2.34,
+   1.99
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "right",
+  "visible_fraction_est": 1.0,
+  "evidence": "white 2025 Toyota Camry, trunk step"
+ },
+ {
+  "frame_key": "take12_a3_549200",
+  "track_id": "9",
+  "range_m": 28.23,
+  "gt_lwh": [
+   5.12,
+   2.27,
+   1.9
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "right",
+  "visible_fraction_est": 0.6,
+  "evidence": "black 5th-gen Nissan Altima; rear cut by image edge"
+ },
+ {
+  "frame_key": "take12_a3_549200",
+  "track_id": "10",
+  "range_m": 38.27,
+  "gt_lwh": [
+   6.49,
+   2.46,
+   2.29
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.05,
+  "evidence": "at left image edge"
+ },
+ {
+  "frame_key": "take12_a3_549200",
+  "track_id": "13",
+  "range_m": 39.38,
+  "gt_lwh": [
+   5.33,
+   2.41,
+   2.15
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "left",
+  "visible_fraction_est": 0.5,
+  "evidence": "white fastback-roof car behind #6, rear occluded"
+ },
+ {
+  "frame_key": "take12_a3_549200",
+  "track_id": "32",
+  "range_m": 44.87,
+  "gt_lwh": [
+   5.36,
+   2.38,
+   2.18
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front-left",
+  "visible_fraction_est": 0.7,
+  "evidence": "black VW Atlas Cross Sport, partly behind pedestrians"
+ },
+ {
+  "frame_key": "take12_a3_549200",
+  "track_id": "5",
+  "range_m": 44.92,
+  "gt_lwh": [
+   5.34,
+   2.4,
+   2.14
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.1,
+  "evidence": "at right image edge"
+ },
+ {
+  "frame_key": "take13_a1_552310",
+  "track_id": "98",
+  "range_m": 8.98,
+  "gt_lwh": [
+   4.99,
+   2.16,
+   1.75
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front-left",
+  "visible_fraction_est": 0.4,
+  "evidence": "silver Audi front half; rear out of frame (sedan vs Sportback unclear)"
+ },
+ {
+  "frame_key": "take13_a1_552310",
+  "track_id": "49",
+  "range_m": 29.57,
+  "gt_lwh": [
+   5.21,
+   2.29,
+   2.01
+  ],
+  "body": "full_suv",
+  "confidence": "high",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "black 4-door Jeep Wrangler"
+ },
+ {
+  "frame_key": "take13_a1_552310",
+  "track_id": "71",
+  "range_m": 32.94,
+  "gt_lwh": [
+   5.84,
+   2.46,
+   2.25
+  ],
+  "body": "pickup",
+  "confidence": "high",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver Ford Super Duty front"
+ },
+ {
+  "frame_key": "take13_a1_552310",
+  "track_id": "95",
+  "range_m": 33.47,
+  "gt_lwh": [
+   4.89,
+   2.16,
+   1.81
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver Nissan Sentra front (sedan-only model)"
+ },
+ {
+  "frame_key": "take13_a1_552310",
+  "track_id": "74",
+  "range_m": 33.79,
+  "gt_lwh": [
+   5.09,
+   2.25,
+   1.91
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver 3rd-gen Honda CR-V"
+ },
+ {
+  "frame_key": "take13_a1_552310",
+  "track_id": "97",
+  "range_m": 39.97,
+  "gt_lwh": [
+   4.96,
+   2.19,
+   1.93
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.2,
+  "evidence": "occluded behind CR-V #74"
+ },
+ {
+  "frame_key": "take13_a1_552310",
+  "track_id": "44",
+  "range_m": 40.94,
+  "gt_lwh": [
+   4.84,
+   2.12,
+   1.79
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.1,
+  "evidence": "occluded behind Jeep #49"
+ },
+ {
+  "frame_key": "take13_a2_552340",
+  "track_id": "37",
+  "range_m": 4.0,
+  "gt_lwh": [
+   4.55,
+   2.26,
+   2.26
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.05,
+  "evidence": "sliver at bottom-right edge"
+ },
+ {
+  "frame_key": "take13_a2_552340",
+  "track_id": "38",
+  "range_m": 18.53,
+  "gt_lwh": [
+   5.23,
+   2.29,
+   1.9
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "front-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Corolla sedan with roof rack, trunk step"
+ },
+ {
+  "frame_key": "take13_a2_552340",
+  "track_id": "44",
+  "range_m": 28.23,
+  "gt_lwh": [
+   5.31,
+   2.34,
+   1.91
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.05,
+  "evidence": "at left image edge"
+ },
+ {
+  "frame_key": "take13_a2_552340",
+  "track_id": "75",
+  "range_m": 29.86,
+  "gt_lwh": [
+   5.27,
+   2.29,
+   1.88
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "white 11th-gen Corolla sedan, trunk step"
+ },
+ {
+  "frame_key": "take13_a2_552340",
+  "track_id": "49",
+  "range_m": 30.6,
+  "gt_lwh": [
+   5.26,
+   2.31,
+   2.1
+  ],
+  "body": "full_suv",
+  "confidence": "high",
+  "view": "rear-right",
+  "visible_fraction_est": 0.6,
+  "evidence": "black 4-door Jeep Wrangler, rear spare tire; partly behind #38"
+ },
+ {
+  "frame_key": "take13_a2_552340",
+  "track_id": "95",
+  "range_m": 34.04,
+  "gt_lwh": [
+   4.94,
+   2.15,
+   1.82
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "right",
+  "visible_fraction_est": 1.0,
+  "evidence": "light-blue Nissan Sentra side, trunk step"
+ },
+ {
+  "frame_key": "take13_a3_552390",
+  "track_id": "44",
+  "range_m": 20.45,
+  "gt_lwh": [
+   5.05,
+   2.19,
+   1.82
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark blue 8th-gen Camry, trunk step"
+ },
+ {
+  "frame_key": "take13_a3_552390",
+  "track_id": "16",
+  "range_m": 27.0,
+  "gt_lwh": [
+   5.18,
+   2.29,
+   1.96
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 0.9,
+  "evidence": "pink Lexus UX (a3 static crops offset ~40px; #16/#132 both ~27 m)"
+ },
+ {
+  "frame_key": "take13_a3_552390",
+  "track_id": "132",
+  "range_m": 27.75,
+  "gt_lwh": [
+   5.32,
+   2.33,
+   1.97
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.3,
+  "evidence": "likely dark car behind Lexus UX or duplicate; ambiguous"
+ },
+ {
+  "frame_key": "take13_a3_552390",
+  "track_id": "94",
+  "range_m": 27.88,
+  "gt_lwh": [
+   5.24,
+   2.31,
+   2.02
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "gray 2nd-gen Kia Niro front"
+ },
+ {
+  "frame_key": "take14_a1_556230",
+  "track_id": "33",
+  "range_m": 8.47,
+  "gt_lwh": [
+   5.02,
+   2.24,
+   1.93
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver 3rd-gen Honda CR-V, badge, liftgate"
+ },
+ {
+  "frame_key": "take14_a1_556230",
+  "track_id": "35",
+  "range_m": 12.99,
+  "gt_lwh": [
+   5.01,
+   2.21,
+   1.83
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark 10th-gen Honda Civic sedan, trunk"
+ },
+ {
+  "frame_key": "take14_a1_556230",
+  "track_id": "61",
+  "range_m": 15.13,
+  "gt_lwh": [
+   5.17,
+   2.28,
+   1.99
+  ],
+  "body": "full_suv",
+  "confidence": "medium",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "gray BMW X7 rear, large 3-row boxy SUV"
+ },
+ {
+  "frame_key": "take14_a1_556230",
+  "track_id": "59",
+  "range_m": 33.25,
+  "gt_lwh": [
+   5.04,
+   2.19,
+   1.82
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "right",
+  "visible_fraction_est": 0.6,
+  "evidence": "black CR-V-like crossover; rear occluded by #33"
+ },
+ {
+  "frame_key": "take14_a1_556230",
+  "track_id": "34",
+  "range_m": 39.2,
+  "gt_lwh": [
+   5.08,
+   2.19,
+   1.84
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 0.9,
+  "evidence": "gray 7th-gen Hyundai Elantra sedan"
+ },
+ {
+  "frame_key": "take14_a1_556230",
+  "track_id": "49",
+  "range_m": 43.31,
+  "gt_lwh": [
+   4.88,
+   2.11,
+   1.73
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.2,
+  "evidence": "dark car mostly hidden behind Elantra"
+ },
+ {
+  "frame_key": "take14_a1_556270",
+  "track_id": "33",
+  "range_m": 8.45,
+  "gt_lwh": [
+   5.01,
+   2.22,
+   1.93
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 1.0,
+  "evidence": "silver 3rd-gen Honda CR-V, badge, liftgate"
+ },
+ {
+  "frame_key": "take14_a1_556270",
+  "track_id": "35",
+  "range_m": 12.99,
+  "gt_lwh": [
+   5.02,
+   2.19,
+   1.8
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark 10th-gen Honda Civic sedan, trunk"
+ },
+ {
+  "frame_key": "take14_a1_556270",
+  "track_id": "63",
+  "range_m": 33.98,
+  "gt_lwh": [
+   5.1,
+   2.22,
+   1.86
+  ],
+  "body": "crossover",
+  "confidence": "high",
+  "view": "right",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Mercedes GLA"
+ },
+ {
+  "frame_key": "take14_a1_556270",
+  "track_id": "61",
+  "range_m": 38.48,
+  "gt_lwh": [
+   5.48,
+   2.36,
+   2.12
+  ],
+  "body": "full_suv",
+  "confidence": "medium",
+  "view": "rear-left",
+  "visible_fraction_est": 1.0,
+  "evidence": "gray BMW X7, large 3-row boxy SUV"
+ },
+ {
+  "frame_key": "take14_a1_556270",
+  "track_id": "84",
+  "range_m": 39.22,
+  "gt_lwh": [
+   4.95,
+   2.15,
+   1.8
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 0.9,
+  "evidence": "gray 7th-gen Hyundai Elantra sedan"
+ },
+ {
+  "frame_key": "take14_a1_556270",
+  "track_id": "49",
+  "range_m": 42.72,
+  "gt_lwh": [
+   4.86,
+   2.1,
+   1.73
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.2,
+  "evidence": "dark car mostly hidden behind Elantra"
+ },
+ {
+  "frame_key": "take14_a2_556435",
+  "track_id": "84",
+  "range_m": 8.03,
+  "gt_lwh": [
+   4.94,
+   2.13,
+   1.75
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear",
+  "visible_fraction_est": 0.9,
+  "evidence": "dark 7th-gen Elantra rear, trunk lid"
+ },
+ {
+  "frame_key": "take14_a2_556435",
+  "track_id": "49",
+  "range_m": 8.57,
+  "gt_lwh": [
+   4.99,
+   2.15,
+   1.76
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "rear-left",
+  "visible_fraction_est": 0.6,
+  "evidence": "gray 8th-gen Honda Accord sedan, trunk"
+ },
+ {
+  "frame_key": "take14_a2_556435",
+  "track_id": "83",
+  "range_m": 22.93,
+  "gt_lwh": [
+   5.17,
+   2.23,
+   1.85
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "right",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark VW Passat sedan, trunk step"
+ },
+ {
+  "frame_key": "take14_a2_556435",
+  "track_id": "38",
+  "range_m": 28.11,
+  "gt_lwh": [
+   5.1,
+   2.26,
+   1.94
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "rear",
+  "visible_fraction_est": 0.1,
+  "evidence": "only rear corner at right edge"
+ },
+ {
+  "frame_key": "take14_a2_556435",
+  "track_id": "85",
+  "range_m": 34.85,
+  "gt_lwh": [
+   5.27,
+   2.3,
+   2.02
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Ford Explorer Police Interceptor (Campus Safety); crop leads car (moving)"
+ },
+ {
+  "frame_key": "take14_a3_556420",
+  "track_id": "120",
+  "range_m": 14.48,
+  "gt_lwh": [
+   5.16,
+   2.2,
+   1.81
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "right",
+  "visible_fraction_est": 1.0,
+  "evidence": "6th-gen Toyota Camry, trunk step"
+ },
+ {
+  "frame_key": "take14_a3_556420",
+  "track_id": "85",
+  "range_m": 19.61,
+  "gt_lwh": [
+   5.32,
+   2.28,
+   2.04
+  ],
+  "body": "crossover",
+  "confidence": "medium",
+  "view": "front-right",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Ford Explorer Police Interceptor (Campus Safety)"
+ },
+ {
+  "frame_key": "take14_a3_556420",
+  "track_id": "38",
+  "range_m": 27.39,
+  "gt_lwh": [
+   5.15,
+   2.25,
+   1.94
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "white Corolla sedan with roof rack, trunk step"
+ },
+ {
+  "frame_key": "take14_a3_556420",
+  "track_id": "83",
+  "range_m": 28.7,
+  "gt_lwh": [
+   5.13,
+   2.22,
+   1.83
+  ],
+  "body": "sedan",
+  "confidence": "high",
+  "view": "left",
+  "visible_fraction_est": 1.0,
+  "evidence": "gray VW Passat sedan, trunk step"
+ },
+ {
+  "frame_key": "take14_a3_556420",
+  "track_id": "84",
+  "range_m": 42.64,
+  "gt_lwh": [
+   4.84,
+   2.09,
+   1.74
+  ],
+  "body": "sedan",
+  "confidence": "medium",
+  "view": "front",
+  "visible_fraction_est": 1.0,
+  "evidence": "dark 7th-gen Elantra front (sedan-only model)"
+ },
+ {
+  "frame_key": "take14_a3_556420",
+  "track_id": "49",
+  "range_m": 43.29,
+  "gt_lwh": [
+   4.92,
+   2.12,
+   1.75
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "unknown",
+  "visible_fraction_est": 0.2,
+  "evidence": "dark car behind white sedan #38, only roof visible"
+ },
+ {
+  "frame_key": "take14_a3_556420",
+  "track_id": "71",
+  "range_m": 46.5,
+  "gt_lwh": [
+   6.19,
+   2.48,
+   2.25
+  ],
+  "body": "unknown",
+  "confidence": "low",
+  "view": "front",
+  "visible_fraction_est": 0.2,
+  "evidence": "dark large vehicle behind #85/#38, mostly occluded"
+ }
 ]

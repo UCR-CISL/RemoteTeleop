@@ -8,10 +8,15 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from src.viz.primitive_vehicle import CarShapeParams, PrimitiveVehicleAsset, car_section_tables
+from src.viz.universal_vehicle import TYPE_NAMES, UniversalBodyProfile
 
 RANGE_BUCKETS = ((3, 10), (10, 20), (20, 30), (30, 45), (45, 60))
-BODY_LABELS = Path(__file__).with_name("body_labels.json")  # visual body labels of near vehicles
+BODY_LABELS = Path(__file__).with_name("body_labels.json")  # visual body labels (3 labelers, all v2 rows)
+# Label vocabulary -> fitted types: wagons count as hatchbacks (long-roof, short-deck), coupes as sedans.
+LABEL_TYPES = {"wagon": "hatchback", "coupe": "sedan"}
+# Coarse silhouette groups for a forgiving accuracy.
+BODY_GROUPS = {"sedan": "car", "hatchback": "car", "crossover": "suv", "full_suv": "suv", "minivan": "suv",
+               "van": "van", "pickup": "pickup"}
 MIN_HELDOUT_POINTS = 20  # held-out distance stats need this many target-frame returns
 MAX_VEHICLE_ROWS = 10
 
@@ -34,16 +39,19 @@ class FrameFigures:
         real = cv2.resize(result.real_bgr, result.render_default.shape[1::-1], interpolation=cv2.INTER_AREA)
         evaluated = {v.track_id for v in result.vehicles}
         panels = []
-        for image, title in ((real, f"real camera  {result.spec.key}"),
-                             (result.render_default, "gsplat + DEFAULT primitive"),
-                             (result.render_fitted, "gsplat + FITTED shape + TINT")):
+        variants = ((real, f"real camera  {result.spec.key}"), (result.render_default, "LEGACY primitive + tint"),
+                    (result.render_means, "TYPE MEAN + tint"), (result.render_fitted, "FITTED shape + tint"))
+        for image, title in (variant for variant in variants if variant[0] is not None):
             image = image.copy()
             self._labels(image, result, evaluated)
             cv2.rectangle(image, (0, 0), (len(title) * 13 + 14, 32), (0, 0, 0), -1)
             cv2.putText(image, title, (7, 23), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2, cv2.LINE_AA)
             panels.append(image)
         separator = np.full((panels[0].shape[0], 6, 3), 255, np.uint8)
-        cv2.imwrite(str(path), np.hstack([panels[0], separator, panels[1], separator, panels[2]]))
+        stacked = [panels[0]]
+        for panel in panels[1:]:
+            stacked += [separator, panel]
+        cv2.imwrite(str(path), np.hstack(stacked))
 
     @staticmethod
     def _labels(image, result, evaluated) -> None:
@@ -73,7 +81,7 @@ class FrameFigures:
         rows = result.vehicles[:MAX_VEHICLE_ROWS]
         if not rows:
             return
-        widths = [2.4, 2.4, 2.4, 0.7, 2.6, 2.6, 3.4]
+        widths = [2.4, 2.4, 2.4, 2.4, 0.7, 2.6, 2.6, 3.4]
         fig, axes = plt.subplots(len(rows), len(widths), figsize=(sum(widths) * 1.15, 2.5 * len(rows)),
                                  gridspec_kw=dict(width_ratios=widths), squeeze=False)
         scale = result.render_default.shape[1] / result.real_bgr.shape[1]
@@ -88,20 +96,24 @@ class FrameFigures:
             row[0].set_xlim(x0, x1)
             row[0].set_ylim(y1, y0)
             row[0].set_title(f"#{v.track_id} real (t) + belt LiDAR", fontsize=8)
-            for ax, image, title in ((row[1], result.render_default, "default"), (row[2], result.render_fitted, "fitted+tint")):
+            for ax, image, title in ((row[1], result.render_default, "legacy+tint"), (row[2], result.render_means, "type mean+tint"),
+                                     (row[3], result.render_fitted, "fitted+tint")):
+                if image is None:
+                    ax.axis("off")
+                    continue
                 r0, r1 = int(y0 * scale), max(int(y1 * scale), int(y0 * scale) + 2)
                 c0, c1 = int(x0 * scale), max(int(x1 * scale), int(x0 * scale) + 2)
                 ax.imshow(cv2.cvtColor(image[r0:r1, c0:c1], cv2.COLOR_BGR2RGB))
                 ax.set_title(title, fontsize=8)
-            self._swatch(row[3], v)
-            self._profile(row[4], v, view="bev")
-            self._profile(row[5], v, view="side")
-            row[6].text(0, 1, self._text(v), va="top", ha="left", family="monospace", fontsize=7.2,
-                        transform=row[6].transAxes)
-            for ax in (row[0], row[1], row[2], row[3], row[6]):
+            self._swatch(row[4], v)
+            self._profile(row[5], v, view="bev")
+            self._profile(row[6], v, view="side")
+            row[7].text(0, 1, self._text(v), va="top", ha="left", family="monospace", fontsize=7.2,
+                        transform=row[7].transAxes)
+            for ax in (row[0], row[1], row[2], row[3], row[4], row[7]):
                 ax.set_xticks([])
                 ax.set_yticks([])
-            row[6].axis("off")
+            row[7].axis("off")
         fig.tight_layout(pad=0.4)
         fig.savefig(path, dpi=72)
         plt.close(fig)
@@ -114,7 +126,11 @@ class FrameFigures:
         c0, r0, c1, r1 = (int(value * scale) for value in (x0, y0, x1, y1))
         real = cv2.resize(result.real_bgr, (width, height), interpolation=cv2.INTER_AREA)[r0:r1, c0:c1]
         old = cv2.imread(str(baseline / "frames" / result.spec.key / "compare.png"))
-        old = old[r0:r1, 2 * (width + 6) + c0:2 * (width + 6) + c1] if old is not None else np.zeros_like(real)
+        if old is not None:  # the last panel is the baseline's fitted render
+            last = (old.shape[1] + 6) // (width + 6) - 1
+            old = old[r0:r1, last * (width + 6) + c0:last * (width + 6) + c1]
+        else:
+            old = np.zeros_like(real)
         panels = [real, old, result.render_fitted[r0:r1, c0:c1]]
         target = 180
         panels = [cv2.resize(panel, (max(1, int(panel.shape[1] * target / max(panel.shape[0], 1))), target))
@@ -159,21 +175,46 @@ class FrameFigures:
             ax.imshow(np.full((4, 1, 3), 0.85))
             ax.set_title("no obs", fontsize=7, color="red")
 
-    @staticmethod
-    def _outline(shape: CarShapeParams, dims, view: str):
-        """Body and cabin outlines (metric, object frame) for the BEV or side view."""
-        length, width, height = dims
-        polygons = []
-        for sections in car_section_tables(shape):
-            x = sections[:, 0] * length * shape.forward_sign
+    _legacy = []
+
+    @classmethod
+    def _outline(cls, shape, dims, view: str):
+        """Body outline (metric, object frame) for the BEV or side view; wheels excluded.
+
+        A universal ``shape`` draws its profile (side: roof/hood/bed-rail line and underside;
+        BEV: body sides). ``None`` draws the legacy primitive's envelope.
+        """
+        dims = np.asarray(dims, dtype=float)
+        if shape is not None:
+            stations, rings, _ = UniversalBodyProfile.rings(shape.array, dims, shape.prior)
+            x, ring = stations[0], rings[0]
             if view == "bev":
-                half = sections[:, 1] * width
-                polygons.append((np.r_[x, x[::-1], x[:1]], np.r_[half, -half[::-1], half[:1]]))
+                upper, lower = ring[:, 3, 0], -ring[:, 3, 0]
             else:
-                bottom = PrimitiveVehicleAsset.car_profile_z(sections[:, 2], dims) - height / 2
-                top = PrimitiveVehicleAsset.car_profile_z(sections[:, 3], dims) - height / 2
-                polygons.append((np.r_[x, x[::-1], x[:1]], np.r_[top, bottom[::-1], top[:1]]))
-        return polygons
+                upper, lower = ring[:, 7, 1] - dims[2] / 2, ring[:, 0, 1] - dims[2] / 2
+            return [(np.r_[x, x[::-1], x[:1]], np.r_[upper, lower[::-1], upper[:1]])]
+        if not cls._legacy:
+            from src.viz.primitive_car import PrimitiveCarAsset
+
+            cls._legacy.append(PrimitiveCarAsset())
+        asset = cls._legacy[0]
+        vertices = asset.vertices_for_dimensions(dims)
+        body = np.ones(len(vertices), bool)
+        for wheel in asset._wheels:
+            body[wheel.start:wheel.stop] = False
+        vertices = vertices[body]
+        column = 1 if view == "bev" else 2
+        edges = np.linspace(vertices[:, 0].min(), vertices[:, 0].max(), 31)
+        index = np.clip(np.digitize(vertices[:, 0], edges) - 1, 0, 29)
+        x, upper, lower = [], [], []
+        for bin_index in range(30):
+            values = vertices[index == bin_index, column]
+            if len(values):
+                x.append((edges[bin_index] + edges[bin_index + 1]) / 2)
+                upper.append(values.max())
+                lower.append(-values.max() if view == "bev" else values.min())
+        x, upper, lower = map(np.asarray, (x, upper, lower))
+        return [(np.r_[x, x[::-1], x[:1]], np.r_[upper, lower[::-1], upper[:1]])]
 
     def _profile(self, ax, v, *, view: str) -> None:
         dims = np.asarray(v.dims_lwh)
@@ -183,7 +224,7 @@ class FrameFigures:
                        c="tab:blue", alpha=0.5, linewidths=0)
         if v.heldout_xyz is not None and len(v.heldout_xyz):
             ax.scatter(v.heldout_xyz[:, 0], v.heldout_xyz[:, column], s=2, c="tab:orange", alpha=0.7, linewidths=0)
-        for polygon in self._outline(CarShapeParams(), dims, view):
+        for polygon in self._outline(None, dims, view):
             ax.plot(*polygon, "k--", lw=0.8)
         if v.published_shape is not None:
             for polygon in self._outline(v.published_shape, dims, view):
@@ -198,13 +239,13 @@ class FrameFigures:
             ax.set_title("BEV (+x = GT front →)  blue=acc, orange=t", fontsize=7)
         else:
             ax.set_ylim(-dims[2] / 2 - 0.3, dims[2] / 2 + 0.3)
-            ax.set_title("side  green=fit, dashed=default", fontsize=7)
+            ax.set_title("side  green=fit, dashed=legacy", fontsize=7)
         ax.tick_params(labelsize=6)
 
     @staticmethod
     def _text(v) -> str:
         shape = v.published_shape
-        fit = (f"{shape.body_type} fwd={int(shape.forward_sign):+d}" if shape is not None else "not published")
+        fit = ("not published" if shape is None else f"{shape.body_type}{' (prior only)' if v.prior_only else ''}")
         motion = {1: "+x", -1: "-x", 0: "static"}[v.motion_front_sign]
         lat = f"{np.mean(v.fit_latency_ms):.0f}/{np.max(v.fit_latency_ms):.0f}" if v.fit_latency_ms else "-"
         color = (f"{_hex(v.color_rgb)} c={v.color_confidence:.2f} n={v.color_fused_observations}"
@@ -216,13 +257,14 @@ class FrameFigures:
             f"hist {len(v.history_frames)} fr{' (+future)' if v.used_future_frames else ''}  raw pts {v.raw_points}",
             f"voxels {v.accumulator_voxels}  evidence {v.evidence_voxels}",
             f"fit: {fit}",
-            f"  accepted {v.accepted_steps}/{v.n_fits} steps, rms {v.fit_rms_m:.3f}",
+            f"  accepted {v.accepted_steps}/{v.n_fits} steps ({v.sweeps} sweeps), rms {v.fit_rms_m:.3f}",
             f"  cold: {v.cold_fit.get('body_type')} {v.cold_fit.get('forward_sign')} acc={v.cold_fit.get('accepted')}",
             f"  GT motion {v.gt_motion_m:.1f} m -> front {motion}",
             f"  latency mean/max {lat} ms",
             f"held-out ({v.heldout_points} pts) med/p90 m:",
-            f"  default {dd[0]:.3f}/{dd[1]:.3f}",
-            f"  fitted  {df[0]:.3f}/{df[1]:.3f}",
+            f"  legacy {dd[0]:.3f}/{dd[1]:.3f}",
+            f"  mean   {v.heldout_means[0]:.3f}/{v.heldout_means[1]:.3f}",
+            f"  fitted {df[0]:.3f}/{df[1]:.3f}",
             f"color: {color}",
             f"  L* belt/road at t: {v.target_body_L:.0f}/{v.target_road_L:.0f}"
             + (f"  road-WB {_hex(v.road_balanced_rgb)}" if v.road_balanced_rgb is not None else ""),
@@ -310,7 +352,7 @@ class ReviewReport:
             fitted = [r for r in scored if r["shape_published"]]
             moving = [r for r in group if r["sign_matches_motion"] is not None]
             published = [r for r in group if r["shape_published"]]
-            median = lambda key, rs: _median([r[key] for r in rs])
+            median = lambda key, rs: _median([r.get(key) for r in rs])
             out[name] = dict(
                 vehicles=len(group),
                 shape_published_rate=_rate(len(published), len(group)),
@@ -320,6 +362,9 @@ class ReviewReport:
                 heldout_median_fitted_m=median("heldout_fitted_median_m", scored),
                 heldout_p90_default_m=median("heldout_default_p90_m", scored),
                 heldout_p90_fitted_m=median("heldout_fitted_p90_m", scored),
+                heldout_median_means_m=median("heldout_means_median_m", scored),
+                heldout_p90_means_m=median("heldout_means_p90_m", scored),
+                prior_only_rate=_rate(sum(bool(r.get("prior_only")) for r in published), len(published)),
                 published_only_p90_default_m=median("heldout_default_p90_m", fitted),
                 published_only_p90_fitted_m=median("heldout_fitted_p90_m", fitted),
                 fitted_better_p90_rate=_rate(sum(r["heldout_fitted_p90_m"] < r["heldout_default_p90_m"] - 1e-4
@@ -331,7 +376,7 @@ class ReviewReport:
                 moving_with_shape=len(moving),
                 gt_x_vs_motion=_rate(sum(r["motion_front_sign"] == 1 for r in group if r["motion_front_sign"]),
                                      sum(bool(r["motion_front_sign"]) for r in group)),
-                body_types={t: sum(r["body_type"] == t for r in published) for t in CarShapeParams.BODY_TYPES},
+                body_types={t: sum(r["body_type"] == t for r in published) for t in TYPE_NAMES},
                 color_L_percentiles=_percentiles([r["color_L"] for r in group if r["color_published"]]),
                 color_L_below_30=sum(r["color_published"] and r["color_L"] < 30 for r in group),
                 fit_latency_ms_mean=_median([r["fit_latency_ms_mean"] for r in group]),
@@ -372,19 +417,22 @@ class ReviewReport:
             "`xyz` splat alignment), with no MCAP or split-system replay. Every GT vehicle in view (3-60 m)",
             f"accumulates its in-box LiDAR returns over the previous **{s['history']} native frames (~{s['history'] / 10:.0f} s)**,",
             "using native `map_T_lidar` / `map_T_object` with GT box bottoms snapped onto the LiDAR ground.",
-            "`ObjectPointAccumulator` stores them and `CarShapeFitter` refits after every scan, warm-started",
-            "from the last accepted fit, as a live per-poll refit would; the last accepted fit is published.",
+            "`ObjectPointAccumulator` stores them and `VehicleShapeFitter` refits after every scan, warm-started",
+            "from the last accepted fit; as in the live estimator only the incumbent type is refit except every",
+            f"{s.get('sweep_every', 5)}th fit (full type sweep). The last accepted fit is published; before the first",
+            "accepted fit the dimension-prior type mean is published (\"prior only\").",
             "`VehicleColorEstimator.observe` runs on each history frame's native 1920x1200 camera image with",
             "the refined calibration, a full-scan `SparseDepthBuffer`, and nearer GT boxes as occluders.",
-            "Frame *t* itself is held out: its in-box points give one-sided point-to-surface distances",
-            "(vertical/lateral, as in `surface_distance`) for the default sedan and for the published fit.",
+            "Frame *t* itself is held out: its in-box points give true point-to-triangle distances to the legacy",
+            "primitive, to the published type's mean (normalized to the box) and to the published fit.",
             "",
-            "Each frame has two images. `compare.png` shows real camera | default primitive | fitted+tinted.",
+            "Each frame has two images. `compare.png` shows real camera | legacy primitive | type mean | fitted",
+            "shape, all with the same published body tint.",
             "Track IDs appear in yellow for evaluated vehicles and gray for those beyond 60 m.",
             "`vehicles.png` has one row per vehicle: a real crop with belt-band LiDAR samples (yellow = passed",
-            "the depth test, red = rejected), the two render crops, a color swatch, BEV and side views, and metrics.",
+            "the depth test, red = rejected), the three render crops, a color swatch, BEV and side views, and metrics.",
             "In the BEV and side views, blue = accumulated voxels, orange = held-out frame *t*,",
-            "dashed = default outline, green = fitted outline, and the arrow marks GT +x.",
+            "dashed = legacy primitive envelope, green = fitted envelope, and the arrow marks GT +x.",
             "The swatch's bottom quarter is a diagnostic: the published color white-balanced so that the road",
             "ring around the car reads neutral. It is not used in the render.",
             "",
@@ -392,7 +440,7 @@ class ReviewReport:
             "```",
             "PYTHONPATH=. ../RemoteTeleop/.venv/bin/python scripts/investigation/vehicle_shape/evaluate.py",
             "```",
-            f"Settings: `{json.dumps({k: s[k] for k in ('history', 'fitter', 'accumulator', 'color', 'calibration', 'default_incumbent')})}`",
+            f"Settings: `{json.dumps({k: s.get(k) for k in ('history', 'fitter', 'accumulator', 'color', 'calibration', 'default_incumbent', 'sweep_every')})}`",
             "",
             *self._changes_since_baseline(aggregate),
             "## Aggregate (per range bucket)",
@@ -402,7 +450,7 @@ class ReviewReport:
             "cover vehicles with a published shape. forward_sign vs motion uses GT displacement over the",
             "window (>= 0.8 m) and assumes forward driving.",
             "",
-            "| range | n | shape pub. | color pub. | scored | med dist def→fit (m) | p90 def→fit (m) "
+            "| range | n | shape pub. | color pub. | scored | med dist legacy→mean→fit (m) | p90 legacy→mean→fit (m) "
             "| published-only p90 def→fit | fit better / worse (p90) | fwd = GT +x | fwd vs motion (n) | GT +x = motion | fit ms (median of means / max) |",
             "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
         ]
@@ -413,8 +461,8 @@ class ReviewReport:
                 continue
             lines.append(
                 f"| {name} | {a['vehicles']} | {_pct(a['shape_published_rate'])} | {_pct(a['color_published_rate'])} "
-                f"| {a['scored_vehicles']} | {_f(a['heldout_median_default_m'])} → {_f(a['heldout_median_fitted_m'])} "
-                f"| {_f(a['heldout_p90_default_m'])} → {_f(a['heldout_p90_fitted_m'])} "
+                f"| {a['scored_vehicles']} | {_f(a['heldout_median_default_m'])} → {_f(a.get('heldout_median_means_m'))} → {_f(a['heldout_median_fitted_m'])} "
+                f"| {_f(a['heldout_p90_default_m'])} → {_f(a.get('heldout_p90_means_m'))} → {_f(a['heldout_p90_fitted_m'])} "
                 f"| {_f(a['published_only_p90_default_m'])} → {_f(a['published_only_p90_fitted_m'])} "
                 f"| {_pct(a['fitted_better_p90_rate'])} / {_pct(a['fitted_worse_p90_rate'])} "
                 f"| {_pct(a['forward_sign_vs_gt_x'])} | {_pct(a['forward_sign_vs_motion'])} ({a['moving_with_shape']}) "
@@ -471,6 +519,8 @@ class ReviewReport:
         if self.baseline is None or not (self.baseline / "summary.json").is_file():
             return []
         base = json.loads((self.baseline / "summary.json").read_text())
+        frames = {r["frame_key"] for r in self.rows}  # compare like with like: this run's frames only
+        base["vehicles"] = [r for r in base["vehicles"] if r["frame_key"] in frames]
         old_rows = {(r["frame_key"], r["track_id"]): r for r in base["vehicles"]}
         new_rows = {(r["frame_key"], r["track_id"]): r for r in self.rows}
         relative = f"../{self.baseline.name}"
@@ -480,7 +530,7 @@ class ReviewReport:
         bodies = [body_label_accuracy(base["vehicles"]), body_label_accuracy(self.rows)]
 
         def label(accuracy, body):
-            return f"{accuracy[body][0]}/{accuracy[body][1]}" if body in accuracy else "–"
+            return "/".join(str(value) for value in accuracy[body]) if body in accuracy else "–"
 
         def lstar(a):
             return f"{'/'.join(f'{v:.0f}' for v in a['color_L_percentiles'])}" if a.get("color_L_percentiles") else "–"
@@ -491,41 +541,48 @@ class ReviewReport:
             values = _percentiles([_lightness(albedo(r["color_rgb"])) for r in rows if r["color_published"]])
             return "/".join(f"{v:.0f}" for v in values) if values else "–"
 
+        def held_out(a, key):
+            return " → ".join(_f(a.get(f"heldout_{key}_{name}_m")) for name in ("default", "means", "fitted"))
+
+        def accuracy(rows):
+            result = body_label_accuracy(rows)
+            exact = sum(v[0] for v in result.values()), sum(v[2] for v in result.values())
+            group = sum(v[1] for v in result.values())
+            return f"{exact[0]}/{exact[1]} exact, {group}/{exact[1]} group"
+
         table = [
-            ("forward_sign = GT +x (all / 3-10 m)", f"{_pct(old['forward_sign_vs_gt_x'])} / {_pct(near_old.get('forward_sign_vs_gt_x'))}",
-             f"{_pct(new['forward_sign_vs_gt_x'])} / {_pct(near_new.get('forward_sign_vs_gt_x'))}"),
-            ("forward_sign vs GT motion", _pct(old["forward_sign_vs_motion"]), _pct(new["forward_sign_vs_motion"])),
-            ("held-out median dist, fitted (m)", _f(old["heldout_median_fitted_m"]), _f(new["heldout_median_fitted_m"])),
-            ("held-out p90 dist, fitted (m)", _f(old["heldout_p90_fitted_m"]), _f(new["heldout_p90_fitted_m"])),
-            ("fit better / worse than default (p90)", f"{_pct(old['fitted_better_p90_rate'])} / {_pct(old['fitted_worse_p90_rate'])}",
-             f"{_pct(new['fitted_better_p90_rate'])} / {_pct(new['fitted_worse_p90_rate'])}"),
-            ("shape published", _pct(old["shape_published_rate"]), _pct(new["shape_published_rate"])),
+            ("held-out median dist legacy → type mean → fitted (m, point-to-triangle)", "(other metric)",
+             held_out(new, "median")),
+            ("held-out p90 dist legacy → type mean → fitted (m, point-to-triangle)", "(other metric)",
+             held_out(new, "p90")),
+            ("baseline's own held-out p90 (legacy-profile distance)", _f(old["heldout_p90_fitted_m"]), "–"),
+            ("shape published (of which prior only)", _pct(old["shape_published_rate"]),
+             f"{_pct(new['shape_published_rate'])} ({_pct(new.get('prior_only_rate'))})"),
             ("published body types", ", ".join(f"{k}={v}" for k, v in old["body_types"].items()),
              ", ".join(f"{k}={v}" for k, v in new["body_types"].items())),
-            *((f"body type vs visual label: {body}", label(bodies[0], body), label(bodies[1], body))
-              for body in ("sedan", "suv_hatch", "pickup")),
+            ("body type vs labels (high/medium confidence)", accuracy(base["vehicles"]), accuracy(self.rows)),
+            *((f"  label {body}: exact / group / n", label(bodies[0], body), label(bodies[1], body))
+              for body in sorted(set(bodies[0]) | set(bodies[1]))),
             ("color published", _pct(old["color_published_rate"]), _pct(new["color_published_rate"])),
             ("published color L* p10/p50/p90", lstar(old), lstar(new)),
             ("published colors with L* < 30", published(old, base["vehicles"]), published(new, self.rows)),
-            ("rendered body albedo L* p10/p50/p90", displayed(base["vehicles"], _v1_albedo), displayed(self.rows)),
-            ("warm (red/orange/brown) published tints", str(sum(r["color_published"] and _warm_tint(r["color_rgb"])
-                                                               for r in base["vehicles"])),
-             str(sum(r["color_published"] and _warm_tint(r["color_rgb"]) for r in self.rows))),
             ("fit ms, median of per-vehicle means / max", f"{_f(old['fit_latency_ms_mean'], 1)} / {_f(old['fit_latency_ms_max'], 0)}",
              f"{_f(new['fit_latency_ms_mean'], 1)} / {_f(new['fit_latency_ms_max'], 0)}"),
         ]
-        lines = ["## Changes since v1", "",
+        lines = [f"## Changes since {self.baseline.name}", "",
                  f"Baseline: [`{relative}/REVIEW.md`]({relative}/REVIEW.md) (same frames and harness).", "",
                  *self.settings.get("changes", []), "",
-                 "| metric (all ranges unless noted) | v1 | v2 |", "|---|---|---|",
+                 "| metric (all ranges unless noted) | baseline | this run |", "|---|---|---|",
                  *(f"| {name} | {before} | {after} |" for name, before, after in table), "",
-                 f"Body labels: `{BODY_LABELS.name}` holds visual labels of near (< 25 m) vehicles from the camera crops;",
-                 "pickups count as correct when fitted as hatch_suv (there is no pickup preset).", ""]
+                 f"Body labels: `{BODY_LABELS.name}` (three labelers over every vehicle row; high/medium confidence, "
+                 "unknown excluded). Wagons count as hatchbacks and coupes as sedans; group accuracy compares "
+                 "car (sedan, hatchback) / SUV (crossover, full_suv, minivan) / van / pickup. The baseline's "
+                 "hatch_suv counts as the SUV group.", ""]
         if self.callouts:
             lines += ["### Called-out vehicles", "",
-                      "Each crop is real camera | v1 fitted+tint | v2 fitted+tint at frame *t*. The v1 swatch is its published",
-                      "body color; the v2 swatch is the published color (left) and the albedo v2's renderer paints after its",
-                      "dark-paint lift (right). A crossed gray swatch means no color was published.", ""]
+                      "Each crop is real camera | baseline fitted+tint | this run's fitted+tint at frame *t*. The baseline",
+                      "swatch is its published body color; this run's swatch is the published color (left) and the albedo",
+                      "the renderer paints after its dark-paint lift (right). A crossed gray swatch means no color.", ""]
             for item in self.callouts:
                 key, track = item["frame_key"], item["track_id"]
                 before, after = old_rows.get((key, track)), new_rows.get((key, track))
@@ -533,15 +590,17 @@ class ReviewReport:
                     continue
 
                 def describe(r):
-                    shape = f"{r['body_type']} fwd {r['forward_sign']:+d}" if r["shape_published"] else "no shape"
+                    shape = (f"{r['body_type']}{' (prior only)' if r.get('prior_only') else ''}"
+                             if r["shape_published"] else "no shape")
                     color = f"{_hex(r['color_rgb'])} (L* {r['color_L']:.0f})" if r["color_published"] else "no color"
                     return f"{shape}, {color}"
 
                 lines += [f"**{key} #{track}** ({after['range_m']:.0f} m): {item['note']}", "",
-                          f"v1: {describe(before)} → v2: {describe(after)}  ",
-                          f"[v1 frame]({relative}/frames/{key}/compare.png) · [v2 frame](frames/{key}/compare.png)", "",
+                          f"baseline: {describe(before)} → this run: {describe(after)}  ",
+                          f"[baseline frame]({relative}/frames/{key}/compare.png) · [this run's frame](frames/{key}/compare.png)"
+                          f" · [baseline vehicles]({relative}/frames/{key}/vehicles.png) · [vehicles](frames/{key}/vehicles.png)", "",
                           f"![{key} #{track}](frames/{key}/callout_{track}.png) "
-                          f"![v1 swatch](frames/{key}/swatch_v1_{track}.png) ![v2 swatch](frames/{key}/swatch_{track}.png)", ""]
+                          f"![baseline swatch](frames/{key}/swatch_v1_{track}.png) ![swatch](frames/{key}/swatch_{track}.png)", ""]
                 FrameFigures.swatch(before["color_rgb"] if before["color_published"] else None,
                                     self.output / "frames" / key / f"swatch_v1_{track}.png", displayed=False)
                 FrameFigures.swatch(after["color_rgb"] if after["color_published"] else None,
@@ -557,18 +616,19 @@ class ReviewReport:
                  f"Problems: {'; '.join(frame['problems']) or 'none'}", "",
                  f"![compare](frames/{key}/compare.png)", "",
                  f"![vehicles](frames/{key}/vehicles.png)", "",
-                 "| id | range | vis | raw pts / vox | shape | fwd (motion) | med def→fit | p90 def→fit | color (conf, n) | fit ms |",
+                 "| id | range | vis | raw pts / vox | shape | fwd (motion) | med legacy→mean→fit | p90 legacy→mean→fit | color (conf, n) | fit ms |",
                  "|---|---|---|---|---|---|---|---|---|---|"]
         for r in rows:
-            shape = f"{r['body_type']}" if r["shape_published"] else f"– ({r['evidence_voxels']} ev)"
+            shape = (f"{r['body_type']}{' (prior)' if r.get('prior_only') else ''}" if r["shape_published"]
+                     else f"– ({r['evidence_voxels']} ev)")
             fwd = "–" if r["forward_sign"] is None else f"{r['forward_sign']:+d}"
             motion = {1: "+x", -1: "-x", 0: "static"}[r["motion_front_sign"]]
             color = (f"{_hex(r['color_rgb'])} ({r['color_confidence']:.2f}, {r['color_fused_observations']})"
                      if r["color_published"] else f"– ({r['color_frames_confident']}/{r['color_frames_observed']})")
             lines.append(
                 f"| {r['track_id']} | {r['range_m']:.1f} | {r['visible_fraction']:.2f} | {r['raw_points']} / {r['accumulator_voxels']} "
-                f"| {shape} | {fwd} ({motion}) | {_f(r['heldout_default_median_m'])} → {_f(r['heldout_fitted_median_m'])} "
-                f"| {_f(r['heldout_default_p90_m'])} → {_f(r['heldout_fitted_p90_m'])} | {color} | {_f(r['fit_latency_ms_mean'], 0)} |")
+                f"| {shape} | {fwd} ({motion}) | {_f(r['heldout_default_median_m'])} → {_f(r.get('heldout_means_median_m'))} → {_f(r['heldout_fitted_median_m'])} "
+                f"| {_f(r['heldout_default_p90_m'])} → {_f(r.get('heldout_means_p90_m'))} → {_f(r['heldout_fitted_p90_m'])} | {color} | {_f(r['fit_latency_ms_mean'], 0)} |")
         return lines + [""]
 
 
@@ -593,13 +653,6 @@ def displayed_albedo(rgb) -> np.ndarray:
     return np.clip(np.median(colors, axis=0) / 255, 0, 1)
 
 
-def _v1_albedo(rgb) -> np.ndarray:
-    """v1's vertex_colors_for_tint lift (gray added up to luma 0.16), for the before/after table."""
-    rgb = np.clip(np.asarray(rgb, dtype=float), 0., 1.)
-    luma = rgb @ (.299, .587, .114)
-    return np.clip(rgb + max(.16 - luma, 0.), 0., 1.) * min(1., .92 / max(luma, .16))
-
-
 def _lightness(rgb) -> float:
     return float(cv2.cvtColor(np.float32(rgb).reshape(1, 1, 3), cv2.COLOR_RGB2Lab)[0, 0, 0])
 
@@ -610,18 +663,23 @@ def _percentiles(values, q=(10, 50, 90)):
 
 
 def body_label_accuracy(rows: list[dict]) -> dict[str, list[int]]:
-    """{label: [published body types that match, published]}; pickups count as hatch_suv matches."""
+    """{label: [exact type matches, coarse group matches, published]} over high/medium-confidence labels."""
     if not BODY_LABELS.is_file():
         return {}
     rows_by_id = {(r["frame_key"], r["track_id"]): r for r in rows}
     accuracy: dict[str, list[int]] = {}
     for label in json.loads(BODY_LABELS.read_text()):
-        r = rows_by_id.get((label["frame_key"], label["track_id"]))
+        if label.get("confidence", "high") not in ("high", "medium") or label["body"] == "unknown":
+            continue
+        r = rows_by_id.get((label["frame_key"], str(label["track_id"])))
         if r is None or not r["shape_published"]:
             continue
-        counts = accuracy.setdefault(label["body"], [0, 0])
-        counts[0] += (r["body_type"] == "sedan") == (label["body"] == "sedan")
-        counts[1] += 1
+        body = LABEL_TYPES.get(label["body"], label["body"])
+        fitted = {"hatch_suv": "crossover"}.get(r["body_type"], r["body_type"])  # v1/v2 preset names
+        counts = accuracy.setdefault(body, [0, 0, 0])
+        counts[0] += r["body_type"] == body
+        counts[1] += BODY_GROUPS.get(fitted) == BODY_GROUPS.get(body)
+        counts[2] += 1
     return accuracy
 
 

@@ -2,10 +2,12 @@
 
 For each eval frame t, every GT vehicle in the camera view accumulates its in-box LiDAR returns
 over the previous K native frames (GT poses, GT boxes snapped onto the LiDAR ground) through
-ObjectPointAccumulator, is refitted after every scan by CarShapeFitter (warm-started from the
-last accepted fit, like a live per-poll refit), and is colored by VehicleColorEstimator on those
-K frames' camera images.  Frame t is held out: its points score the fitted and default profiles.
-Frame t is then rendered through the gsplat compositor twice (default primitive vs. hints).
+ObjectPointAccumulator, is refitted after every scan by VehicleShapeFitter (warm-started from the
+last accepted fit; like the live estimator, only the incumbent type is refit except every
+``--sweep-every``-th fit), and is colored by VehicleColorEstimator on those K frames' camera images.
+Frame t is held out: its points score the legacy primitive, the published type's mean and the fit
+by true point-to-triangle distance. Frame t is rendered through the gsplat compositor three times
+with the same body tint: legacy primitive, type mean, fitted shape.
 No MCAP / split-system replay is involved.
 """
 from __future__ import annotations
@@ -22,10 +24,10 @@ import numpy as np
 from src.deployment.lidar_ground_snap import LidarGroundSnapper
 from src.deployment.vehicle_color import (SparseDepthBuffer, VehicleColorConfig, VehicleColorEstimator,
                                           _projected_box_xyxy, project_points_to_image)
-from src.deployment.vehicle_shape import CarShapeFitter, ObjectPointAccumulator, _box_mask, surface_distance
+from src.deployment.vehicle_shape import ObjectPointAccumulator, VehicleShapeFitter, _box_mask, triangle_distance
 from src.localization.cooperscene import CooperSceneSequenceDataset
 from src.localization.cooperscene_calibration import camera_intrinsic, camera_T_lidar
-from src.viz.primitive_vehicle import CarShapeParams
+from src.viz.universal_vehicle import UniversalVehicleMesh, UniversalVehicleShape
 
 ROOT = Path(__file__).resolve().parents[3]
 MAIN_REPO = Path("/home/jyue86/Documents/CISL-Projects/RemoteTeleop")
@@ -175,12 +177,15 @@ class VehicleResult:
     fit_latency_ms: list[float] = field(default_factory=list)
     accepted_final: bool = False
     accepted_steps: int = 0
-    published_shape: CarShapeParams | None = None
+    published_shape: UniversalVehicleShape | None = None
+    prior_only: bool = False  # published_shape is the dimension-prior type mean (no accepted fit yet)
+    sweeps: int = 0
     fit_rms_m: float = float("nan")
     cold_fit: dict = field(default_factory=dict)
     heldout_points: int = 0
     heldout_default: tuple[float, float] = (float("nan"), float("nan"))
     heldout_fitted: tuple[float, float] = (float("nan"), float("nan"))
+    heldout_means: tuple[float, float] = (float("nan"), float("nan"))  # published type's mean
     gt_motion_m: float = 0.0
     motion_front_sign: int = 0
     color_rgb: tuple[float, float, float] | None = None
@@ -210,7 +215,7 @@ class VehicleResult:
 
     def row(self, spec: EvalFrameSpec) -> dict:
         shape = self.published_shape
-        sign = None if shape is None else int(shape.forward_sign)
+        sign = None if shape is None else 1  # the box heading is trusted
         return dict(
             frame_key=spec.key, split=spec.split, take=spec.take, agent=spec.agent, frame_index=spec.frame_index,
             frame_id=spec.frame_id, track_id=self.track_id, range_m=round(self.range_m, 2),
@@ -222,6 +227,7 @@ class VehicleResult:
             fit_latency_ms_mean=_round(np.mean(self.fit_latency_ms)) if self.fit_latency_ms else None,
             fit_latency_ms_max=_round(np.max(self.fit_latency_ms)) if self.fit_latency_ms else None,
             accepted_final=self.accepted_final, accepted_steps=self.accepted_steps, shape_published=shape is not None,
+            prior_only=self.prior_only, sweeps=self.sweeps,
             body_type=None if shape is None else shape.body_type, forward_sign=sign,
             fit_rms_m=_round(self.fit_rms_m), shape_vector=None if shape is None else [round(v, 4) for v in shape.to_vector()],
             cold_fit_accepted=self.cold_fit.get("accepted"), cold_fit_body_type=self.cold_fit.get("body_type"),
@@ -229,6 +235,7 @@ class VehicleResult:
             heldout_points=self.heldout_points,
             heldout_default_median_m=_round(self.heldout_default[0]), heldout_default_p90_m=_round(self.heldout_default[1]),
             heldout_fitted_median_m=_round(self.heldout_fitted[0]), heldout_fitted_p90_m=_round(self.heldout_fitted[1]),
+            heldout_means_median_m=_round(self.heldout_means[0]), heldout_means_p90_m=_round(self.heldout_means[1]),
             gt_motion_m=round(self.gt_motion_m, 2), motion_front_sign=self.motion_front_sign,
             sign_matches_gt_x=None if sign is None else sign == 1,
             sign_matches_motion=None if sign is None or self.motion_front_sign == 0 else sign == self.motion_front_sign,
@@ -254,8 +261,8 @@ class VehicleEvidencePipeline:
 
     def __init__(self, loader: FrameLoader, *, history: int = 10, fitter_kwargs: dict | None = None,
                  accumulator_kwargs: dict | None = None, color_config: VehicleColorConfig | None = None,
-                 cold_fit: bool = True, default_incumbent: bool = False) -> None:
-        self.loader, self.history = loader, history
+                 cold_fit: bool = True, default_incumbent: bool = False, sweep_every: int = 5) -> None:
+        self.loader, self.history, self.sweep_every = loader, history, sweep_every
         self.default_incumbent = default_incumbent
         self.fitter_kwargs, self.accumulator_kwargs = fitter_kwargs or {}, accumulator_kwargs or {}
         self.color_config = color_config or VehicleColorConfig()
@@ -274,13 +281,14 @@ class VehicleEvidencePipeline:
         agent = str(spec.agent)
         K, cam_T_lidar = camera_intrinsic(agent, "refined"), camera_T_lidar(agent, "refined")
         accumulator = ObjectPointAccumulator(**self.accumulator_kwargs)
-        fitter = CarShapeFitter(**self.fitter_kwargs)
+        fitter = self.fitter = VehicleShapeFitter(**self.fitter_kwargs)
         estimator = VehicleColorEstimator(self.color_config)
         indices, used_future = self.history_indices(spec)
         by_id = {v.track_id: v for v in vehicles}
         for v in vehicles:
             v.used_future_frames = used_future
         first_center: dict[str, np.ndarray] = {}
+        fitted: dict[str, tuple[UniversalVehicleShape, float]] = {}  # last accepted fit and its robust cost
         for index in indices:
             frame = self.loader.load(spec.split, spec.take, spec.agent, index)
             present = [t for t in by_id if t in frame.lidar_T_object]
@@ -293,17 +301,25 @@ class VehicleEvidencePipeline:
                 v.raw_points += len(points)
                 accumulator.add(track_id, points / dims, dims, frame.timestamp_us)
                 normalized, weights = accumulator.points(track_id)
-                start = time.perf_counter()
-                previous = v.published_shape
+                previous, incumbent_cost = fitted.get(track_id, (None, None))
                 if previous is None and self.default_incumbent:
-                    previous = CarShapeParams()  # variant: the default sedan, +x forward, is the incumbent
-                fit = fitter.fit(normalized * dims, dims, previous, weights=weights)
+                    previous = UniversalVehicleShape.mean("sedan", dims, inflation_lwh_m=fitter.inflation_lwh_m)
+                # Like VehicleAppearanceEstimator: every sweep_every-th fit reconsiders all types.
+                if v.n_fits % self.sweep_every == 0:
+                    incumbent_cost = None
+                v.sweeps += incumbent_cost is None
+                start = time.perf_counter()
+                fit = fitter.fit(normalized * dims, dims, previous, weights=weights, incumbent_cost=incumbent_cost)
                 v.fit_latency_ms.append(1e3 * (time.perf_counter() - start))
                 v.n_fits += 1
                 v.accepted_final, v.fit_rms_m, v.evidence_voxels = fit.accepted, fit.cost, fit.evidence_voxels
                 if fit.accepted:
                     v.accepted_steps += 1
-                    v.published_shape = fit.params
+                    v.published_shape, v.prior_only = fit.params, False
+                    fitted[track_id] = fit.params, fit.robust_cost
+                elif track_id not in fitted and len(normalized):
+                    # Live publication of the dimension-prior type mean until a fit is accepted.
+                    v.published_shape, v.prior_only = fitter.prior_shape(dims), True
             self._observe_colors(frame, present, by_id, estimator, K, cam_T_lidar)
         for track_id, v in by_id.items():
             dims = np.asarray(v.dims_lwh)
@@ -312,8 +328,7 @@ class VehicleEvidencePipeline:
             v.accumulated_points, v.accumulated_weights = normalized * dims, weights
             if self.cold_fit and len(normalized):
                 cold = fitter.fit(normalized * dims, dims, None, weights=weights)
-                v.cold_fit = dict(accepted=cold.accepted, body_type=cold.params.body_type,
-                                  forward_sign=int(cold.params.forward_sign), rms=cold.cost)
+                v.cold_fit = dict(accepted=cold.accepted, body_type=cold.params.body_type, forward_sign=1, rms=cold.cost)
             estimate = estimator.color(track_id)
             if estimate is not None:
                 v.color_rgb, v.color_confidence = estimate.rgb, estimate.confidence
@@ -324,7 +339,7 @@ class VehicleEvidencePipeline:
                 along = float(motion @ target.map_T_object(track_id)[:3, 0])
                 # >= ~0.8 m over the window (~3 km/h) counts as driving; assume driving forward.
                 v.motion_front_sign = int(np.sign(along)) if v.gt_motion_m >= 0.8 and abs(along) >= 0.6 else 0
-            self._held_out(target, v, fitter)
+            self._held_out(target, v)
 
     def _observe_colors(self, frame: SnappedFrame, present, by_id, estimator, K, cam_T_lidar) -> None:
         if frame.frame.camera_path is None or not present:
@@ -358,21 +373,42 @@ class VehicleEvidencePipeline:
                                                  confidence=round(observation.confidence, 3),
                                                  samples=observation.sample_count))
 
-    def _held_out(self, target: SnappedFrame, v: VehicleResult, fitter: CarShapeFitter) -> None:
+    _legacy = None
+    _universal = UniversalVehicleMesh()
+
+    def _held_out(self, target: SnappedFrame, v: VehicleResult) -> None:
+        """Held-out frame t distances (true point-to-triangle, m) to the legacy primitive, type mean and fit."""
+        fitter = self.fitter
         dims = np.asarray(v.dims_lwh)
         points = target.object_points(v.track_id)
         points = points[_box_mask(points, dims, margin_m=fitter.margin_m, ground_clearance_m=fitter.ground_clearance_m)]
         v.heldout_xyz, v.heldout_points = points, len(points)
         if len(points) < 5:
             return
+        if VehicleEvidencePipeline._legacy is None:
+            from src.viz.primitive_car import PrimitiveCarAsset
 
-        def stats(shape: CarShapeParams) -> tuple[float, float]:
-            local = np.column_stack([shape.forward_sign * points[:, 0], np.abs(points[:, 1]), points[:, 2] + dims[2] / 2])
-            distance = np.abs(surface_distance(local, dims, shape))
+            VehicleEvidencePipeline._legacy = PrimitiveCarAsset()
+        legacy = VehicleEvidencePipeline._legacy
+
+        def stats(triangles) -> tuple[float, float]:
+            distance = triangle_distance(points, triangles)
             return float(np.median(distance)), float(np.percentile(distance, 90))
 
-        v.heldout_default = stats(CarShapeParams())
-        v.heldout_fitted = stats(v.published_shape) if v.published_shape is not None else v.heldout_default
+        def universal(shape):
+            vertices, _ = self._universal.instance(shape, dims)
+            return vertices[self._universal.faces]
+
+        v.heldout_default = stats(legacy.vertices_for_dimensions(dims)[legacy.mesh.faces])
+        shape = v.published_shape if v.published_shape is not None else fitter.prior_shape(dims)
+        v.heldout_means = stats(universal(type_mean(shape.body_type, dims, fitter)))
+        v.heldout_fitted = stats(universal(v.published_shape)) if v.published_shape is not None else v.heldout_default
+
+
+def type_mean(body_type: str, dims, fitter: VehicleShapeFitter) -> UniversalVehicleShape:
+    """A type's mean normalized to this box with the fitter's detector-box inflation model."""
+    return UniversalVehicleShape.mean(body_type, dims, inflation_lwh_m=fitter.inflation_lwh_m,
+                                      inflation_std_m=fitter.inflation_std_m)
 
 
 class ProxyRenderHarness:
@@ -423,6 +459,7 @@ class FrameResult:
     real_bgr: np.ndarray
     render_default: np.ndarray
     render_fitted: np.ndarray
+    render_means: np.ndarray | None
     world_T_camera: np.ndarray
     render_K: np.ndarray
     world_T_objects: dict[str, np.ndarray]
@@ -484,7 +521,7 @@ class VehicleProxyEvaluation:
         real = cv2.imread(str(target.frame.camera_path))
         self._target_samples(real, target, vehicles, K_native, cam_T_lidar)
         by_id = {v.track_id: v for v in vehicles}
-        default_prompts, fitted_prompts = [], []
+        default_prompts, fitted_prompts, means_prompts = [], [], []
         for track_id, world_T_object in world_T_objects.items():
             projected = project_vehicle_box(world_T_object=world_T_object, world_T_camera=world_T_camera,
                                             intrinsics=K_render, dimensions=VehicleDimensions(*target.dims[track_id]),
@@ -492,18 +529,21 @@ class VehicleProxyEvaluation:
             base = BoxPrompt(track_id=track_id, xyxy=tuple(map(float, projected.xyxy)),
                              dimensions_lwh=tuple(float(d) for d in target.dims[track_id]),
                              world_T_object=tuple(world_T_object.reshape(-1)), text_label="car")
-            default_prompts.append(base)
             v = by_id.get(track_id)
-            hints = {}
-            if v is not None and v.published_shape is not None:
-                hints["vehicle_shape"] = v.published_shape.to_vector()
+            tint = {}
             if v is not None and v.color_rgb is not None:
-                hints.update(body_color_rgb=v.color_rgb, color_confidence=v.color_confidence)
-            fitted_prompts.append(replace(base, **hints))
-        renders = (None, None)
+                tint = dict(body_color_rgb=v.color_rgb, color_confidence=v.color_confidence)
+            # Identical tint in every variant: only the geometry differs.
+            default_prompts.append(replace(base, **tint))
+            shape = None if v is None else v.published_shape
+            fitted_prompts.append(replace(base, **tint, **({} if shape is None else {"vehicle_shape": shape.to_vector()})))
+            mean = None if shape is None else type_mean(shape.body_type, target.dims[track_id], self.pipeline.fitter)
+            means_prompts.append(replace(base, **tint, **({} if mean is None else {"vehicle_shape": mean.to_vector()})))
+        renders = (None, None, None)
         if self.renderer is not None:
             renders = (self.renderer.render(spec, splat_lidar, default_prompts),
-                       self.renderer.render(spec, splat_lidar, fitted_prompts))
+                       self.renderer.render(spec, splat_lidar, fitted_prompts),
+                       self.renderer.render(spec, splat_lidar, means_prompts))
         done = time.perf_counter()
         timings = dict(load=t_load - started, evidence=t_evidence - t_load, render=done - t_evidence)
         return FrameResult(spec, vehicles, real, *renders, world_T_camera, K_render, world_T_objects,
@@ -557,12 +597,13 @@ def main() -> None:
     parser.add_argument("--history", type=int, default=10, help="previous native frames accumulated (10 = ~1 s)")
     parser.add_argument("--limit", type=int, default=None, help="evaluate only the first N frames")
     parser.add_argument("--only", nargs="*", default=None, help="frame keys like take03_a1_496960")
-    parser.add_argument("--fitter", type=json.loads, default={}, help="CarShapeFitter kwargs override (JSON)")
+    parser.add_argument("--fitter", type=json.loads, default={}, help="VehicleShapeFitter kwargs override (JSON)")
+    parser.add_argument("--sweep-every", type=int, default=5, help="full type sweep every Nth refit (live default 5)")
     parser.add_argument("--accumulator", type=json.loads, default={}, help="ObjectPointAccumulator kwargs (JSON)")
     parser.add_argument("--color", type=json.loads, default={}, help="VehicleColorConfig overrides (JSON)")
     parser.add_argument("--default-incumbent", action="store_true",
-                        help="variant: first fit treats the default sedan (+x forward) as the incumbent, so a body "
-                             "type or forward-sign change must win by the fitter's switch_margin")
+                        help="variant: first fit treats the sedan type mean as the incumbent, so another body "
+                             "type must win by the fitter's switch_margin")
     parser.add_argument("--baseline", type=Path, default=None,
                         help="earlier review directory: REVIEW.md gets a 'Changes since' comparison against it")
     parser.add_argument("--changes", type=Path, default=None,
@@ -586,13 +627,13 @@ def main() -> None:
     settings = dict(history=args.history, fitter=args.fitter, accumulator=args.accumulator, color=args.color,
                     frames_file=str(args.frames), map=str(MAP_PLY), render_size=RENDER_SIZE,
                     calibration="refined", render=not args.no_render,
-                    default_incumbent=args.default_incumbent,
+                    default_incumbent=args.default_incumbent, sweep_every=args.sweep_every,
                     baseline=None if args.baseline is None else str(args.baseline.resolve()),
                     **(json.loads(args.changes.read_text()) if args.changes else {}))
     pipeline = VehicleEvidencePipeline(FrameLoader(), history=args.history, fitter_kwargs=args.fitter,
                                        accumulator_kwargs=args.accumulator,
                                        color_config=VehicleColorConfig(**args.color),
-                                       default_incumbent=args.default_incumbent)
+                                       default_incumbent=args.default_incumbent, sweep_every=args.sweep_every)
     evaluation = VehicleProxyEvaluation(pipeline, None if args.no_render else ProxyRenderHarness())
     report = ReviewReport(args.output, settings, figures=not args.no_render, baseline=args.baseline,
                           callouts=settings.get("callouts"))
