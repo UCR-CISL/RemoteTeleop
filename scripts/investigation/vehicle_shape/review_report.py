@@ -427,12 +427,20 @@ class ReviewReport:
             "`xyz` splat alignment), with no MCAP or split-system replay. Every GT vehicle in view (3-60 m)",
             f"accumulates its in-box LiDAR returns over the previous **{s['history']} native frames (~{s['history'] / 10:.0f} s)**,",
             "using native `map_T_lidar` / `map_T_object` with GT box bottoms snapped onto the LiDAR ground.",
-            "`ObjectPointAccumulator` stores them, each scan shifted along the track onto the median visible end face,",
-            "and `VehicleShapeFitter` refits after every scan, warm-started from the last accepted fit; as in the live",
-            f"estimator only the incumbent type is refit except every {s.get('sweep_every', 5)}th fit (full type sweep),",
-            "and a per-track `TypePosterior` decides the body type. The last accepted fit is published; before the",
-            "first accepted fit the dimension-prior type mean is published (\"prior only\"). Live scheduling (refit",
-            "cadence, per-update budgets, freezing) is not replayed: the harness refits every scan.",
+            "`ObjectPointAccumulator` stores them, each scan shifted along the track onto its locked visible end-face",
+            "reference, and `VehicleShapeFitter` refits after every scan, warm-started from the last accepted fit; as in",
+            f"the live estimator only the incumbent type is refit except every {s.get('sweep_every', 5)}th fit (full type sweep),",
+            "and a per-track `TypePosterior` decides the body type."
+            + (" A shape is published only from"
+               f" {s['min_publish_evidence']} evidence voxels on and a rejected fit unpublishes it, so weak or"
+               " inconsistent evidence renders the legacy primitive (as `VehicleAppearanceConfig.min_publish_evidence`)."
+               if s.get("min_publish_evidence") else
+               " The last accepted fit is published; before the first accepted fit the dimension-prior type mean is"
+               " published (\"prior only\").")
+            + (" `--live-schedule`: the past frames are replayed through `VehicleAppearanceEstimator` itself (refit"
+               " cadence, per-update fit budget, freezing, publication)." if s.get("live_schedule") else
+               " Live scheduling (refit cadence, per-update budgets, freezing) is not replayed: the harness refits"
+               " every scan."),
             "`VehicleColorEstimator.observe` runs on each history frame's native 1920x1200 camera image with",
             "the refined calibration, a full-scan `SparseDepthBuffer`, and nearer GT boxes as occluders.",
             "Frame *t* itself is held out: its in-box points (minus any road layer the snapped box floor left in",

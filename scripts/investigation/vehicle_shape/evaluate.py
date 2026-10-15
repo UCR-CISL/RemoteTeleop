@@ -6,7 +6,9 @@ ObjectPointAccumulator (scans registered along the track by the visible end face
 every scan by VehicleShapeFitter (warm-started from the last accepted fit; like the live estimator,
 only the incumbent type is refit except every ``--sweep-every``-th fit, and a per-track TypePosterior
 decides the body type), and is colored by VehicleColorEstimator on those K frames' camera images.
-Live scheduling (refit cadence, per-update budgets, freezing) is not replayed: every scan is refit.
+Like the live estimator, weak evidence or a rejected fit publishes no shape (legacy primitive). Live
+scheduling (refit cadence,
+per-update budgets, freezing) is replayed only with --live-schedule; otherwise every scan is refit.
 Frame t is held out: its points score the legacy primitive, the box-dimension-only type's mean and
 the fit by true point-to-triangle distance, in frame t's GT box and registered onto the accumulation.
 Frame t is rendered through the gsplat compositor three times with the same body tint: legacy
@@ -200,6 +202,10 @@ class VehicleResult:
     rise_x_m: float = float("nan")  # last fit's TopProfile rise distance from the visible end
     dims_type: str | None = None  # most likely type from the box dimensions alone
     type_trace: list[dict] = field(default_factory=list)  # per sweep: evidence, coverage cells, type nats, published
+    type_probability: float = 0.0  # TypePosterior probability of the published type after the window
+    type_confident: bool = False
+    decided_type: str | None = None  # the track's body type, also when the published shape fell back to legacy
+    publication_delay_scans: int | None = None  # --live-schedule: scans from the track's first to its first shape
     color_rgb: tuple[float, float, float] | None = None
     color_confidence: float = 0.0
     color_fused_observations: int = 0
@@ -255,7 +261,9 @@ class VehicleResult:
                for index, stat in enumerate(("median", "p90"))},
             gt_motion_m=round(self.gt_motion_m, 2), motion_front_sign=self.motion_front_sign,
             face_spread_m=_round(self.face_spread_m, 3), dims_type=self.dims_type, rise_x_m=_round(self.rise_x_m, 3),
-            type_trace=self.type_trace,
+            type_trace=self.type_trace, type_probability=round(self.type_probability, 3),
+            type_confident=self.type_confident, decided_type=self.decided_type,
+            publication_delay_scans=self.publication_delay_scans,
             sign_matches_gt_x=None if sign is None else sign == 1,
             sign_matches_motion=None if sign is None or self.motion_front_sign == 0 else sign == self.motion_front_sign,
             color_published=self.color_rgb is not None,
@@ -280,8 +288,12 @@ class VehicleEvidencePipeline:
 
     def __init__(self, loader: FrameLoader, *, history: int = 10, fitter_kwargs: dict | None = None,
                  accumulator_kwargs: dict | None = None, color_config: VehicleColorConfig | None = None,
-                 cold_fit: bool = True, default_incumbent: bool = False, sweep_every: int = 5) -> None:
-        self.loader, self.history, self.sweep_every = loader, history, sweep_every
+                 cold_fit: bool = True, default_incumbent: bool = False, sweep_every: int = 5,
+                 color: bool = True, posterior_kwargs: dict | None = None,
+                 min_publish_evidence: int = 100) -> None:
+        self.loader, self.history, self.sweep_every, self.color = loader, history, sweep_every, color
+        self.posterior_kwargs = posterior_kwargs or {}
+        self.min_publish_evidence = min_publish_evidence
         self.default_incumbent = default_incumbent
         self.fitter_kwargs, self.accumulator_kwargs = fitter_kwargs or {}, accumulator_kwargs or {}
         self.color_config = color_config or VehicleColorConfig()
@@ -306,7 +318,7 @@ class VehicleEvidencePipeline:
         by_id = {v.track_id: v for v in vehicles}
         for v in vehicles:
             v.used_future_frames = used_future
-        first_center: dict[str, np.ndarray] = {}
+        centers: dict[str, dict[int, np.ndarray]] = {}  # per track: frame index -> map position
         fitted: dict[str, tuple[UniversalVehicleShape, float]] = {}  # last accepted fit and its robust cost
         posteriors: dict[str, TypePosterior] = {}  # per-track type decision, as in the live estimator
         for index in indices:
@@ -314,25 +326,27 @@ class VehicleEvidencePipeline:
             present = [t for t in by_id if t in frame.lidar_T_object]
             for track_id in present:
                 v = by_id[track_id]
-                first_center.setdefault(track_id, frame.map_T_object(track_id)[:3, 3])
+                centers.setdefault(track_id, {})[index] = frame.map_T_object(track_id)[:3, 3]
                 points = frame.object_points(track_id)
                 dims = frame.dims[track_id]
+                sensor = _rigid_inverse(frame.lidar_T_object[track_id])[:3, 3]
                 v.history_frames.append(frame.frame_id)
                 v.raw_points += len(points)
-                accumulator.add(track_id, points / dims, dims, frame.timestamp_us,
-                                sensor_origin_object=_rigid_inverse(frame.lidar_T_object[track_id])[:3, 3])
+                accumulator.add(track_id, points / dims, dims, frame.timestamp_us, sensor_origin_object=sensor)
                 normalized, weights = accumulator.points(track_id)
                 previous, incumbent_cost = fitted.get(track_id, (None, None))
                 if previous is None and self.default_incumbent:
                     previous = UniversalVehicleShape.mean("sedan", dims, inflation_lwh_m=fitter.inflation_lwh_m)
                 # Like VehicleAppearanceEstimator: every sweep_every-th fit reconsiders all types.
+                posterior = posteriors.setdefault(track_id, TypePosterior(**self.posterior_kwargs))
                 if v.n_fits % self.sweep_every == 0:
                     incumbent_cost = None
                 v.sweeps += incumbent_cost is None
                 start = time.perf_counter()
                 fit = fitter.fit(normalized * dims, dims, previous, weights=weights, incumbent_cost=incumbent_cost,
                                  sensor_origin=accumulator.sensor_origin(track_id))
-                fit = posteriors.setdefault(track_id, TypePosterior()).update(fit)
+                fit = posterior.update(fit)
+                v.decided_type = fit.params.body_type if fit.accepted or fit.prior_only else v.decided_type
                 v.rise_x_m = fit.rise_x_m
                 v.fit_latency_ms.append(1e3 * (time.perf_counter() - start))
                 if len(fit.type_nats) > 1:
@@ -343,16 +357,24 @@ class VehicleEvidencePipeline:
                                              rise=_round(fit.rise_x_m, 2),
                                              nats={t: round(n, 1) for t, n in sorted(fit.type_nats.items(),
                                                                                     key=lambda item: item[1])},
-                                             published=fit.params.body_type))
+                                             published=fit.params.body_type,
+                                             # per refined type: data, dims, rise, 0.1 x prior (nats)
+                                             terms={t: [round(x, 1) for x in terms.values()]
+                                                    for t, terms in fit.type_terms.items()}))
                 v.accepted_final, v.fit_rms_m, v.evidence_voxels = fit.accepted, fit.cost, fit.evidence_voxels
                 if fit.accepted:
                     v.accepted_steps += 1
                     v.published_shape, v.prior_only = fit.params, False
                     fitted[track_id] = fit.params, fit.robust_cost
-                elif track_id not in fitted and len(normalized):
+                    if self.min_publish_evidence and fit.evidence_voxels < self.min_publish_evidence:
+                        v.published_shape = None  # like the live estimator: weak evidence keeps the legacy primitive
+                elif self.min_publish_evidence and np.isfinite(fit.cost):
+                    v.published_shape, v.prior_only = None, False  # a rejected fit falls back to legacy
+                elif track_id not in fitted and len(normalized) and not self.min_publish_evidence:
                     # Live publication of the dimension-prior type mean until a fit is accepted.
                     v.published_shape, v.prior_only = fitter.prior_shape(dims), True
-            self._observe_colors(frame, present, by_id, estimator, K, cam_T_lidar)
+            if self.color:
+                self._observe_colors(frame, present, by_id, estimator, K, cam_T_lidar)
         for track_id, v in by_id.items():
             dims = np.asarray(v.dims_lwh)
             normalized, weights = accumulator.points(track_id)
@@ -365,12 +387,16 @@ class VehicleEvidencePipeline:
                 cold = fitter.fit(normalized * dims, dims, None, weights=weights,
                                   sensor_origin=accumulator.sensor_origin(track_id))
                 v.cold_fit = dict(accepted=cold.accepted, body_type=cold.params.body_type, forward_sign=1, rms=cold.cost)
+            if track_id in posteriors:
+                v.type_probability, v.type_confident = posteriors[track_id].probability, posteriors[track_id].confident
             estimate = estimator.color(track_id)
             if estimate is not None:
                 v.color_rgb, v.color_confidence = estimate.rgb, estimate.confidence
                 v.color_fused_observations = estimate.observation_count
-            if track_id in first_center:
-                motion = target.map_T_object(track_id)[:3, 3] - first_center[track_id]
+            if track_id in centers:
+                # Earliest to latest pose in time (history frames after t at a sequence start included).
+                track_centers = {**centers[track_id], spec.frame_index: target.map_T_object(track_id)[:3, 3]}
+                motion = track_centers[max(track_centers)] - track_centers[min(track_centers)]
                 v.gt_motion_m = float(np.linalg.norm(motion[:2]))
                 along = float(motion @ target.map_T_object(track_id)[:3, 0])
                 # >= ~0.8 m over the window (~3 km/h) counts as driving; assume driving forward.
@@ -450,6 +476,106 @@ class VehicleEvidencePipeline:
                                                   _rigid_inverse(target.lidar_T_object[v.track_id])[:3, 3])
         points = points + (v.heldout_shift_m, 0., 0.)  # read by stats()
         v.heldout_registered = {name: stats(triangles) for name, triangles in meshes.items()}
+
+
+class LiveSchedulePipeline(VehicleEvidencePipeline):
+    """``--live-schedule``: the history replayed through VehicleAppearanceEstimator itself.
+
+    Every GT vehicle of each history scan is a matched track (label "car", snapped GT pose), so the
+    estimator's crop, accumulation, refit cadence (refit_every_scans / growth trigger), sweep cadence,
+    TypePosterior, freezing, per-update fit budget and publication policy decide what
+    is published at frame t. Fits run synchronously (fit_in_background=False) without counting against
+    the per-update budget, as live fits run on the background worker and only their submission is
+    bounded (``max_fits_per_update``). Only frames before t are used (no future-frame filling at a
+    sequence start). Shape only: color is not estimated. ``appearance_overrides`` set other config fields.
+    """
+
+    appearance_overrides: dict = {}
+
+    def history_indices(self, spec: EvalFrameSpec) -> tuple[list[int], bool]:
+        return list(range(max(0, spec.frame_index - self.history), spec.frame_index)), False
+
+    def run(self, spec: EvalFrameSpec, target: SnappedFrame, vehicles: list[VehicleResult]) -> None:
+        from src.deployment.vehicle_appearance import VehicleAppearanceConfig, VehicleAppearanceEstimator
+        from src.realtime.bevfusion_tracker import DetectionMatch, TrackedWorldBox
+
+        self.fitter = fitter = VehicleShapeFitter(**self.fitter_kwargs)
+        estimator = VehicleAppearanceEstimator(
+            VehicleAppearanceConfig(**{**dict(color=False, fit_in_background=False, fit_budget_ms=1e9,
+                                              sweep_every_refits=self.sweep_every,
+                                              min_publish_evidence=self.min_publish_evidence),
+                                       **self.appearance_overrides}),
+            accumulator=ObjectPointAccumulator(**self.accumulator_kwargs), fitter=fitter)
+        by_id = {v.track_id: v for v in vehicles}
+        timing = {}
+        apply_fit, fit_once = estimator._apply_fit, fitter.fit
+
+        def timed_fit(*args, **kwargs):
+            start = time.perf_counter()
+            result = fit_once(*args, **kwargs)
+            timing["ms"], timing["sweep"] = 1e3 * (time.perf_counter() - start), kwargs.get("incumbent_cost") is None
+            return result
+
+        def record(request, fit):
+            v = by_id.get(request.track_id)
+            if v is not None:
+                v.n_fits += 1
+                v.fit_latency_ms.append(timing["ms"])
+                v.sweeps += timing["sweep"]
+                if len(fit.type_nats) > 1:
+                    v.sweep_latency_ms.append(timing["ms"])
+                    v.type_trace.append(dict(evidence=fit.evidence_voxels, cells=fit.coverage_cells,
+                                             rise=_round(fit.rise_x_m, 2), published=fit.params.body_type,
+                                             nats={t: round(n, 1) for t, n in sorted(fit.type_nats.items(),
+                                                                                    key=lambda item: item[1])}))
+                v.rise_x_m, v.fit_rms_m, v.evidence_voxels = fit.rise_x_m, fit.cost, fit.evidence_voxels
+            apply_fit(request, fit)
+
+        fitter.fit, estimator._apply_fit = timed_fit, record
+        centers: dict[str, dict[int, np.ndarray]] = {}
+        first_scan: dict[str, int] = {}
+        self.update_ms = []
+        for step, index in enumerate(self.history_indices(spec)[0]):
+            frame = self.loader.load(spec.split, spec.take, spec.agent, index)
+            tracks = [TrackedWorldBox(track_id, frame.map_T_object(track_id), tuple(frame.dims[track_id]), "car", 1.)
+                      for track_id in frame.lidar_T_object if not frame.is_ego(track_id)]
+            estimator.update([DetectionMatch(number, track, track.track_id) for number, track in enumerate(tracks)],
+                             tracks, timestamp_us=frame.timestamp_us, world_T_lidar=frame.frame.map_T_lidar,
+                             lidar_points=frame.points)
+            self.update_ms.append(estimator.last_update_ms)
+            for track_id in by_id:
+                if track_id not in frame.lidar_T_object:
+                    continue
+                v = by_id[track_id]
+                v.history_frames.append(frame.frame_id)
+                v.raw_points += len(frame.object_points(track_id))
+                centers.setdefault(track_id, {})[index] = frame.map_T_object(track_id)[:3, 3]
+                first_scan.setdefault(track_id, step)
+                if v.publication_delay_scans is None and "vehicle_shape" in estimator.prompt_fields(track_id):
+                    v.publication_delay_scans = step - first_scan[track_id]
+        accumulator = estimator.accumulator
+        for track_id, v in by_id.items():
+            dims = np.asarray(v.dims_lwh)
+            state = estimator._shapes.get(track_id)
+            shape = estimator.prompt_fields(track_id).get("vehicle_shape")
+            v.published_shape = None if shape is None else UniversalVehicleShape.from_vector(shape)
+            v.accepted_final = state is not None and state.fitted is not None
+            if state is not None:
+                v.type_probability, v.type_confident = state.types.probability, state.types.confident
+                v.decided_type = None if state.fitted is None else state.types.incumbent or state.fitted.body_type
+            normalized, weights = accumulator.points(track_id)
+            v.accumulator_voxels = len(normalized)
+            v.accumulated_points, v.accumulated_weights = normalized * dims, weights
+            v.face_spread_m = face_spread(normalized * dims, dims, accumulator.sensor_origin(track_id))
+            nll = fitter.dimension_nll(dims)
+            v.dims_type = min(nll, key=nll.get)
+            if track_id in centers:
+                track_centers = {**centers[track_id], spec.frame_index: target.map_T_object(track_id)[:3, 3]}
+                motion = track_centers[max(track_centers)] - track_centers[min(track_centers)]
+                v.gt_motion_m = float(np.linalg.norm(motion[:2]))
+                along = float(motion @ target.map_T_object(track_id)[:3, 0])
+                v.motion_front_sign = int(np.sign(along)) if v.gt_motion_m >= 0.8 and abs(along) >= 0.6 else 0
+            self._held_out(target, v, accumulator)
 
 
 def face_spread(points: np.ndarray, dims: np.ndarray, sensor_origin, cell_m: float = .2) -> float:
@@ -666,6 +792,16 @@ def main() -> None:
     parser.add_argument("--only", nargs="*", default=None, help="frame keys like take03_a1_496960")
     parser.add_argument("--fitter", type=json.loads, default={}, help="VehicleShapeFitter kwargs override (JSON)")
     parser.add_argument("--sweep-every", type=int, default=5, help="full type sweep every Nth refit (live default 5)")
+    parser.add_argument("--min-publish-evidence", type=int, default=100,
+                        help="legacy primitive (no shape) below this many evidence voxels or after a rejected fit, "
+                             "as VehicleAppearanceConfig.min_publish_evidence; 0 = v4 policy (keep the last accepted "
+                             "fit, dimension-prior type mean before one)")
+    parser.add_argument("--live-schedule", action="store_true",
+                        help="replay the history through VehicleAppearanceEstimator (live cadence, budgets, freezing; "
+                             "past frames only)")
+    parser.add_argument("--appearance", type=json.loads, default={},
+                        help="--live-schedule: VehicleAppearanceConfig overrides (JSON)")
+    parser.add_argument("--posterior", type=json.loads, default={}, help="TypePosterior kwargs override (JSON)")
     parser.add_argument("--accumulator", type=json.loads, default={}, help="ObjectPointAccumulator kwargs (JSON)")
     parser.add_argument("--color", type=json.loads, default={}, help="VehicleColorConfig overrides (JSON)")
     parser.add_argument("--default-incumbent", action="store_true",
@@ -677,6 +813,7 @@ def main() -> None:
                         help='JSON {"changes": [markdown lines], "callouts": [{frame_key, track_id, note}]} '
                              "describing the change and the vehicles to compare against --baseline")
     parser.add_argument("--no-render", action="store_true", help="metrics only (no gsplat renders / figures)")
+    parser.add_argument("--no-color", action="store_true", help="skip color estimation (shape-only dev passes)")
     parser.add_argument("--rebuild-review", action="store_true",
                         help="only rewrite REVIEW.md from <output>/summary.json (+ variants/*/summary.json)")
     args = parser.parse_args()
@@ -695,12 +832,19 @@ def main() -> None:
                     frames_file=str(args.frames), map=str(MAP_PLY), render_size=RENDER_SIZE,
                     calibration="refined", render=not args.no_render,
                     default_incumbent=args.default_incumbent, sweep_every=args.sweep_every,
+                    posterior=args.posterior,
+                    min_publish_evidence=args.min_publish_evidence, live_schedule=args.live_schedule,
+                    appearance=args.appearance,
                     baseline=None if args.baseline is None else str(args.baseline.resolve()),
                     **(json.loads(args.changes.read_text()) if args.changes else {}))
-    pipeline = VehicleEvidencePipeline(FrameLoader(), history=args.history, fitter_kwargs=args.fitter,
+    pipeline = (LiveSchedulePipeline if args.live_schedule else VehicleEvidencePipeline)(
+        FrameLoader(), history=args.history, fitter_kwargs=args.fitter,
                                        accumulator_kwargs=args.accumulator,
                                        color_config=VehicleColorConfig(**args.color),
-                                       default_incumbent=args.default_incumbent, sweep_every=args.sweep_every)
+                                       default_incumbent=args.default_incumbent, sweep_every=args.sweep_every,
+                                       color=not args.no_color,
+                                       posterior_kwargs=args.posterior, min_publish_evidence=args.min_publish_evidence)
+    pipeline.appearance_overrides = args.appearance
     evaluation = VehicleProxyEvaluation(pipeline, None if args.no_render else ProxyRenderHarness())
     report = ReviewReport(args.output, settings, figures=not args.no_render, baseline=args.baseline,
                           callouts=settings.get("callouts"))

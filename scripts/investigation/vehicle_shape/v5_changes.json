@@ -1,0 +1,56 @@
+{
+ "changes": [
+  "- **Registration in one frame** (`EndFaceRegistration`): each end's reference is the median of its first 10 faces and then locks; scans stay raw until their end's reference is locked (at most 40), so older voxels never sit at a superseded reference. A 60-scan synthetic with a 0.3 m box-bias change and a rear-to-front transition keeps both end slabs within 5 cm of a perfectly registered track (v4: 0.32 m rear slab). Neutral on the 10-scan harness by construction.",
+  "- **One switching policy** (`TypePosterior`): the fitter returns the best-ranked type; only the posterior switches. Sweeps vote only when observable (>= 150 voxels over >= 12 coverage cells); until then the box-size type is kept. Screened-out types enter `type_nats` with their screen nats (at least the worst refined type) instead of the worst refined value. A confident type is latched (established) and leaves only for the same challenger leading by 3 nats on two consecutive votes.",
+  "- **Observable rise only** (`TopProfile`): the rise is unknown unless >= 2 bins (0.25 m) hold >= 3 returns above 0.7 H (a low side panel no longer reads as rise 0 = -8 nats for sedans); bins need 5 returns beyond 15 m; rise nats are capped at 8 x min(1, cells/20). Center-line tops (|y| < 0.3 W) were tried and reverted (dev exact -4).",
+  "- **Upper-envelope term deleted**: with the envelope weight at 0, dev exact +1 / p90 -3 mm and val exact +1, group +2, p90 -5 mm, so the envelope machinery (~90 lines) is removed.",
+  "- **Legacy fallback** (`VehicleAppearanceConfig.min_publish_evidence = 100`, `publish_prior_shape = False`): no shape is published (legacy primitive) below 100 evidence voxels or after a rejected fit (rms > 0.25 m); the dimension-prior type mean is no longer published before a fit. Dev+val pooled (119 scored vehicles), v4 -> v5: per-vehicle p90 median 0.168 -> 0.162 m, 90th percentile over vehicles 0.395 -> 0.364 m (legacy 0.385), vehicles whose fit is worse than legacy by > 2 cm 21 -> 11.",
+  "- **Harness motion fix**: GT motion (`gt_motion_m`, `motion_front_sign`) is now measured from the earliest to the latest pose in time; at a sequence start the history includes frames after t, and v4 measured from t to a later frame, which made take12 #9/#13/#32 look like they drive against their heading. They drive forward, so no heading correction is added (a motion-based heading flip remains an open item).",
+  "- Latency: incumbent-only refits stop after 4 LM iterations (warm start); per-bin TopProfile percentiles are vectorized. Standalone (50 dumped dev tracks, 1 thread): incumbent p95 20.9 -> 10.6 ms, sweep p95 73 -> 68 ms.",
+  "- Tried and reverted: sweep on every fit until the type is confident (dev exact 37 -> 34), recent-scan acceptance (newest scan vs type mean, +0.02 m: type -1, q90 +3 mm), rise sigma 0.45/0.6 (net 0 exact), publishing nothing before a fit without the rejection rule (dev p90 +2 mm), rms rejection at 0.18/0.20 m (median +5-8 mm).",
+  "- Live cadence (`--live-schedule`, 10 past scans, every GT car within 80 m a track): 1.3 refits per track in that second (every-scan harness: 9.3), shapes published for 41/70 dev and 53/105 val vehicles by frame t (median delay 3 scans), so live types and shapes lag the every-scan numbers (dev exact 29/38). `max_fits_per_update = 4` doubles the refits (2.4 per track) but is left at 2 pending an on-vehicle CPU check.",
+  "- Harness: per-type nats split in `type_trace` (data / dims / rise / 0.1 prior), `type_probability`, `type_confident`, `decided_type`; `--no-color` for shape-only passes; `--live-schedule` replays the past frames through `VehicleAppearanceEstimator` (cadence, budget, freezing, publication; no future frames) with `--appearance` overrides; `--min-publish-evidence 0` restores the v4 publication policy."
+ ],
+ "callouts": [
+  {
+   "frame_key": "take07_a2_534390",
+   "track_id": "54",
+   "note": "Far sedan in a 5.10 x 2.45 x 1.93 m box: the box size favors SUV types; rise 1.95 m is ambiguous."
+  },
+  {
+   "frame_key": "take10_a3_543585",
+   "track_id": "67",
+   "note": "Far sedan (white taxi, night); v4 counted a rise of 0 at 47/119 voxels as -8 nats for sedan, now unknown; the box size still favors crossover."
+  },
+  {
+   "frame_key": "take12_a3_549200",
+   "track_id": "9",
+   "note": "Drives forward (the v4 reversed-heading reading was a harness motion bug); no rise observed, sedan 0.4 nats behind on box size."
+  },
+  {
+   "frame_key": "take12_a3_549200",
+   "track_id": "2",
+   "note": "Silver Sentra (color, Workstream B)."
+  },
+  {
+   "frame_key": "take09_a2_540610",
+   "track_id": "10",
+   "note": "Far sedan; rise now unknown (v4: rise 0, -8 nats sedan)."
+  },
+  {
+   "frame_key": "take03_a3_497215",
+   "track_id": "11",
+   "note": "Shaded white sedan (color, Workstream B)."
+  },
+  {
+   "frame_key": "take05_a1_524085",
+   "track_id": "6",
+   "note": "Crossover that never froze in v4 (p = 0.71)."
+  },
+  {
+   "frame_key": "take08_a2_537370",
+   "track_id": "49",
+   "note": "Open-bed pickup: rise and bed must survive the observability gates."
+  }
+ ]
+}
