@@ -9,7 +9,7 @@ render it. Only compact hints leave this module.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import itertools
 import threading
 import time
@@ -20,7 +20,8 @@ import numpy as np
 from src.common.vehicle_categories import vehicle_proxy_kind
 from src.deployment.lidar_ground_snap import _BevGrid
 from src.deployment.vehicle_color import SparseDepthBuffer, VehicleColorEstimator
-from src.deployment.vehicle_shape import ObjectPointAccumulator, VehicleShapeFit, VehicleShapeFitter
+from src.deployment.vehicle_shape import (ObjectPointAccumulator, TypePosterior, VehicleShapeFit, VehicleShapeFitter,
+                                          coverage_cells as _coverage)
 from src.reconstruction.models import VehicleDimensions
 from src.reconstruction.projection import project_vehicle_box
 from src.viz.universal_vehicle import BOUNDS, UniversalVehicleShape
@@ -85,6 +86,7 @@ class _ShapeTrack:
     stable_fits: int = 0
     frozen_dimensions: np.ndarray | None = None
     coverage: np.ndarray | None = None  # coarse surface cells covered by the frozen fit's evidence
+    types: TypePosterior = field(default_factory=TypePosterior)
 
 
 @dataclass(frozen=True)
@@ -98,10 +100,11 @@ class _FitRequest:
     dimensions: np.ndarray
     previous: UniversalVehicleShape | None
     incumbent_cost: float | None
+    sensor_origin: np.ndarray | None = None  # metric object frame, latest scan
 
     def run(self, fitter: VehicleShapeFitter) -> VehicleShapeFit:
         return fitter.fit(self.points, self.dimensions, self.previous, weights=self.weights,
-                          incumbent_cost=self.incumbent_cost)
+                          incumbent_cost=self.incumbent_cost, sensor_origin=self.sensor_origin)
 
 
 class ShapeFitWorker:
@@ -176,11 +179,13 @@ class VehicleAppearanceEstimator:
     nothing. Shapes are refit round-robin (oldest fit first), at most
     ``max_fits_per_update`` per update within ``fit_budget_ms``, published only
     on a meaningful change, and frozen after ``freeze_after_stable_fits``
-    agreeing refits until the tracked dimensions move by
+    agreeing refits once the track's TypePosterior is confident, until the tracked dimensions move by
     ``unfreeze_dimension_change`` or a scan covers ``unfreeze_new_cells`` coarse
     surface cells the frozen evidence did not. Until the first accepted fit the
     dimension-prior type mean is published (``publish_prior_shape``). Refits try
-    only the incumbent body type except every ``sweep_every_refits``-th fit. With ``fit_in_background``
+    only the incumbent body type except every ``sweep_every_refits``-th fit; sweeps feed the
+    per-track TypePosterior, which decides the published body type. Scans carry the sensor
+    position so the accumulator registers them along the track. With ``fit_in_background``
     fits run on a ShapeFitWorker and finished fits are applied on a later
     update; call ``close`` on shutdown. State is dropped when a track dies
     or its identity is reacquired by a new tracker filter (the reacquisition
@@ -239,7 +244,8 @@ class VehicleAppearanceEstimator:
             dimensions = np.asarray(track.dimensions_lwh, dtype=np.float64)
             points = self._crop(xyz, grid, lidar_T_object, dimensions, track.track_id, neighbors)
             if self.config.shape and vehicle_proxy_kind(track.label) == "car":
-                self._accumulate(track.track_id, points, dimensions, timestamp_us)
+                sensor_origin = -lidar_T_object[:3, :3].T @ lidar_T_object[:3, 3]
+                self._accumulate(track.track_id, points, dimensions, timestamp_us, sensor_origin)
             if track.track_id in color_ids:
                 assert frame is not None
                 self._color_ticks[track.track_id] = self._tick
@@ -312,7 +318,8 @@ class VehicleAppearanceEstimator:
             local = local[~np.all(np.abs(in_other) <= other_dimensions / 2 + self.config.neighbor_margin_m, axis=1)]
         return local
 
-    def _accumulate(self, track_id: str, points: np.ndarray, dimensions: np.ndarray, timestamp_us: int) -> None:
+    def _accumulate(self, track_id: str, points: np.ndarray, dimensions: np.ndarray, timestamp_us: int,
+                    sensor_origin: np.ndarray) -> None:
         state = self._shapes.get(track_id)
         if state is None:
             state = self._shapes[track_id] = _ShapeTrack(dimensions, next(self._generations))
@@ -323,7 +330,7 @@ class VehicleAppearanceEstimator:
                     and new_cells.sum() < self.config.unfreeze_new_cells):
                 return
             state.frozen_dimensions, state.stable_fits = None, 0
-        if self.accumulator.add(track_id, points / dimensions, dimensions, timestamp_us) \
+        if self.accumulator.add(track_id, points / dimensions, dimensions, timestamp_us, sensor_origin) \
                 and state.fitted is None and self.config.publish_prior_shape:
             state.published = self.fitter.prior_shape(dimensions)  # LiDAR-supported track, no fit yet
         state.scans_since_fit += 1
@@ -347,7 +354,8 @@ class VehicleAppearanceEstimator:
             points, weights = self.accumulator.points(track_id)
             request = _FitRequest(track_id, state.generation, points * state.dimensions, weights,
                                   state.dimensions.copy(), state.fitted,
-                                  None if state.fits % config.sweep_every_refits == 0 else state.fit_cost)
+                                  None if state.fits % config.sweep_every_refits == 0 else state.fit_cost,
+                                  self.accumulator.sensor_origin(track_id))
             if self._worker is not None and not self._worker.submit(request):
                 break
             state.fitting = True
@@ -362,6 +370,7 @@ class VehicleAppearanceEstimator:
             return  # the track died or was reset while fitting
         self.fit_count += 1
         state.fitting, state.fits = False, state.fits + 1
+        fit = state.types.update(fit)
         if not fit.accepted:
             state.fit_cost, state.stable_fits = None, 0
             return
@@ -370,7 +379,7 @@ class VehicleAppearanceEstimator:
             state.published, state.stable_fits = fit.params, 0
             return
         state.stable_fits += 1
-        if state.stable_fits >= self.config.freeze_after_stable_fits:
+        if state.stable_fits >= self.config.freeze_after_stable_fits and state.types.confident:
             state.frozen_dimensions = state.dimensions.copy()
             state.coverage = _coverage(self.accumulator.points(request.track_id)[0], minimum_points=3)
 
@@ -387,16 +396,6 @@ class VehicleAppearanceEstimator:
                    if vehicle_proxy_kind(match.track.label) not in _NO_PAINT_KINDS]
         painted.sort(key=lambda track_id: self._color_ticks.get(track_id, -1))
         return set(painted[:self.config.max_color_tracks_per_update])
-
-
-def _coverage(points_normalized, *, minimum_points: int) -> np.ndarray:
-    """Occupied coarse surface cells (8 along X, center/side by |Y|, 4 in Z) of box-normalized points."""
-    points = np.asarray(points_normalized, dtype=float).reshape(-1, 3)
-    points = points[np.isfinite(points).all(axis=1)]
-    x = np.clip(((points[:, 0] + .5) * 8).astype(int), 0, 7)
-    side = (np.abs(points[:, 1]) > .3).astype(int)
-    z = np.clip(((points[:, 2] + .5) * 4).astype(int), 0, 3)
-    return np.bincount((x * 2 + side) * 4 + z, minlength=64) >= minimum_points
 
 
 class _CameraFrame:

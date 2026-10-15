@@ -6,8 +6,9 @@ import time
 import numpy as np
 import pytest
 
-from src.deployment.vehicle_shape import (ObjectPointAccumulator, VehicleShapeFitter, _Residuals, surface_distance,
-                                          triangle_distance)
+from src.deployment.vehicle_shape import (EndFaceRegistration, ObjectPointAccumulator, TopProfile, TypePosterior,
+                                          VehicleShapeFit, VehicleShapeFitter, _Residuals, above_ground_layer,
+                                          surface_distance, triangle_distance)
 from src.viz.universal_vehicle import (PARAMETERS, TYPE_NAMES, VEHICLE_TYPES, UniversalVehicleMesh,
                                        UniversalVehicleShape, sanitize)
 
@@ -108,6 +109,145 @@ def test_accumulator_caps_voxels_by_evicting_least_observed():
     assert all(np.isclose(points, row).all(axis=1).any() for row in seen)
 
 
+def _face_slab(accumulator, track_id, box):
+    """X thickness (p90 - p10) of the accumulated rear face's belt band."""
+    points = accumulator.points(track_id)[0] * box
+    z = points[:, 2] + box[2] / 2
+    band = (z > .3 * box[2]) & (z < .55 * box[2]) & (np.abs(points[:, 1]) < .3 * box[1]) & (points[:, 0] < -box[0] / 2 + .9)
+    return np.subtract(*np.percentile(points[band, 0], [90, 10]))
+
+
+def test_end_face_registration_removes_along_track_jitter_without_drift():
+    truth, box = _truth("sedan")
+    sensor = np.array([-12., 2., 1.9 - box[2] / 2])  # behind the car, box frame
+    jitter = np.random.default_rng(2).uniform(-.2, .2, 10)
+    smeared, registered, still = (ObjectPointAccumulator(register=False), ObjectPointAccumulator(),
+                                  ObjectPointAccumulator())
+    for scan, offset in enumerate(jitter):
+        points = _sample(truth, box, 600, sensor, seed=scan, noise=.01)
+        for accumulator, shift in ((smeared, offset), (registered, offset), (still, 0.)):
+            accumulator.add("car", (points + (shift, 0., 0.)) / box, box, scan, sensor_origin_object=sensor - (shift, 0, 0))
+    assert _face_slab(smeared, "car", box) > .25
+    assert _face_slab(registered, "car", box) < .12
+    # The reference is the median face, so registered scans sit near the jitter-free face, ...
+    assert np.median(registered.shifts("car") + jitter) == pytest.approx(np.median(jitter), abs=.03)
+    # ... and a stationary car is not dragged anywhere.
+    assert np.abs(still.shifts("car")).max() < .02
+    assert _face_slab(still, "car", box) < .12
+
+
+def test_end_face_registration_gates_unobserved_or_implausible_faces():
+    registration = EndFaceRegistration()
+    box = np.array([4.8, 2.1, 1.8])
+    assert registration.visible_end([-10., 0., 1.], box) == -1 and registration.visible_end([1., 8., 1.], box) == 0
+    assert registration.face(np.zeros((5, 3)), box, -1) is None  # too few face returns
+    face = np.column_stack([np.full(40, -2.2), np.linspace(-.5, .5, 40), np.full(40, -.3)])
+    assert registration.face(face, box, -1) == pytest.approx(-2.2)
+    registration.observe(-2.2, -1)
+    assert registration.shift(-2.0, -1) == pytest.approx(-.2) and registration.shift(-1.5, -1) == 0.  # > 0.5 m
+    assert registration.shift(-2.0, 1) == 0.  # no reference for the front yet
+
+
+def test_road_layer_left_above_the_box_floor_is_removed():
+    truth, box = _truth("sedan")
+    car = _sample(truth, box, 600, (-9., 5., 1.9))
+    rng = np.random.default_rng(0)
+    road = np.column_stack([rng.uniform(-3, 3, 300), rng.uniform(-1, 1, 300), np.full(300, .18 - box[2] / 2)])
+    keep = above_ground_layer(np.vstack([car, road]), box)
+    assert not keep[len(car):].any() and keep[:len(car)].mean() > .95
+    assert above_ground_layer(car, box).all()  # no layer: nothing removed
+
+
+@pytest.mark.parametrize("body_type", ["sedan", "crossover", "pickup"])
+def test_rise_from_the_visible_end_tells_trunks_and_beds_from_tailgates(body_type):
+    truth, box = _truth(body_type, scale=0.)
+    sensor = np.array([-12., 1., 2.3 - box[2] / 2])
+    points = _sample(truth, box, 1500, sensor, seed=1, noise=.01)
+    profile = TopProfile(_local(points, box), box, -1, sensor)
+    fitter = VehicleShapeFitter()
+    expected = fitter._type_rise(body_type, box, profile)[0]
+    assert profile.valid and profile.rise_x_m == pytest.approx(expected, abs=.3)
+    rises = {other: fitter._type_rise(other, box, profile)[0] for other in TYPE_NAMES}
+    assert rises["crossover"] < rises["sedan"] - .4 and rises["sedan"] < rises["pickup"] - .2
+    assert profile.nats(fitter._type_rise(body_type, box, profile)) < 1.
+    assert not TopProfile(_local(points, box), box, 0).valid  # no visible end, no feature
+
+
+def test_upper_envelope_only_penalizes_tops_the_sensor_could_see():
+    truth, box = _truth("pickup", scale=0.)
+    sensor = np.array([-14., 1., 2.3 - box[2] / 2])
+    points = _sample(truth, box, 1500, sensor, seed=3, noise=.01)
+    local = _local(points, box)
+    profile = TopProfile(local, box, -1, sensor)
+    fitter = VehicleShapeFitter()
+    rows = {}
+    for body_type in ("pickup", "minivan"):
+        mean, std = fitter.prior_moments(body_type, box)
+        residuals = _Residuals(local, np.ones(len(local)), box, body_type, mean, std, fitter, envelope=profile)
+        residuals.distance(sanitize(mean)[0])
+        rows[body_type] = residuals._envelope_rows()[0]
+    assert len(rows["minivan"]) and np.abs(rows["pickup"]).max() < 1e-9 < rows["minivan"].max()
+    # A lower sensor sees nothing over the tailgate: the hidden region stays unknown, not empty.
+    low = TopProfile(local, box, -1, sensor * (1, 1, 0) + (0, 0, 1.0 - box[2] / 2))
+    mean, std = fitter.prior_moments("minivan", box)
+    residuals = _Residuals(local, np.ones(len(local)), box, "minivan", mean, std, fitter, envelope=low)
+    residuals.distance(sanitize(mean)[0])
+    assert np.abs(residuals._envelope_rows()[0]).max(initial=0.) < 1e-9
+
+
+def test_pickup_seen_from_behind_beats_a_minivan_of_the_same_box():
+    truth, box = _truth("pickup", scale=.3)
+    sensor = np.array([-12., 2., 2.3 - box[2] / 2])
+    points = _sample(truth, box, 1500, sensor, seed=6)
+    fit = VehicleShapeFitter().fit(points, box, sensor_origin=sensor)
+    assert fit.params.body_type == "pickup" and fit.type_nats["pickup"] == 0.
+    assert fit.type_nats.get("minivan", np.inf) > 3. and np.isfinite(fit.rise_x_m)
+    assert set(fit.type_nats) == set(fit.candidates) and fit.for_type(next(iter(fit.candidates))).accepted
+
+
+def test_sparse_evidence_fits_size_only_and_takes_the_box_type():
+    truth, box = _truth("crossover")
+    points = _sample(truth, box, 120, (-9., 5., 1.9), seed=2)
+    fitter = VehicleShapeFitter()
+    fit = fitter.fit(points, box)
+    assert fitter.min_evidence_voxels <= fit.evidence_voxels < fitter.min_shape_evidence and fit.accepted
+    assert fit.params.body_type == fitter.prior_shape(box).body_type
+    mean = sanitize(fitter.prior_moments(fit.params.body_type, box)[0])[0]
+    for name in ("x_rear_window", "top_roof_rear", "greenhouse_roof_front", "bed_depth"):
+        assert fit.params[name] == pytest.approx(mean[PARAMETERS.index(name)], abs=5e-3)  # (sanitize ordering only)
+
+
+def _sweep(nats, evidence, cells=20):
+    """A fit result carrying only what TypePosterior reads."""
+    shapes = {body_type: UniversalVehicleShape.mean(body_type) for body_type in nats}
+    candidates = {body_type: type("C", (), dict(shape=shape, rms=.05, robust_cost=1.))()
+                  for body_type, shape in shapes.items()}
+    best = min(nats, key=nats.get)
+    return VehicleShapeFit(shapes[best], .05, evidence, True, 1., type_nats=nats, candidates=candidates,
+                           coverage_cells=cells, max_rms_m=.25)
+
+
+def test_type_posterior_needs_confirmation_to_leave_a_confident_type():
+    posterior = TypePosterior()
+    assert posterior.update(_sweep({"sedan": 0., "hatchback": 4.}, 200)).params.body_type == "sedan"
+    assert posterior.update(_sweep({"sedan": 0., "hatchback": 4.}, 300)).params.body_type == "sedan"
+    assert posterior.confident
+    # A repeated refit of the same accumulation is not a new vote.
+    assert posterior.update(_sweep({"sedan": 9., "hatchback": 0.}, 300)).params.body_type == "sedan"
+    assert posterior.sweeps == 2
+    # One decisive informative sweep is not enough for a confident type; a second consecutive one is.
+    assert posterior.update(_sweep({"sedan": 9., "hatchback": 0.}, 400)).params.body_type == "sedan"
+    assert posterior.update(_sweep({"sedan": 9., "hatchback": 0.}, 500)).params.body_type == "hatchback"
+
+
+def test_type_posterior_lets_a_tentative_type_follow_the_evidence_but_not_when_sparse():
+    posterior = TypePosterior()
+    assert posterior.update(_sweep({"minivan": 0., "pickup": .5}, 100)).params.body_type == "minivan"
+    assert posterior.update(_sweep({"minivan": 5., "pickup": 0.}, 140)).params.body_type == "minivan"  # < 150 voxels
+    assert posterior.update(_sweep({"minivan": 5., "pickup": 0.}, 300)).params.body_type == "pickup"
+    assert not posterior.confident or posterior.sweeps >= 2
+
+
 @pytest.mark.parametrize("body_type", ["sedan", "pickup"])
 def test_analytic_jacobian_matches_finite_differences(body_type):
     shape, box = _truth(body_type)
@@ -165,7 +305,7 @@ def test_incumbent_type_is_kept_without_a_clear_margin_and_refits_skip_the_sweep
     truth, box = _truth("full_suv")
     points = _sample(truth, box, 400, (-9., 5., 1.9), seed=4)
     previous = UniversalVehicleShape.mean("minivan", box, inflation_lwh_m=INFLATION)
-    assert VehicleShapeFitter(switch_margin=.99).fit(points, box, previous).params.body_type == "minivan"
+    assert VehicleShapeFitter(switch_margin_nats=1e6).fit(points, box, previous).params.body_type == "minivan"
     fitter = VehicleShapeFitter()
     swept = fitter.fit(points, box, previous)
     assert swept.params.body_type == "full_suv" and np.isfinite(swept.robust_cost)

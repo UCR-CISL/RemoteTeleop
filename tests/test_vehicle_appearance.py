@@ -201,8 +201,9 @@ def test_refits_are_bounded_per_update_round_robin():
 def test_stable_shape_freezes_until_tracked_dimensions_change():
     estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(
         color=False, refit_every_scans=1, min_param_change=.5, freeze_after_stable_fits=2, fit_in_background=False,
-        unfreeze_new_cells=64))
+        unfreeze_new_cells=64, sweep_every_refits=1))
     _drive(estimator, 4, camera=False)
+    assert estimator._shapes["bevfusion:car:0"].types.confident  # freezing also needs a settled body type
     state = estimator._shapes["bevfusion:car:0"]
     assert state.frozen_dimensions is not None
     published, fits = state.published, estimator.fit_count
@@ -214,7 +215,8 @@ def test_stable_shape_freezes_until_tracked_dimensions_change():
 
 def test_frozen_shape_reopens_when_a_scan_covers_new_surface():
     estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(
-        color=False, refit_every_scans=1, min_param_change=.5, freeze_after_stable_fits=2, fit_in_background=False))
+        color=False, refit_every_scans=1, min_param_change=.5, freeze_after_stable_fits=2, fit_in_background=False,
+        sweep_every_refits=1))
     state = None
     for frame in range(6):  # a parked car seen from one side only
         pose = _lidar_T_object(12.)
