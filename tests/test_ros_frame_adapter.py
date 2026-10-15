@@ -798,6 +798,7 @@ def test_bevfusion_coast_setting_reaches_tracker():
     (["--bevfusion-maximum-coast-seconds", "nan"], "finite and positive"),
     (["--bevfusion-continuation-score-threshold", "nan"], "between zero and the birth score"),
     (["--bevfusion-minimum-confirmation-hits", "0"], "must be positive"),
+    (["--vehicle-shape-fit"], "require --bbox-source bevfusion"),
 ])
 def test_bevfusion_cli_rejects_invalid_tracker_settings_before_transport(monkeypatch, capsys, arguments, expected):
     from src.deployment import ros_frame_adapter
@@ -823,8 +824,12 @@ def test_bevfusion_adapter_optional_duplicate_birth_guard_preserves_continuation
     assert boxes[0].detection_confidence == .9
 
 
-@pytest.mark.parametrize("snap_arguments, snapped", [([], True), (["--no-bevfusion-lidar-ground-snap"], False)])
-def test_main_idle_loop_advances_final_bevfusion_pending_request(monkeypatch, tmp_path, snap_arguments, snapped):
+@pytest.mark.parametrize("snap_arguments, snapped, appearance", [
+    ([], True, None), (["--no-bevfusion-lidar-ground-snap"], False, None),
+    (["--vehicle-shape-fit"], True, (True, False)), (["--vehicle-color"], True, (False, True)),
+])
+def test_main_idle_loop_advances_final_bevfusion_pending_request(monkeypatch, tmp_path, snap_arguments, snapped,
+                                                                 appearance):
     from src.deployment import ros_frame_adapter as module
 
     spools = []
@@ -912,9 +917,101 @@ def test_main_idle_loop_advances_final_bevfusion_pending_request(monkeypatch, tm
     assert adapters[0].bevfusion.latest_sequence == 2
     # LiDAR-ground snapping is on by default; --no-bevfusion-lidar-ground-snap disables it.
     assert isinstance(adapters[0].bevfusion.ground_snapper, LidarGroundSnapper) is snapped
+    # Vehicle shape/color hints are opt-in.
+    estimator = adapters[0].bevfusion.appearance
+    assert (None if estimator is None else (estimator.config.shape, estimator.config.color)) == appearance
     # Polling advances inference only; published source frames remain immutable.
     assert [s.timestamp_us for s in spools[0].snapshots] == [0, 100_000, 200_000]
     assert [len(s.boxes) for s in spools[0].snapshots] == [0, 0, 0]
+
+
+class _SpyAppearance:
+    config = SimpleNamespace(shape=True, color=True)
+
+    def __init__(self):
+        self.calls = []
+
+    def update(self, matches, live_tracks, **kwargs):
+        self.calls.append((matches, live_tracks, kwargs))
+
+    def prompt_fields(self, track_id):
+        from src.viz.primitive_vehicle import CarShapeParams
+        return {"vehicle_shape": CarShapeParams().to_vector(), "body_color_rgb": (.5, .25, .125),
+                "color_confidence": .75}
+
+
+def test_bevfusion_vehicle_appearance_sees_matched_scan_and_decorates_prompts():
+    client = _LifecycleBevFusionClient()
+    appearance = _SpyAppearance()
+    detector = LatestBevFusionBoxes(client, score_threshold=.2, minimum_area_px=1, appearance=appearance)
+    points = np.arange(12, dtype=np.float32).reshape(3, 4)
+    _complete_lifecycle_detection(detector, client, 0, 0, .9, points=points)
+    prompts = _complete_lifecycle_detection(detector, client, 100_000, 1, .9, points=points)
+    assert [call[2]["timestamp_us"] for call in appearance.calls] == [0, 100_000]
+    matches, live, kwargs = appearance.calls[0]
+    assert [match.track.track_id for match in matches] == [track.track_id for track in live] == ["bevfusion:car:0"]
+    np.testing.assert_array_equal(kwargs["lidar_points"], points)
+    np.testing.assert_array_equal(kwargs["camera"].image_bgr, _ros_image(_image(0)))
+    np.testing.assert_array_equal(kwargs["camera"].camera_T_lidar, np.eye(4))
+    assert prompts[0].vehicle_shape is not None and prompts[0].body_color_rgb == (.5, .25, .125)
+    assert prompts[0].color_confidence == .75
+    assert detector._request_cameras == {} and detector._inflight_lidar_points == {}  # released after use
+
+
+def _ros_image(message):
+    from src.deployment.ros_frame_adapter import _ros_image_to_bgr
+    return _ros_image_to_bgr(message)
+
+
+def test_bevfusion_vehicle_appearance_keeps_at_most_inflight_and_pending_images():
+    client = _LifecycleBevFusionClient()
+    detector = LatestBevFusionBoxes(client, score_threshold=.2, appearance=_SpyAppearance())
+    for sequence in range(4):
+        payload = _metadata(timestamp_us=sequence * 100_000, frame_id=str(sequence), generation="offline-lifecycle")
+        payload["world_T_camera"] = np.eye(4).reshape(-1).tolist()
+        detector.receive_image(_image(sequence * 100_000))
+        detector.receive_lidar(SimpleNamespace(header=_image(sequence * 100_000).header,
+                                               points=np.zeros((1, 4), np.float32)))
+        detector.receive_metadata(payload, sequence)
+    assert len(client.requests) == 1 and detector.replaced_pending_count == 2
+    assert set(detector._request_cameras) == {client.requests[0].request_id, detector._pending.request_id}
+
+
+def test_bevfusion_vehicle_color_uses_rendering_not_detector_calibration():
+    from src.localization.cooperscene_calibration import camera_T_lidar, camera_intrinsic, camera_metadata
+
+    client = _LifecycleBevFusionClient()
+    appearance = _SpyAppearance()
+    detector = LatestBevFusionBoxes(client, score_threshold=.2, appearance=appearance)  # detector: baseline
+    map_T_lidar = np.eye(4)
+    map_T_lidar[:3, 3] = (10, 20, 1)
+    payload = dict(_metadata(timestamp_us=0, frame_id="0"), map_T_lidar=map_T_lidar.reshape(-1).tolist(),
+                   **camera_metadata("1", map_T_lidar, "refined"))
+    detector.receive_image(_image(0))
+    detector.receive_lidar(SimpleNamespace(header=_image(0).header, points=np.ones((5, 4), np.float32)))
+    detector.receive_metadata(payload, 0)
+    (request,) = client.requests
+    np.testing.assert_allclose(request.camera_intrinsic, camera_intrinsic("1", "baseline").reshape(-1))
+    client.result = BevFusionResult(request_id=request.request_id, scene_generation=request.scene_generation,
+                                    sequence=0, frame_id="0", timestamp_us=0, config_id=request.config_id, boxes=())
+    detector.poll()
+    camera = appearance.calls[0][2]["camera"]
+    np.testing.assert_allclose(camera.camera_intrinsic, camera_intrinsic("1", "refined"))
+    np.testing.assert_allclose(camera.camera_T_lidar, camera_T_lidar("1", "refined"), atol=1e-12)
+
+
+def test_bevfusion_prompts_are_byte_identical_until_appearance_is_published():
+    from src.deployment.vehicle_appearance import VehicleAppearanceEstimator
+
+    encoded = []
+    for appearance in (None, VehicleAppearanceEstimator()):
+        client = _LifecycleBevFusionClient()
+        detector = LatestBevFusionBoxes(client, score_threshold=.2, minimum_area_px=1, appearance=appearance)
+        prompts = [_complete_lifecycle_detection(detector, client, step * 100_000, step, .9) for step in range(4)]
+        encoded.append(json.dumps([[box.to_dict() for box in frame] for frame in prompts]))
+        if appearance is None:
+            assert detector._request_cameras == {} and detector._inflight_lidar_points == {}
+    assert encoded[0] == encoded[1]
 
 
 def test_prefetched_frames_preserve_order_and_reraise_errors():

@@ -34,6 +34,15 @@ class TrackedWorldBox:
     detector_class_name: str | None = None
 
 
+@dataclass(frozen=True)
+class DetectionMatch:
+    """A detection that updated (or birthed) a confirmed track in the last update."""
+
+    detection_index: int
+    track: TrackedWorldBox  # corrected estimate at the update timestamp, published identity
+    filter_id: str  # internal filter; differs from track.track_id after identity reacquisition
+
+
 class _KalmanTrack:
     """Constant-velocity center filter plus smoothed box shape and rotation."""
 
@@ -241,6 +250,12 @@ class BevFusionKalmanTracker:
         self._next_track_id = 0
         self._timestamp_us: int | None = None
         self._suppressed_birth_pairs: tuple[tuple[int, int], ...] = ()
+        self._last_matches: tuple[DetectionMatch, ...] = ()
+
+    @property
+    def last_matches(self) -> tuple[DetectionMatch, ...]:
+        """Last update's detection-to-confirmed-track assignments (coasted tracks excluded)."""
+        return self._last_matches
 
     @property
     def suppressed_birth_pairs(self) -> tuple[tuple[int, int], ...]:
@@ -280,8 +295,10 @@ class BevFusionKalmanTracker:
                       if track.confirmed and i not in high_assigned_tracks]
         assignments += self._associate(continuing, low, detections, timestamp_us)
         assigned_detections = {column for _, column in assignments}
+        matched = []
         for track_index, detection_index in assignments:
             self._tracks[track_index].correct(detections[detection_index], timestamp_us)
+            matched.append((detection_index, self._tracks[track_index]))
         assigned_tracks = {row for row, _ in assignments}
         for track_index, track in enumerate(self._tracks):
             if not track.confirmed and track_index not in assigned_tracks:
@@ -304,6 +321,7 @@ class BevFusionKalmanTracker:
             self._tracks.append(_KalmanTrack(
                 track_id, detection, timestamp_us, self.minimum_confirmation_hits,
             ))
+            matched.append((detection_index, self._tracks[-1]))
         self._suppressed_birth_pairs = tuple(suppressed)
 
         self._tracks = [
@@ -313,6 +331,13 @@ class BevFusionKalmanTracker:
         ]
         if self._identity_registry is not None:
             self._identity_registry.update(previous, self._tracks, timestamp_us)
+        self._last_matches = tuple(
+            DetectionMatch(detection_index, self._published(track.snapshot(timestamp_us)), track.track_id)
+            for detection_index, track in sorted(matched, key=lambda item: item[0]) if track.confirmed
+        )
+
+    def _published(self, box: TrackedWorldBox) -> TrackedWorldBox:
+        return self._identity_registry.remap(box) if self._identity_registry is not None else box
 
     @staticmethod
     def _duplicate_birth(candidate: WorldDetection, reference: WorldDetection) -> bool:
@@ -396,8 +421,7 @@ class BevFusionKalmanTracker:
         if timestamp_us < self._timestamp_us:
             raise ValueError("cannot project tracker state into the past")
         return tuple(
-            (self._identity_registry.remap(track.snapshot(timestamp_us))
-             if self._identity_registry is not None else track.snapshot(timestamp_us))
+            self._published(track.snapshot(timestamp_us))
             for track in self._tracks
             if track.confirmed and timestamp_us - track.last_observed_us <= self.maximum_coast_us
         )

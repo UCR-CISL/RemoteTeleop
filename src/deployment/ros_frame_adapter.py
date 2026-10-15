@@ -16,7 +16,7 @@ from queue import Empty, Full, Queue
 import time
 from threading import Event, Lock, Thread
 from types import SimpleNamespace
-from typing import Any, Mapping, Protocol
+from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
 import cv2
 import numpy as np
@@ -32,6 +32,9 @@ from src.deployment.lidar_ground_snap import LidarGroundSnapper
 from src.deployment.vehicle import VehicleAnalysisSpool, VehicleAssetSession, VehicleAssetStore, VehicleFrameSession, VehicleFrameSpool
 from src.reconstruction.models import VehicleDimensions
 from src.reconstruction.projection import project_vehicle_box
+
+if TYPE_CHECKING:
+    from src.deployment.vehicle_appearance import VehicleAppearanceEstimator
 
 
 class PosePublisher(Protocol):
@@ -63,6 +66,10 @@ class LatestBevFusionBoxes:
     the CooperScene checkpoint was trained with the ``baseline`` lidar2cam.
     It applies only to metadata tagged with ``camera_calibration``/``camera_agent``
     (CooperScene); ``None`` sends the metadata camera unchanged.
+
+    ``appearance`` optionally fits per-track shape/paint hints from each request's
+    LiDAR and image. Color projects with the metadata (rendering) camera, not the
+    detector's ``request_calibration``, so samples match the composited view.
     """
 
     def __init__(self, client: BevFusionClient, *, score_threshold: float, minimum_area_px: float = 64.0,
@@ -72,7 +79,8 @@ class LatestBevFusionBoxes:
                  maximum_coast_seconds: float = 0.5,
                  request_calibration: str | None = "baseline",
                  track_log: JsonlMetrics | None = None,
-                 ground_snapper: LidarGroundSnapper | None = None) -> None:
+                 ground_snapper: LidarGroundSnapper | None = None,
+                 appearance: VehicleAppearanceEstimator | None = None) -> None:
         if not 0.0 <= score_threshold <= 1.0:
             raise ValueError("bevfusion score threshold must be between zero and one")
         self.client = client
@@ -82,7 +90,10 @@ class LatestBevFusionBoxes:
         self.request_calibration = request_calibration
         # Optional: snap detection heights onto the request's LiDAR ground before tracking.
         self.ground_snapper = ground_snapper
+        self.appearance = appearance
         self._inflight_lidar_points: dict[str, np.ndarray] = {}
+        # request_id -> (full-res BGR, K, camera_T_lidar) for in-flight/pending color work.
+        self._request_cameras: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
         self.score_threshold = score_threshold
         self.minimum_area_px = minimum_area_px
         self._metadata: dict[int, Mapping[str, Any]] = {}
@@ -173,6 +184,7 @@ class LatestBevFusionBoxes:
                 world_T_object=tuple(float(value) for value in world_T_object.reshape(-1)),
                 text_label=label, visibility=projected.visible_fraction,
                 detection_confidence=score,
+                **({} if self.appearance is None else self.appearance.prompt_fields(tracked.track_id)),
             ))
         return tuple(boxes)
 
@@ -201,9 +213,16 @@ class LatestBevFusionBoxes:
             lidar_f32=np.ascontiguousarray(points, dtype="<f4").tobytes(),
         )
         del self._metadata[timestamp], self._images[timestamp], self._lidar[timestamp]
+        if self.appearance is not None and self.appearance.config.color:
+            # Rendering camera from the same metadata: camera_T_lidar is invariant to relocalization.
+            self._request_cameras[request.request_id] = (
+                image, np.asarray(metadata["camera_intrinsic"], dtype=np.float64).reshape(3, 3),
+                np.linalg.inv(_rigid_matrix(metadata["world_T_camera"], "world_T_camera"))
+                @ _rigid_matrix(request.world_T_lidar, "map_T_lidar"))
         if self._in_flight:
             if self._pending is not None:
                 self.replaced_pending_count += 1
+                self._request_cameras.pop(self._pending.request_id, None)
             self._pending = request
         elif self.client.submit(request):
             self._in_flight = True
@@ -211,10 +230,12 @@ class LatestBevFusionBoxes:
             self._inflight_lidar_poses[request.request_id] = np.asarray(request.world_T_lidar, dtype=np.float64).reshape(4, 4)
             self._remember_lidar_points(request)
         else:
+            if self._pending is not None:
+                self._request_cameras.pop(self._pending.request_id, None)
             self._pending = request
 
     def _remember_lidar_points(self, request: Any) -> None:
-        if self.ground_snapper is not None:
+        if self.ground_snapper is not None or self.appearance is not None:
             self._inflight_lidar_points[request.request_id] = np.frombuffer(
                 request.lidar_f32, dtype="<f4").reshape(request.lidar_point_count, -1)
 
@@ -264,16 +285,21 @@ class LatestBevFusionBoxes:
         request_id = _result_value(result, "request_id")
         world_T_lidar = self._inflight_lidar_poses.pop(request_id, None)
         lidar_points = self._inflight_lidar_points.pop(request_id, None)
+        request_camera = self._request_cameras.pop(request_id, None)
         if world_T_lidar is not None and _result_value(result, "error") is None:
             detections = tuple(
                 WorldDetection(world_T_object, dimensions, label, score)
                 for world_T_object, dimensions, label, score
                 in _bevfusion_world_boxes(result, world_T_lidar, self.ground_snapper, lidar_points)
             )
-            self._tracker.update(
-                detections,
-                timestamp_us=int(_result_value(result, "timestamp_us")),
-            )
+            timestamp_us = int(_result_value(result, "timestamp_us"))
+            self._tracker.update(detections, timestamp_us=timestamp_us)
+            if self.appearance is not None and lidar_points is not None:
+                from src.deployment.vehicle_appearance import AppearanceCamera
+                self.appearance.update(
+                    self._tracker.last_matches, self._tracker.boxes_at(timestamp_us), timestamp_us=timestamp_us,
+                    world_T_lidar=world_T_lidar, lidar_points=lidar_points,
+                    camera=None if request_camera is None else AppearanceCamera(*request_camera))
             self._latest_sequence = int(_result_value(result, "sequence"))
         elif _result_value(result, "error") is not None:
             self.error_count += 1
@@ -1180,6 +1206,10 @@ class RosFrameAdapter:
                         "bevfusion_result_count": self.bevfusion.result_count,
                         "bevfusion_replaced_pending_count": self.bevfusion.replaced_pending_count,
                         "bevfusion_error_count": self.bevfusion.error_count,
+                        **({} if self.bevfusion.appearance is None else {
+                            "vehicle_appearance_update_ms": self.bevfusion.appearance.last_update_ms,
+                            "vehicle_shape_fit_count": self.bevfusion.appearance.fit_count,
+                        }),
                     }
                     if self.bevfusion is not None else {"bbox_source": "gt"}
                 ),
@@ -1473,6 +1503,14 @@ def _create_ros_node(
     return PoseAdapterNode()
 
 
+def _vehicle_appearance(*, shape: bool, color: bool) -> VehicleAppearanceEstimator | None:
+    """Build the optional shape/color hint estimator only when a feature is enabled."""
+    if not (shape or color):
+        return None
+    from src.deployment.vehicle_appearance import VehicleAppearanceConfig, VehicleAppearanceEstimator
+    return VehicleAppearanceEstimator(VehicleAppearanceConfig(shape=shape, color=color))
+
+
 def _open_bevfusion_client(endpoint: str | None) -> BevFusionClient:
     """Keep the optional Docker transport outside the normal replay import path."""
     if not endpoint:
@@ -1517,6 +1555,11 @@ def main() -> None:
                         help="Drop tracks this long after their last associated detection")
     parser.add_argument("--bevfusion-lidar-ground-snap", action=argparse.BooleanOptionalAction, default=True,
                         help="Shift detection heights onto the local LiDAR ground before tracking (default: on)")
+    parser.add_argument("--vehicle-shape-fit", action=argparse.BooleanOptionalAction, default=False,
+                        help="Fit per-track car shape hints from accumulated LiDAR (BEVFusion only; default: off)")
+    parser.add_argument("--vehicle-color", action=argparse.BooleanOptionalAction, default=False,
+                        help="Estimate per-track paint color from LiDAR-supported image samples "
+                        "(BEVFusion only; default: off)")
     parser.add_argument("--bevfusion-tracks-path", type=Path,
                         help="Optional JSONL of all live tracker boxes per published frame (offline evaluation)")
     parser.add_argument("--frames-endpoint", default="tcp://0.0.0.0:5555")
@@ -1586,6 +1629,8 @@ def main() -> None:
         parser.error("--bevfusion-maximum-coast-seconds must be finite and positive")
     if args.bbox_source == "bevfusion" and not args.bevfusion_endpoint:
         parser.error("--bbox-source bevfusion requires --bevfusion-endpoint")
+    if (args.vehicle_shape_fit or args.vehicle_color) and args.bbox_source != "bevfusion":
+        parser.error("--vehicle-shape-fit/--vehicle-color require --bbox-source bevfusion")
 
     if args.mcap is not None:
         # A detached background shell may pass SIGINT as ignored. Restore it
@@ -1636,6 +1681,7 @@ def main() -> None:
                                  else args.bevfusion_camera_calibration),
             track_log=None if args.bevfusion_tracks_path is None else JsonlMetrics(args.bevfusion_tracks_path),
             ground_snapper=LidarGroundSnapper() if args.bevfusion_lidar_ground_snap else None,
+            appearance=_vehicle_appearance(shape=args.vehicle_shape_fit, color=args.vehicle_color),
         )
     localization_metrics = None
     localization_reference = None

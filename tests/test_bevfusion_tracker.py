@@ -476,3 +476,21 @@ def test_reacquisition_is_equivariant_under_rigid_world_rotation():
             tracker.update((detection,), timestamp_us=stamp)
         identities.append(tracker.boxes_at(700_000)[0].track_id)
     assert identities == ['bevfusion:car:0', 'bevfusion:car:0']
+
+
+def test_last_matches_report_confirmed_assignments_at_the_scan_and_exclude_coasting():
+    tracker = BevFusionKalmanTracker(minimum_confirmation_hits=2, maximum_reacquisition_seconds=2.0)
+    tracker.update((_detection(0.0), _detection(20.0)), timestamp_us=0)
+    assert tracker.last_matches == ()  # tentative births are not confirmed yet
+    tracker.update((_detection(30.0), _detection(0.5)), timestamp_us=100_000)
+    (match,) = tracker.last_matches  # x=30 is a tentative birth; x=20 coasts unconfirmed
+    assert match.detection_index == 1 and match.filter_id == match.track.track_id
+    assert match.track.track_id == tracker.boxes_at(100_000)[0].track_id
+    np.testing.assert_array_equal(match.track.world_T_object, tracker.boxes_at(100_000)[0].world_T_object)
+    tracker.update((), timestamp_us=200_000)
+    assert tracker.last_matches == () and len(tracker.boxes_at(200_000)) == 1  # coasting is never a match
+    identity = match.track.track_id
+    tracker.update((_detection(0.7),), timestamp_us=700_000)
+    tracker.update((_detection(0.8),), timestamp_us=800_000)
+    (reacquired,) = tracker.last_matches
+    assert reacquired.track.track_id == identity and reacquired.filter_id != identity
