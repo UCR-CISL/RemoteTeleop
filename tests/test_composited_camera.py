@@ -636,6 +636,76 @@ def test_highlighted_wireframe_proxy_uses_highlight_color():
     assert (1.0, 1.0, 1.0) in colors  # short track-ID label text
 
 
+class AppearanceVehicleProxies(FakeVehicleProxies):
+    def render(self, kind, dimensions, pose, camera, intrinsic, image_size, **appearance):
+        self.appearance = appearance
+        return super().render(kind, dimensions, pose, camera, intrinsic, image_size)
+
+
+def test_vehicle_proxy_receives_decoded_shape_and_body_color_hints(monkeypatch):
+    from dataclasses import replace
+
+    from src.viz.primitive_vehicle import CarShapeParams
+
+    renderer = FakeMeshRenderer()
+    proxies = AppearanceVehicleProxies(renderer)
+    backend = PoseOnlyCompositedCameraBackend(
+        FakeGaussianRenderer(), RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)),
+        renderer, vehicle_proxies=proxies, new_tracks=NewTrackHighlighter(1.0, strength=1.0),
+    )
+    car = replace(_box(), text_label="car")
+    backend.render_pose(_pose(), (car,))
+    assert proxies.appearance == {}  # no hints: identical call to legacy proxies
+
+    shape = CarShapeParams.default()
+    hinted = replace(car, vehicle_shape=shape.to_vector(), body_color_rgb=(0.1, 0.2, 0.3),
+                     color_confidence=0.9)
+    result = backend.render_pose(_pose(), (hinted,))
+    assert proxies.appearance == {
+        "shape": CarShapeParams.from_vector(shape.to_vector()), "body_color_rgb": (0.1, 0.2, 0.3),
+    }
+    # New-track highlighting still tints the colored proxy overlay.
+    np.testing.assert_allclose(result.rgb[10:14, 14:18], np.tile([1.0, 0.35, 0.0], (4, 4, 1)))
+
+    def reject(_values):
+        raise ValueError("unknown shape encoding")
+
+    monkeypatch.setattr(CarShapeParams, "from_vector", staticmethod(reject))
+    result = backend.render_pose(_pose(1, 1), (hinted,))
+    assert proxies.appearance == {"body_color_rgb": (0.1, 0.2, 0.3)}
+    assert result.track_states == {"car": "mesh"}
+
+
+def test_with_vertex_colors_returns_recolored_mesh_without_mutating_template():
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("pytorch3d")
+    trimesh = pytest.importorskip("trimesh")
+    from src.viz.composited_camera import PyTorch3DObjectMeshRenderer
+
+    renderer = PyTorch3DObjectMeshRenderer(device="cuda" if torch.cuda.is_available() else "cpu")
+    geometry = trimesh.creation.box(extents=(2.0, 1.0, 1.0))
+    geometry.visual.vertex_colors = np.tile([255, 0, 0, 255], (len(geometry.vertices), 1))
+    template = renderer.load_geometry(geometry, preserve_topology=True)
+    template_colors = template.textures.verts_features_padded().clone()
+    count = len(geometry.vertices)
+
+    moved = renderer.with_vertices(template, np.asarray(geometry.vertices) * 2.0)
+    recolored = renderer.with_vertex_colors(moved, np.tile([0, 128, 255, 255], (count, 1)).astype(np.uint8))
+    np.testing.assert_allclose(
+        recolored.textures.verts_features_padded()[0].cpu().numpy(),
+        np.tile([0.0, 128 / 255, 1.0], (count, 1)), atol=1e-6,
+    )
+    torch.testing.assert_close(recolored.verts_padded(), moved.verts_padded())
+    assert torch.equal(recolored.faces_padded(), template.faces_padded())
+    torch.testing.assert_close(template.textures.verts_features_padded(), template_colors)
+    torch.testing.assert_close(moved.textures.verts_features_padded(), template_colors)
+
+    floats = renderer.with_vertex_colors(template, np.full((count, 3), 0.25, dtype=np.float32))
+    np.testing.assert_allclose(floats.textures.verts_features_padded()[0].cpu().numpy(), 0.25)
+    with pytest.raises(ValueError, match="colors"):
+        renderer.with_vertex_colors(template, np.zeros((count + 1, 3)))
+
+
 class OccluderDepthGaussianRenderer(FakeGaussianRenderer):
     """Opaque splats whose expected depth sits short of their opacity-threshold depth."""
 

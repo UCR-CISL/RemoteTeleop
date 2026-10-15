@@ -309,6 +309,7 @@ class PoseOnlyCompositedCameraBackend:
                     kind, box.dimensions_lwh,
                     placed_pose,
                     world_T_camera, self.camera.camera_intrinsic, self.camera.image_size,
+                    **_proxy_appearance(box),
                 )
                 if highlight:
                     overlay = self._new_tracks.tint(overlay)
@@ -700,6 +701,27 @@ class PyTorch3DObjectMeshRenderer:
             torch.as_tensor(vertices, dtype=torch.float32, device=self._device)[None]
         )
 
+    def with_vertex_colors(self, mesh, colors):
+        """Return a mesh sharing ``mesh`` geometry with new per-vertex colors.
+
+        ``colors`` is ``(V, 3)`` or ``(V, 4)``; integer values are 0-255 like
+        trimesh vertex colors, floats are 0-1.  The input mesh is not modified.
+        """
+        import torch
+        from pytorch3d.renderer import TexturesVertex
+
+        colors = np.asarray(colors)
+        if colors.ndim != 2 or colors.shape[1] not in (3, 4) or len(colors) != mesh.verts_padded().shape[1]:
+            raise ValueError("colors must be (V, 3) or (V, 4) for the mesh vertices")
+        rgb = colors[:, :3].astype(np.float32)
+        if np.issubdtype(colors.dtype, np.integer):
+            rgb /= 255.0
+        new = mesh.update_padded(mesh.verts_padded())
+        new.textures = TexturesVertex(
+            [torch.as_tensor(np.clip(rgb, 0.0, 1.0), device=self._device)]
+        )
+        return new
+
     def render(
         self, mesh, world_T_object, world_T_camera, camera_intrinsic, image_size,
         *, cull_backfaces: bool = False,
@@ -1023,6 +1045,22 @@ def _draw_track_label(rgb, box, placed_pose, world_T_camera, intrinsic, color) -
     x, y = int(u - text_w / 2), int(v) - 6
     cv2.rectangle(rgb, (x - 2, y - text_h - 3), (x + text_w + 2, y + 3), tuple(float(c) for c in color), -1)
     cv2.putText(rgb, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (1.0, 1.0, 1.0), 1, cv2.LINE_AA)
+
+
+def _proxy_appearance(box: BoxPrompt) -> dict[str, object]:
+    """Decode optional shape/color hints into vehicle proxy render kwargs."""
+
+    appearance: dict[str, object] = {}
+    if box.vehicle_shape is not None:
+        try:
+            from src.viz.primitive_vehicle import CarShapeParams
+
+            appearance["shape"] = CarShapeParams.from_vector(box.vehicle_shape)
+        except (ImportError, TypeError, ValueError):
+            pass  # unknown shape encoding: keep the default primitive
+    if box.body_color_rgb is not None:
+        appearance["body_color_rgb"] = box.body_color_rgb
+    return appearance
 
 
 def _flat_ground_box_pose(
