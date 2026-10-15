@@ -10,6 +10,8 @@ render it. Only compact hints leave this module.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import itertools
+import threading
 import time
 from typing import Any, Sequence
 
@@ -18,7 +20,7 @@ import numpy as np
 from src.common.vehicle_categories import vehicle_proxy_kind
 from src.deployment.lidar_ground_snap import _BevGrid
 from src.deployment.vehicle_color import SparseDepthBuffer, VehicleColorEstimator
-from src.deployment.vehicle_shape import CarShapeFitter, ObjectPointAccumulator
+from src.deployment.vehicle_shape import CarShapeFitter, ObjectPointAccumulator, VehicleShapeFit
 from src.reconstruction.models import VehicleDimensions
 from src.reconstruction.projection import project_vehicle_box
 from src.viz.primitive_vehicle import CarShapeParams
@@ -38,8 +40,10 @@ class VehicleAppearanceConfig:
     max_crop_points: int = 4096  # stride dense near-range crops down to this
     refit_growth: float = .25  # refit when accumulated voxels grow by this fraction ...
     refit_every_scans: int = 10  # ... or after this many accumulated scans
-    max_fits_per_update: int = 2  # each fit costs ~25-60 ms ...
+    max_fits_per_update: int = 2  # fits started per update (~2 ms incumbent refit, ~15 ms full sweep) ...
     fit_budget_ms: float = 60.  # ... and no further fit starts once this much was spent in one update
+    fit_in_background: bool = True  # False fits synchronously, for deterministic tests and offline replay
+    sweep_every_refits: int = 5  # refit only the incumbent body type/sign except every Nth fit
     max_color_tracks_per_update: int = 8
     min_param_change: float = .02  # fraction of a parameter's range that counts as a new shape
     freeze_after_stable_fits: int = 3
@@ -48,7 +52,7 @@ class VehicleAppearanceConfig:
     def __post_init__(self) -> None:
         if (self.crop_margin_m < 0 or self.neighbor_margin_m < 0 or self.max_crop_points < 1
                 or self.refit_growth <= 0 or self.refit_every_scans < 1 or self.max_fits_per_update < 0
-                or self.fit_budget_ms < 0
+                or self.fit_budget_ms < 0 or self.sweep_every_refits < 1
                 or self.max_color_tracks_per_update < 0 or self.min_param_change < 0
                 or self.freeze_after_stable_fits < 1 or self.unfreeze_dimension_change <= 0):
             raise ValueError("invalid vehicle appearance configuration")
@@ -66,13 +70,98 @@ class AppearanceCamera:
 @dataclass
 class _ShapeTrack:
     dimensions: np.ndarray
+    generation: int  # identifies this track state to fits finishing after a drop or reset
     scans_since_fit: int = 0
     fit_evidence: int = 0
     last_fit_tick: int = -1
     fitted: CarShapeParams | None = None
+    fit_cost: float | None = None  # robust cost of ``fitted`` for incumbent-only refits
+    fits: int = 0
+    fitting: bool = False
     published: CarShapeParams | None = None
     stable_fits: int = 0
     frozen_dimensions: np.ndarray | None = None
+
+
+@dataclass(frozen=True)
+class _FitRequest:
+    """Immutable snapshot of one track's evidence; safe to fit on another thread."""
+
+    track_id: str
+    generation: int
+    points: np.ndarray  # metric object frame
+    weights: np.ndarray
+    dimensions: np.ndarray
+    previous: CarShapeParams | None
+    incumbent_cost: float | None
+
+    def run(self, fitter: CarShapeFitter) -> VehicleShapeFit:
+        return fitter.fit(self.points, self.dimensions, self.previous, weights=self.weights,
+                          incumbent_cost=self.incumbent_cost)
+
+
+class ShapeFitWorker:
+    """Runs shape fits on one daemon thread, off the caller's (publishing) thread.
+
+    At most one request per track is queued (a newer one replaces it) and at
+    most ``max_pending`` overall. Results are only handed back through
+    ``finished``, so the caller applies them on its own thread; requests are
+    immutable snapshots and the fitter holds no mutable state.
+    """
+
+    def __init__(self, fitter: CarShapeFitter, *, max_pending: int = 8) -> None:
+        if max_pending < 1:
+            raise ValueError("max_pending must be positive")
+        self.fitter, self.max_pending = fitter, max_pending
+        self._condition = threading.Condition()
+        self._pending: dict[str, _FitRequest] = {}
+        self._finished: list[tuple[_FitRequest, VehicleShapeFit | Exception]] = []
+        self._closed = False
+        self._thread: threading.Thread | None = None
+
+    def submit(self, request: _FitRequest) -> bool:
+        """Queue ``request`` without blocking; False when closed or the backlog is full."""
+        with self._condition:
+            if self._closed or (request.track_id not in self._pending and len(self._pending) >= self.max_pending):
+                return False
+            self._pending.pop(request.track_id, None)
+            self._pending[request.track_id] = request
+            if self._thread is None:
+                self._thread = threading.Thread(target=self._run, name="vehicle-shape-fit", daemon=True)
+                self._thread.start()
+            self._condition.notify()
+            return True
+
+    def finished(self) -> list[tuple[_FitRequest, VehicleShapeFit | Exception]]:
+        """Completed (request, fit or error) pairs since the last call, oldest first."""
+        with self._condition:
+            finished, self._finished = self._finished, []
+        return finished
+
+    def close(self, timeout_s: float = 2.) -> None:
+        """Drop queued work and join the thread after its current fit."""
+        with self._condition:
+            self._closed = True
+            self._pending.clear()
+            self._condition.notify_all()
+            thread = self._thread
+        if thread is not None:
+            thread.join(timeout_s)
+
+    def _run(self) -> None:
+        while True:
+            with self._condition:
+                while not self._pending and not self._closed:
+                    self._condition.wait()
+                if self._closed:
+                    return
+                request = self._pending.pop(next(iter(self._pending)))
+            try:
+                result: VehicleShapeFit | Exception = request.run(self.fitter)
+            except Exception as error:  # reported to the caller's thread
+                result = error
+            with self._condition:
+                self._finished.append((request, result))
 
 
 class VehicleAppearanceEstimator:
@@ -84,7 +173,10 @@ class VehicleAppearanceEstimator:
     ``max_fits_per_update`` per update within ``fit_budget_ms``, published only
     on a meaningful change, and frozen after ``freeze_after_stable_fits``
     agreeing refits until the tracked dimensions move by
-    ``unfreeze_dimension_change``. State is dropped when a track dies
+    ``unfreeze_dimension_change``. Refits try only the incumbent body type and
+    sign except every ``sweep_every_refits``-th fit. With ``fit_in_background``
+    fits run on a ShapeFitWorker and finished fits are applied on a later
+    update; call ``close`` on shutdown. State is dropped when a track dies
     or its identity is reacquired by a new tracker filter (the reacquisition
     may be another car).
     """
@@ -99,9 +191,12 @@ class VehicleAppearanceEstimator:
         self._filters: dict[str, str] = {}  # published track id -> tracker filter id
         self._shapes: dict[str, _ShapeTrack] = {}
         self._color_ticks: dict[str, int] = {}
+        self._generations = itertools.count()
+        self._worker = ShapeFitWorker(self.fitter) if self.config.fit_in_background else None
         self._tick = 0
         self.last_update_ms = 0.
         self.fit_count = 0
+        self.fit_error_count = 0
 
     def update(self, matches: Sequence[Any], live_tracks: Sequence[Any], *, timestamp_us: int,
                world_T_lidar: np.ndarray, lidar_points: np.ndarray, camera: AppearanceCamera | None = None) -> None:
@@ -110,6 +205,16 @@ class VehicleAppearanceEstimator:
         started = time.perf_counter()
         self._tick += 1
         self._forget(matches, live_tracks)
+        if self._worker is not None:
+            for request, fit in self._worker.finished():
+                if isinstance(fit, Exception):
+                    # A failed fit must not stop publishing: keep the last shape and retry later.
+                    self.fit_error_count += 1
+                    state = self._shapes.get(request.track_id)
+                    if state is not None and state.generation == request.generation:
+                        state.fitting = False
+                    continue
+                self._apply_fit(request, fit)
         lidar_T_world = np.linalg.inv(np.asarray(world_T_lidar, dtype=np.float64).reshape(4, 4))
         candidates = [match for match in matches if self._wants(match.track.label)]
         xyz = np.asarray(lidar_points, dtype=np.float32).reshape(len(lidar_points), -1)[:, :3] \
@@ -151,6 +256,11 @@ class VehicleAppearanceEstimator:
             fields["body_color_rgb"] = color.rgb
             fields["color_confidence"] = color.confidence
         return fields
+
+    def close(self) -> None:
+        """Stop the background fit worker, if any; no further fits start."""
+        if self._worker is not None:
+            self._worker.close()
 
     def drop(self, track_id: str) -> None:
         self._filters.pop(track_id, None)
@@ -197,7 +307,9 @@ class VehicleAppearanceEstimator:
         return local
 
     def _accumulate(self, track_id: str, points: np.ndarray, dimensions: np.ndarray, timestamp_us: int) -> None:
-        state = self._shapes.setdefault(track_id, _ShapeTrack(dimensions))
+        state = self._shapes.get(track_id)
+        if state is None:
+            state = self._shapes[track_id] = _ShapeTrack(dimensions, next(self._generations))
         state.dimensions = dimensions
         if state.frozen_dimensions is not None:
             if np.max(np.abs(dimensions / state.frozen_dimensions - 1)) <= self.config.unfreeze_dimension_change:
@@ -211,7 +323,7 @@ class VehicleAppearanceEstimator:
         due = []
         for track_id, state in self._shapes.items():
             evidence = self.accumulator.evidence(track_id)
-            if state.frozen_dimensions is not None or evidence < self.fitter.min_evidence_voxels \
+            if state.frozen_dimensions is not None or state.fitting or evidence < self.fitter.min_evidence_voxels \
                     or state.scans_since_fit == 0:
                 continue
             if evidence >= state.fit_evidence * (1 + config.refit_growth) \
@@ -221,18 +333,29 @@ class VehicleAppearanceEstimator:
         for _, track_id in sorted(due)[:config.max_fits_per_update]:
             if (time.perf_counter() - started) * 1e3 >= config.fit_budget_ms:
                 break
-            self._refit(track_id, self._shapes[track_id])
+            state = self._shapes[track_id]
+            points, weights = self.accumulator.points(track_id)
+            request = _FitRequest(track_id, state.generation, points * state.dimensions, weights,
+                                  state.dimensions.copy(), state.fitted,
+                                  None if state.fits % config.sweep_every_refits == 0 else state.fit_cost)
+            if self._worker is not None and not self._worker.submit(request):
+                break
+            state.fitting = True
+            state.fit_evidence, state.scans_since_fit, state.last_fit_tick = (
+                self.accumulator.evidence(track_id), 0, self._tick)
+            if self._worker is None:
+                self._apply_fit(request, request.run(self.fitter))
 
-    def _refit(self, track_id: str, state: _ShapeTrack) -> None:
-        points, weights = self.accumulator.points(track_id)
-        fit = self.fitter.fit(points * state.dimensions, state.dimensions, state.fitted, weights=weights)
+    def _apply_fit(self, request: _FitRequest, fit: VehicleShapeFit) -> None:
+        state = self._shapes.get(request.track_id)
+        if state is None or state.generation != request.generation:
+            return  # the track died or was reset while fitting
         self.fit_count += 1
-        state.fit_evidence, state.scans_since_fit, state.last_fit_tick = (
-            self.accumulator.evidence(track_id), 0, self._tick)
+        state.fitting, state.fits = False, state.fits + 1
         if not fit.accepted:
-            state.stable_fits = 0
+            state.fit_cost, state.stable_fits = None, 0
             return
-        state.fitted = fit.params
+        state.fitted, state.fit_cost = fit.params, fit.robust_cost
         if state.published is None or self._changed(state.published, fit.params):
             state.published, state.stable_fits = fit.params, 0
             return

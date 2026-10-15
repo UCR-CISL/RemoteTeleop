@@ -826,7 +826,7 @@ def test_bevfusion_adapter_optional_duplicate_birth_guard_preserves_continuation
 
 @pytest.mark.parametrize("snap_arguments, snapped, appearance", [
     ([], True, None), (["--no-bevfusion-lidar-ground-snap"], False, None),
-    (["--vehicle-shape-fit"], True, (True, False)), (["--vehicle-color"], True, (False, True)),
+    (["--vehicle-shape-fit"], True, (True, False, True)), (["--vehicle-color"], True, (False, True, True)),
 ])
 def test_main_idle_loop_advances_final_bevfusion_pending_request(monkeypatch, tmp_path, snap_arguments, snapped,
                                                                  appearance):
@@ -917,9 +917,10 @@ def test_main_idle_loop_advances_final_bevfusion_pending_request(monkeypatch, tm
     assert adapters[0].bevfusion.latest_sequence == 2
     # LiDAR-ground snapping is on by default; --no-bevfusion-lidar-ground-snap disables it.
     assert isinstance(adapters[0].bevfusion.ground_snapper, LidarGroundSnapper) is snapped
-    # Vehicle shape/color hints are opt-in.
+    # Vehicle shape/color hints are opt-in; live replay fits off the publishing thread.
     estimator = adapters[0].bevfusion.appearance
-    assert (None if estimator is None else (estimator.config.shape, estimator.config.color)) == appearance
+    assert (None if estimator is None else (estimator.config.shape, estimator.config.color,
+                                            estimator.config.fit_in_background)) == appearance
     # Polling advances inference only; published source frames remain immutable.
     assert [s.timestamp_us for s in spools[0].snapshots] == [0, 100_000, 200_000]
     assert [len(s.boxes) for s in spools[0].snapshots] == [0, 0, 0]

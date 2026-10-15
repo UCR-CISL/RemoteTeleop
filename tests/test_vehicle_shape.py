@@ -6,8 +6,10 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from scipy.optimize import least_squares
+from scipy.optimize._numdiff import approx_derivative
 
-from src.deployment.vehicle_shape import CarShapeFitter, ObjectPointAccumulator, surface_distance
+from src.deployment.vehicle_shape import CarShapeFitter, ObjectPointAccumulator, _CandidateResiduals, surface_distance
 from src.viz.primitive_vehicle import CarShapeParams
 
 DIMENSIONS = np.array([4.7, 1.85, 1.5])
@@ -153,3 +155,77 @@ def test_fit_latency_for_two_thousand_points():
     fit = fitter.fit(points, DIMENSIONS)
     assert time.perf_counter() - start < .5
     assert fit.accepted and _error(fit.params, TRUTH) < .5 * _error(CarShapeParams(), TRUTH)
+
+
+class _ReferenceFitter(CarShapeFitter):
+    """Candidates fitted as before vectorization: SciPy's 2-point Jacobian over surface_distance."""
+
+    def _fit_candidate(self, points, weights, dimensions, body_type, sign, previous):
+        prior = CarShapeParams.default(body_type)
+        names = CarShapeParams.CONTINUOUS
+        theta0 = np.array([getattr(prior, name) for name in names])
+        span = np.array([self.FIT_SPANS[name] for name in names])
+        bounds = np.array([CarShapeParams.BOUNDS[name] for name in names]).T
+        lower, upper = np.maximum(theta0 - span, bounds[0]), np.minimum(theta0 + span, bounds[1])
+        start = theta0
+        if previous is not None and previous.body_type == body_type and previous.forward_sign == sign:
+            start = np.clip([getattr(previous, name) for name in names], lower, upper)
+        local = np.column_stack([sign * points[:, 0], np.abs(points[:, 1]), points[:, 2] + dimensions[2] / 2])
+
+        def shape(theta):
+            return replace(prior, forward_sign=sign, **dict(zip(names, theta)))
+
+        def residuals(theta):
+            scaled = surface_distance(local, dimensions, shape(theta)) / self.huber_m
+            magnitude = np.abs(scaled)
+            robust = np.where(magnitude <= 1, scaled, np.sign(scaled) * np.sqrt(np.maximum(2 * magnitude - 1, 1.)))
+            prior_residuals = np.sqrt(self.prior_weight) / (span / 2) * (theta - theta0)
+            return np.concatenate([np.sqrt(weights) * robust, prior_residuals])
+
+        result = least_squares(residuals, start, bounds=(lower, upper), x_scale=span, diff_step=1e-3,
+                               ftol=self.tolerance, xtol=self.tolerance, gtol=1e-6, max_nfev=self.max_nfev)
+        rms = float(np.sqrt(weights @ surface_distance(local, dimensions, shape(result.x)) ** 2 / weights.sum()))
+        return shape(result.x), float(result.cost), rms, float("nan")
+
+
+@pytest.mark.parametrize("truth", [TRUTH, replace(TRUTH, forward_sign=-1.), CarShapeParams.default("hatch_suv"),
+                                   replace(CarShapeParams.default("hatch_suv"), forward_sign=-1., hood_z=.6)])
+@pytest.mark.parametrize("sensor", [(.5, -1., .6), (0., -1., .4)])
+def test_fit_matches_the_finite_difference_reference(truth, sensor):
+    pytest.importorskip("trimesh")
+    points = _sample(truth, 150, sensor, seed=7)
+    fit, reference = CarShapeFitter().fit(points, DIMENSIONS), _ReferenceFitter().fit(points, DIMENSIONS)
+    assert fit.accepted and reference.accepted
+    assert fit.params.to_vector()[:2] == reference.params.to_vector()[:2]  # body type and forward sign
+    assert abs(fit.cost - reference.cost) < 2e-3
+    assert max(abs(getattr(fit.params, name) - getattr(reference.params, name)) / CarShapeFitter.FIT_SPANS[name]
+               for name in CarShapeParams.CONTINUOUS) < .1
+
+
+def test_analytic_jacobian_matches_fine_finite_differences():
+    pytest.importorskip("trimesh")
+    points = _sample(TRUTH, 300, (.5, -1., .6), seed=8)
+    local = np.column_stack([points[:, 0], np.abs(points[:, 1]), points[:, 2] + DIMENSIONS[2] / 2])
+    span = np.array([CarShapeFitter.FIT_SPANS[name] for name in CarShapeParams.CONTINUOUS])
+    for body_type in CarShapeParams.BODY_TYPES:
+        theta0 = np.array([getattr(CarShapeParams.default(body_type), name) for name in CarShapeParams.CONTINUOUS])
+        problem = _CandidateResiduals(local, np.ones(len(local)), DIMENSIONS, theta0, 2 / span, .08)
+        theta = theta0 + np.random.default_rng(1).uniform(-.4, .4, len(theta0)) * span
+        expected = approx_derivative(problem.residuals, theta, abs_step=1e-7)
+        np.testing.assert_allclose(problem.jacobian(theta), expected, atol=1e-4 * np.abs(expected).max())
+
+
+def test_incumbent_refit_skips_the_sweep_unless_its_cost_grows():
+    pytest.importorskip("trimesh")
+    points = _sample(CarShapeParams(), 400, (0., -1., .4), seed=4)
+    previous = replace(CarShapeParams(), forward_sign=-1.)
+    fitter = CarShapeFitter()
+    swept = fitter.fit(points, DIMENSIONS, previous)
+    assert swept.params.forward_sign == 1 and np.isfinite(swept.robust_cost)
+    # A trusted incumbent is refit alone, so the better reversed hypothesis is not even tried.
+    kept = fitter.fit(points, DIMENSIONS, previous, incumbent_cost=1e9)
+    assert kept.params.forward_sign == -1 and kept.robust_cost > swept.robust_cost
+    # Its cost grew past sweep_cost_growth: the sweep runs and the switch margin applies as usual.
+    assert fitter.fit(points, DIMENSIONS, previous, incumbent_cost=kept.robust_cost / 2).params.forward_sign == 1
+    incumbent = fitter.fit(points, DIMENSIONS, swept.params, incumbent_cost=swept.robust_cost)
+    assert incumbent.params.forward_sign == 1 and abs(incumbent.cost - swept.cost) < 2e-3

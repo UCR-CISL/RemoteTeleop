@@ -109,30 +109,62 @@ def car_section_tables(shape: CarShapeParams | None = None, *, roof: float = 1.)
     Pure NumPy so vehicle-side shape fitting evaluates the same profile as the
     rendered mesh. Every edit is an offset that vanishes at the defaults.
     """
-    body, cabin = _CAR_BODY_SECTIONS.copy(), _CAR_CABIN_SECTIONS.copy()
-    if shape is not None:
-        base = CarShapeParams()
-        for ends, width, nominal in ((body[:, 0] >= .31, shape.nose_half_width, base.nose_half_width),
-                                     (body[:, 0] <= -.39, shape.tail_half_width, base.tail_half_width)):
-            body[ends, 1] += (body[ends, 1] - .495) * ((.495 - width) / (.495 - nominal) - 1)
-
-        def lift(x):
-            return np.interp(x, (-.23, .12), (shape.deck_z - base.deck_z, shape.hood_z - base.hood_z))
-
-        body[:, 3] += lift(body[:, 0])
-        anchors = np.array([base.rear_window_base_x, base.roof_rear_x, base.roof_front_x, base.windshield_base_x])
-        moved = np.array([shape.rear_window_base_x, shape.roof_rear_x, shape.roof_front_x, shape.windshield_base_x])
-        cabin[:, 0] += np.interp(cabin[:, 0], anchors, moved - anchors)
-        # Keep the greenhouse inside the body's plan view and seated on its
-        # shoulders; neither clamp is active for the authored profile.
-        cabin[:, 1] = np.minimum(cabin[:, 1] * (shape.cabin_half_width / base.cabin_half_width),
-                                 np.interp(cabin[:, 0], body[:, 0], body[:, 1]) - .02)
-        bottom = np.minimum(cabin[:, 2] + lift(cabin[:, 0]),
-                            np.maximum(cabin[:, 2], np.interp(cabin[:, 0], body[:, 0], body[:, 3]) - .02))
-        cabin[:, 3] += (bottom - cabin[:, 2]) * (1 - cabin[:, 3]) / (1 - cabin[:, 2])
-        cabin[:, 2] = bottom
+    if shape is None:
+        body, cabin = _CAR_BODY_SECTIONS.copy(), _CAR_CABIN_SECTIONS.copy()
+    else:
+        body, cabin = (table[0] for table in car_section_table_batch(
+            [[getattr(shape, name) for name in CarShapeParams.CONTINUOUS]]))
     cabin[:, 3] = cabin[:, 2] + (cabin[:, 3] - cabin[:, 2]) * ((roof - .59) / (1. - .59))
     return body, cabin
+
+
+_CAR_DEFAULT = CarShapeParams()
+_CABIN_ANCHORS = ("rear_window_base_x", "roof_rear_x", "roof_front_x", "windshield_base_x")
+_ANCHOR_X = np.array([getattr(_CAR_DEFAULT, name) for name in _CABIN_ANCHORS])
+# np.interp is linear in its values: moving the anchors moves cabin sections by fixed weights.
+_CABIN_ANCHOR_WEIGHTS = np.stack([np.interp(_CAR_CABIN_SECTIONS[:, 0], _ANCHOR_X, unit) for unit in np.eye(4)], 1)
+
+
+def car_section_table_batch(continuous) -> tuple[np.ndarray, np.ndarray]:
+    """(P, 8, 4) body and (P, 11, 4) cabin sections for P rows of CONTINUOUS values.
+
+    Vectorized core of car_section_tables (roof at the bbox top) so the shape
+    fitter can evaluate many parameter vectors in one pass.
+    """
+    values = np.asarray(continuous, dtype=float).reshape(-1, len(CarShapeParams.CONTINUOUS))
+    shape = dict(zip(CarShapeParams.CONTINUOUS, values.T[..., None]))  # each (P, 1)
+    base = _CAR_DEFAULT
+    body = np.repeat(_CAR_BODY_SECTIONS[None], len(values), axis=0)
+    cabin = np.repeat(_CAR_CABIN_SECTIONS[None], len(values), axis=0)
+    for ends, name in ((_CAR_BODY_SECTIONS[:, 0] >= .31, "nose_half_width"),
+                       (_CAR_BODY_SECTIONS[:, 0] <= -.39, "tail_half_width")):
+        body[:, ends, 1] += (body[:, ends, 1] - .495) * ((.495 - shape[name]) / (.495 - getattr(base, name)) - 1)
+
+    def lift(x):  # np.interp(x, (-.23, .12), (deck offset, hood offset)) per row
+        along = np.clip((x + .23) / .35, 0., 1.)
+        return ((shape["deck_z"] - base.deck_z) * (1 - along)
+                + (shape["hood_z"] - base.hood_z) * along)
+
+    body[..., 3] += lift(body[..., 0])
+    cabin[..., 0] += (np.hstack([shape[name] for name in _CABIN_ANCHORS]) - _ANCHOR_X) @ _CABIN_ANCHOR_WEIGHTS.T
+    # Keep the greenhouse inside the body's plan view and seated on its
+    # shoulders; neither clamp is active for the authored profile.
+    shoulder_y, shoulder_z = (_interp_rows(cabin[..., 0], _CAR_BODY_SECTIONS[:, 0], body[..., column])
+                              for column in (1, 3))
+    cabin[..., 1] = np.minimum(cabin[..., 1] * (shape["cabin_half_width"] / base.cabin_half_width),
+                               shoulder_y - .02)
+    bottom = np.minimum(cabin[..., 2] + lift(cabin[..., 0]), np.maximum(cabin[..., 2], shoulder_z - .02))
+    cabin[..., 3] += (bottom - cabin[..., 2]) * (1 - cabin[..., 3]) / (1 - cabin[..., 2])
+    cabin[..., 2] = bottom
+    return body, cabin
+
+
+def _interp_rows(x, xp, fp):
+    """np.interp of each row of ``x`` against a shared ``xp`` and that row of ``fp``."""
+    index = np.clip(np.searchsorted(xp, x, side="right") - 1, 0, len(xp) - 2)
+    along = np.clip((x - xp[index]) / (xp[index + 1] - xp[index]), 0., 1.)
+    low = np.take_along_axis(fp, index, axis=-1)
+    return low + along * (np.take_along_axis(fp, index + 1, axis=-1) - low)
 
 
 def section_rings(sections) -> np.ndarray:

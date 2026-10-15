@@ -314,6 +314,8 @@ class LatestBevFusionBoxes:
                 self._pending = pending
 
     def close(self) -> None:
+        if self.appearance is not None:
+            self.appearance.close()
         if self._metadata or self._images or self._lidar:
             raise RuntimeError("BEVFusion replay ended with unmatched image, metadata, or LiDAR timestamps")
         close = getattr(self.client, "close", None)
@@ -1209,6 +1211,7 @@ class RosFrameAdapter:
                         **({} if self.bevfusion.appearance is None else {
                             "vehicle_appearance_update_ms": self.bevfusion.appearance.last_update_ms,
                             "vehicle_shape_fit_count": self.bevfusion.appearance.fit_count,
+                            "vehicle_shape_fit_error_count": self.bevfusion.appearance.fit_error_count,
                         }),
                     }
                     if self.bevfusion is not None else {"bbox_source": "gt"}
@@ -1503,12 +1506,16 @@ def _create_ros_node(
     return PoseAdapterNode()
 
 
-def _vehicle_appearance(*, shape: bool, color: bool) -> VehicleAppearanceEstimator | None:
-    """Build the optional shape/color hint estimator only when a feature is enabled."""
+def _vehicle_appearance(*, shape: bool, color: bool, background: bool = True) -> VehicleAppearanceEstimator | None:
+    """Build the optional shape/color hint estimator only when a feature is enabled.
+
+    ``background`` moves shape fits off the publishing thread; deterministic
+    offline replay keeps them synchronous.
+    """
     if not (shape or color):
         return None
     from src.deployment.vehicle_appearance import VehicleAppearanceConfig, VehicleAppearanceEstimator
-    return VehicleAppearanceEstimator(VehicleAppearanceConfig(shape=shape, color=color))
+    return VehicleAppearanceEstimator(VehicleAppearanceConfig(shape=shape, color=color, fit_in_background=background))
 
 
 def _open_bevfusion_client(endpoint: str | None) -> BevFusionClient:
@@ -1681,7 +1688,8 @@ def main() -> None:
                                  else args.bevfusion_camera_calibration),
             track_log=None if args.bevfusion_tracks_path is None else JsonlMetrics(args.bevfusion_tracks_path),
             ground_snapper=LidarGroundSnapper() if args.bevfusion_lidar_ground_snap else None,
-            appearance=_vehicle_appearance(shape=args.vehicle_shape_fit, color=args.vehicle_color),
+            appearance=_vehicle_appearance(shape=args.vehicle_shape_fit, color=args.vehicle_color,
+                                           background=not args.mcap_await_detections),
         )
     localization_metrics = None
     localization_reference = None

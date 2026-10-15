@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import threading
+import time
 
 import cv2
 import numpy as np
@@ -11,6 +13,7 @@ import pytest
 
 from src.deployment.lidar_ground_snap import _BevGrid
 from src.deployment.vehicle_appearance import AppearanceCamera, VehicleAppearanceConfig, VehicleAppearanceEstimator
+from src.deployment.vehicle_shape import CarShapeFitter
 from src.realtime.bevfusion_tracker import DetectionMatch, TrackedWorldBox
 from src.realtime.protocol import BoxPrompt
 from src.viz.primitive_vehicle import CarShapeParams
@@ -23,6 +26,7 @@ CAMERA_T_LIDAR = np.array([[0., -1, 0, 0], [0, 0, -1, 0], [1, 0, 0, 0], [0, 0, 0
 # World differs from the LiDAR frame so frame conversions are exercised.
 WORLD_T_LIDAR = np.array([[0., -1, 0, 100], [1, 0, 0, -20], [0, 0, 1, 2], [0, 0, 0, 1]])
 PAINT_BGR = (40, 50, 190)
+SYNC = VehicleAppearanceConfig(fit_in_background=False)  # deterministic: fits run inside update
 
 
 def _car_triangles():
@@ -106,7 +110,7 @@ def test_module_imports_without_rendering_dependencies():
 
 
 def test_moving_car_gets_accepted_shape_and_published_paint():
-    estimator = VehicleAppearanceEstimator()
+    estimator = VehicleAppearanceEstimator(SYNC)
     _drive(estimator, 12)
 
     fields = estimator.prompt_fields("bevfusion:car:0")
@@ -122,18 +126,18 @@ def test_moving_car_gets_accepted_shape_and_published_paint():
 
 
 def test_color_waits_for_several_observations_and_needs_an_image():
-    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(shape=False))
+    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(shape=False, fit_in_background=False))
     _drive(estimator, 2)
     assert estimator.prompt_fields("bevfusion:car:0") == {}  # fewer than min_observations
     _drive(estimator, 2, start=2)
     assert set(estimator.prompt_fields("bevfusion:car:0")) == {"body_color_rgb", "color_confidence"}
-    no_camera = VehicleAppearanceEstimator(VehicleAppearanceConfig(shape=False))
+    no_camera = VehicleAppearanceEstimator(VehicleAppearanceConfig(shape=False, fit_in_background=False))
     _drive(no_camera, 6, camera=False)
     assert no_camera.prompt_fields("bevfusion:car:0") == {}
 
 
 def test_crop_excludes_neighbor_returns_and_ground():
-    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False))
+    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, fit_in_background=False))
     pose = _lidar_T_object(12.)
     neighbor = _lidar_T_object(16.6)  # queued 0.1 m ahead: its rear face lies inside the padded crop
     box, other = _box("a", pose), _box("b", neighbor)
@@ -153,7 +157,7 @@ def test_crop_excludes_neighbor_returns_and_ground():
 
 
 def test_coasted_tracks_are_not_fed_and_dead_tracks_are_dropped():
-    estimator = VehicleAppearanceEstimator()
+    estimator = VehicleAppearanceEstimator(SYNC)
     _drive(estimator, 6)
     evidence = estimator.accumulator.evidence("bevfusion:car:0")
     assert evidence and estimator.prompt_fields("bevfusion:car:0")
@@ -168,7 +172,7 @@ def test_coasted_tracks_are_not_fed_and_dead_tracks_are_dropped():
 
 
 def test_reacquired_identity_with_a_new_filter_starts_over():
-    estimator = VehicleAppearanceEstimator()
+    estimator = VehicleAppearanceEstimator(SYNC)
     _drive(estimator, 6, filter_id="bevfusion:car:0")
     assert "body_color_rgb" in estimator.prompt_fields("bevfusion:car:0")
     evidence = estimator.accumulator.evidence("bevfusion:car:0")
@@ -179,7 +183,8 @@ def test_reacquired_identity_with_a_new_filter_starts_over():
 
 
 def test_refits_are_bounded_per_update_round_robin():
-    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, max_fits_per_update=1))
+    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, max_fits_per_update=1,
+                                                                   fit_in_background=False))
     poses = [_lidar_T_object(12. + 8 * index, y=-3. - 6 * (index % 2)) for index in range(3)]
     fitted = []
     for frame in range(4):
@@ -194,7 +199,7 @@ def test_refits_are_bounded_per_update_round_robin():
 
 def test_stable_shape_freezes_until_tracked_dimensions_change():
     estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(
-        color=False, refit_every_scans=1, min_param_change=.5, freeze_after_stable_fits=2))
+        color=False, refit_every_scans=1, min_param_change=.5, freeze_after_stable_fits=2, fit_in_background=False))
     _drive(estimator, 4, camera=False)
     state = estimator._shapes["bevfusion:car:0"]
     assert state.frozen_dimensions is not None
@@ -206,7 +211,7 @@ def test_stable_shape_freezes_until_tracked_dimensions_change():
 
 
 def test_small_shape_changes_keep_the_published_params():
-    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False))
+    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, fit_in_background=False))
     published = CarShapeParams()
     assert not estimator._changed(published, CarShapeParams(hood_z=published.hood_z + .004))
     assert estimator._changed(published, CarShapeParams(hood_z=published.hood_z + .01))
@@ -215,10 +220,96 @@ def test_small_shape_changes_keep_the_published_params():
 
 @pytest.mark.parametrize("label", ["pedestrian", "bicycle"])
 def test_non_car_labels_get_no_shape_and_riders_no_paint(label):
-    estimator = VehicleAppearanceEstimator()
+    estimator = VehicleAppearanceEstimator(SYNC)
     pose = _lidar_T_object(12.)
     box = _box("x", pose, label=label)
     for frame in range(5):
         estimator.update([_match(box)], [box], timestamp_us=frame, world_T_lidar=WORLD_T_LIDAR,
                          lidar_points=_scan([pose], seed=frame), camera=AppearanceCamera(_image([pose]), K, CAMERA_T_LIDAR))
     assert estimator.prompt_fields("x") == {} and estimator.accumulator.evidence("x") == 0
+
+
+class _GatedFitter(CarShapeFitter):
+    """Records each fit's thread and incumbent cost; fits wait until ``gate`` opens."""
+
+    def __init__(self, *, open_gate=False):
+        super().__init__()
+        self.gate, self.calls = threading.Event(), []
+        if open_gate:
+            self.gate.set()
+
+    def fit(self, *args, incumbent_cost=None, **kwargs):
+        self.calls.append((threading.current_thread().name, incumbent_cost))
+        assert self.gate.wait(10)
+        return super().fit(*args, incumbent_cost=incumbent_cost, **kwargs)
+
+
+def _finished_count(estimator, count):
+    deadline = time.monotonic() + 10
+    while len(estimator._worker._finished) < count and time.monotonic() < deadline:
+        time.sleep(.005)
+    return len(estimator._worker._finished)
+
+
+def test_background_fits_run_off_the_update_thread_and_apply_on_a_later_update():
+    fitter = _GatedFitter()
+    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False), fitter=fitter)
+    _drive(estimator, 3, camera=False)
+    state = estimator._shapes["bevfusion:car:0"]
+    # One fit in flight: the track is not resubmitted and nothing is applied yet.
+    assert len(fitter.calls) == 1 and state.fitting and estimator.fit_count == 0 and state.published is None
+    fitter.gate.set()
+    assert _finished_count(estimator, 1) == 1
+    _drive(estimator, 1, camera=False, start=3)
+    assert estimator.fit_count == 1 and state.published is not None
+    assert fitter.calls[0] == ("vehicle-shape-fit", None)
+    thread = estimator._worker._thread
+    estimator.close()
+    assert not thread.is_alive()
+    _drive(estimator, 3, camera=False, start=4)  # closed: no further fits start
+    assert estimator.fit_count == 1
+
+
+def test_background_fit_of_a_dropped_or_reset_track_is_discarded():
+    fitter = _GatedFitter()
+    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False), fitter=fitter)
+    _drive(estimator, 1, camera=False, filter_id="f0")
+    _drive(estimator, 1, camera=False, filter_id="f1", start=1)  # reacquired by a new filter: fresh state
+    estimator.update([], [], timestamp_us=200_000, world_T_lidar=WORLD_T_LIDAR, lidar_points=_scan([]))  # died
+    fitter.gate.set()
+    assert _finished_count(estimator, 2) == 2
+    estimator.update([], [], timestamp_us=300_000, world_T_lidar=WORLD_T_LIDAR, lidar_points=_scan([]))
+    assert estimator.fit_count == 0 and estimator._shapes == {}
+    estimator.close()
+
+
+def test_background_fit_error_is_counted_and_the_track_refits_later():
+    class _FailOnce(CarShapeFitter):
+        failed = False
+
+        def fit(self, *args, **kwargs):
+            if not self.failed:
+                self.failed = True
+                raise RuntimeError("fit failed")
+            return super().fit(*args, **kwargs)
+
+    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, refit_every_scans=1),
+                                           fitter=_FailOnce())
+    _drive(estimator, 1, camera=False)
+    assert _finished_count(estimator, 1) == 1
+    _drive(estimator, 1, camera=False, start=1)  # error consumed without raising; fitting flag cleared
+    assert estimator.fit_error_count == 1
+    assert _finished_count(estimator, 1) == 1
+    _drive(estimator, 1, camera=False, start=2)
+    assert estimator.fit_count == 1
+    estimator.close()
+
+
+def test_refits_sweep_all_candidates_only_periodically():
+    fitter = _GatedFitter(open_gate=True)
+    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(
+        color=False, refit_every_scans=1, freeze_after_stable_fits=99, sweep_every_refits=3,
+        fit_in_background=False), fitter=fitter)
+    _drive(estimator, 7, camera=False)
+    assert all(thread == threading.current_thread().name for thread, _ in fitter.calls)
+    assert [cost is None for _, cost in fitter.calls] == [True, False, False, True, False, False, True]
