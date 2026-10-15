@@ -1,0 +1,1574 @@
+[
+ {
+  "split": "train",
+  "take": 1,
+  "scenario": "1",
+  "agent": 1,
+  "frame_index": 65,
+  "frame_id": "481325",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "12",
+    "range_m": 7.2,
+    "visible_fraction": 0.96,
+    "lidar_points": 3153
+   },
+   {
+    "track_id": "24",
+    "range_m": 21.9,
+    "visible_fraction": 0.91,
+    "lidar_points": 522
+   },
+   {
+    "track_id": "46",
+    "range_m": 23.3,
+    "visible_fraction": 0.82,
+    "lidar_points": 374
+   },
+   {
+    "track_id": "58",
+    "range_m": 25.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 139
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/1/1/481325_camera0.png",
+  "total_lidar_points_in_visible_gt": 4188
+ },
+ {
+  "split": "train",
+  "take": 1,
+  "scenario": "1",
+  "agent": 2,
+  "frame_index": 415,
+  "frame_id": "481675",
+  "n_gt_in_fov_5_35m": 3,
+  "vehicles": [
+   {
+    "track_id": "85",
+    "range_m": 18.2,
+    "visible_fraction": 0.92,
+    "lidar_points": 45
+   },
+   {
+    "track_id": "103",
+    "range_m": 8.2,
+    "visible_fraction": 0.85,
+    "lidar_points": 1715
+   },
+   {
+    "track_id": "178",
+    "range_m": 34.8,
+    "visible_fraction": 1.0,
+    "lidar_points": 36
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/1/2/481675_camera0.png",
+  "total_lidar_points_in_visible_gt": 1796
+ },
+ {
+  "split": "train",
+  "take": 1,
+  "scenario": "1",
+  "agent": 3,
+  "frame_index": 420,
+  "frame_id": "481680",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "35",
+    "range_m": 18.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 207
+   },
+   {
+    "track_id": "50",
+    "range_m": 34.7,
+    "visible_fraction": 1.0,
+    "lidar_points": 48
+   },
+   {
+    "track_id": "52",
+    "range_m": 33.1,
+    "visible_fraction": 1.0,
+    "lidar_points": 41
+   },
+   {
+    "track_id": "66",
+    "range_m": 29.6,
+    "visible_fraction": 1.0,
+    "lidar_points": 0
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/1/3/481680_camera0.png",
+  "total_lidar_points_in_visible_gt": 296
+ },
+ {
+  "split": "test",
+  "take": 2,
+  "scenario": "2",
+  "agent": 1,
+  "frame_index": 810,
+  "frame_id": "488660",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "84",
+    "range_m": 31.3,
+    "visible_fraction": 1.0,
+    "lidar_points": 61
+   },
+   {
+    "track_id": "189",
+    "range_m": 31.4,
+    "visible_fraction": 1.0,
+    "lidar_points": 24
+   },
+   {
+    "track_id": "213",
+    "range_m": 30.7,
+    "visible_fraction": 1.0,
+    "lidar_points": 16
+   },
+   {
+    "track_id": "237",
+    "range_m": 24.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 70
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/test/2/1/488660_camera0.png",
+  "total_lidar_points_in_visible_gt": 171
+ },
+ {
+  "split": "test",
+  "take": 2,
+  "scenario": "2",
+  "agent": 2,
+  "frame_index": 375,
+  "frame_id": "488225",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "36",
+    "range_m": 32.4,
+    "visible_fraction": 1.0,
+    "lidar_points": 36
+   },
+   {
+    "track_id": "44",
+    "range_m": 25.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 316
+   },
+   {
+    "track_id": "117",
+    "range_m": 30.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 148
+   },
+   {
+    "track_id": "273",
+    "range_m": 8.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 1394
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/test/2/2/488225_camera0.png",
+  "total_lidar_points_in_visible_gt": 1894
+ },
+ {
+  "split": "test",
+  "take": 2,
+  "scenario": "2",
+  "agent": 3,
+  "frame_index": 765,
+  "frame_id": "488615",
+  "n_gt_in_fov_5_35m": 3,
+  "vehicles": [
+   {
+    "track_id": "56",
+    "range_m": 12.8,
+    "visible_fraction": 1.0,
+    "lidar_points": 1189
+   },
+   {
+    "track_id": "84",
+    "range_m": 10.9,
+    "visible_fraction": 0.8,
+    "lidar_points": 1827
+   },
+   {
+    "track_id": "222",
+    "range_m": 29.8,
+    "visible_fraction": 1.0,
+    "lidar_points": 129
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/test/2/3/488615_camera0.png",
+  "total_lidar_points_in_visible_gt": 3145
+ },
+ {
+  "split": "train",
+  "take": 3,
+  "scenario": "3",
+  "agent": 1,
+  "frame_index": 475,
+  "frame_id": "497235",
+  "n_gt_in_fov_5_35m": 3,
+  "vehicles": [
+   {
+    "track_id": "11",
+    "range_m": 32.1,
+    "visible_fraction": 1.0,
+    "lidar_points": 177
+   },
+   {
+    "track_id": "21",
+    "range_m": 35.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 43
+   },
+   {
+    "track_id": "178",
+    "range_m": 17.4,
+    "visible_fraction": 1.0,
+    "lidar_points": 516
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/3/1/497235_camera0.png",
+  "total_lidar_points_in_visible_gt": 736
+ },
+ {
+  "split": "train",
+  "take": 3,
+  "scenario": "3",
+  "agent": 2,
+  "frame_index": 405,
+  "frame_id": "497165",
+  "n_gt_in_fov_5_35m": 3,
+  "vehicles": [
+   {
+    "track_id": "70",
+    "range_m": 15.1,
+    "visible_fraction": 1.0,
+    "lidar_points": 472
+   },
+   {
+    "track_id": "75",
+    "range_m": 30.6,
+    "visible_fraction": 1.0,
+    "lidar_points": 82
+   },
+   {
+    "track_id": "149",
+    "range_m": 33.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 163
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/3/2/497165_camera0.png",
+  "total_lidar_points_in_visible_gt": 717
+ },
+ {
+  "split": "train",
+  "take": 3,
+  "scenario": "3",
+  "agent": 3,
+  "frame_index": 455,
+  "frame_id": "497215",
+  "n_gt_in_fov_5_35m": 3,
+  "vehicles": [
+   {
+    "track_id": "11",
+    "range_m": 9.0,
+    "visible_fraction": 0.99,
+    "lidar_points": 2057
+   },
+   {
+    "track_id": "21",
+    "range_m": 11.0,
+    "visible_fraction": 0.82,
+    "lidar_points": 872
+   },
+   {
+    "track_id": "87",
+    "range_m": 33.8,
+    "visible_fraction": 1.0,
+    "lidar_points": 13
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/3/3/497215_camera0.png",
+  "total_lidar_points_in_visible_gt": 2942
+ },
+ {
+  "split": "train",
+  "take": 4,
+  "scenario": "4",
+  "agent": 1,
+  "frame_index": 145,
+  "frame_id": "515565",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "68",
+    "range_m": 31.7,
+    "visible_fraction": 1.0,
+    "lidar_points": 37
+   },
+   {
+    "track_id": "69",
+    "range_m": 32.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 0
+   },
+   {
+    "track_id": "75",
+    "range_m": 31.7,
+    "visible_fraction": 1.0,
+    "lidar_points": 0
+   },
+   {
+    "track_id": "83",
+    "range_m": 29.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 53
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/4/1/515565_camera0.png",
+  "total_lidar_points_in_visible_gt": 90
+ },
+ {
+  "split": "train",
+  "take": 4,
+  "scenario": "4",
+  "agent": 2,
+  "frame_index": 155,
+  "frame_id": "515575",
+  "n_gt_in_fov_5_35m": 1,
+  "vehicles": [
+   {
+    "track_id": "83",
+    "range_m": 34.3,
+    "visible_fraction": 1.0,
+    "lidar_points": 23
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/4/2/515575_camera0.png",
+  "total_lidar_points_in_visible_gt": 23
+ },
+ {
+  "split": "train",
+  "take": 5,
+  "scenario": "5",
+  "agent": 1,
+  "frame_index": 85,
+  "frame_id": "524085",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "5",
+    "range_m": 16.4,
+    "visible_fraction": 1.0,
+    "lidar_points": 773
+   },
+   {
+    "track_id": "7",
+    "range_m": 16.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 503
+   },
+   {
+    "track_id": "8",
+    "range_m": 29.3,
+    "visible_fraction": 1.0,
+    "lidar_points": 0
+   },
+   {
+    "track_id": "41",
+    "range_m": 34.2,
+    "visible_fraction": 1.0,
+    "lidar_points": 9
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/5/1/524085_camera0.png",
+  "total_lidar_points_in_visible_gt": 1285
+ },
+ {
+  "split": "train",
+  "take": 5,
+  "scenario": "5",
+  "agent": 2,
+  "frame_index": 120,
+  "frame_id": "524120",
+  "n_gt_in_fov_5_35m": 3,
+  "vehicles": [
+   {
+    "track_id": "5",
+    "range_m": 31.3,
+    "visible_fraction": 1.0,
+    "lidar_points": 94
+   },
+   {
+    "track_id": "7",
+    "range_m": 31.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 66
+   },
+   {
+    "track_id": "18",
+    "range_m": 12.0,
+    "visible_fraction": 0.93,
+    "lidar_points": 1435
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/5/2/524120_camera0.png",
+  "total_lidar_points_in_visible_gt": 1595
+ },
+ {
+  "split": "train",
+  "take": 5,
+  "scenario": "5",
+  "agent": 3,
+  "frame_index": 70,
+  "frame_id": "524070",
+  "n_gt_in_fov_5_35m": 2,
+  "vehicles": [
+   {
+    "track_id": "6",
+    "range_m": 34.7,
+    "visible_fraction": 1.0,
+    "lidar_points": 31
+   },
+   {
+    "track_id": "8",
+    "range_m": 31.6,
+    "visible_fraction": 0.94,
+    "lidar_points": 0
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/5/3/524070_camera0.png",
+  "total_lidar_points_in_visible_gt": 31
+ },
+ {
+  "split": "train",
+  "take": 6,
+  "scenario": "6",
+  "agent": 1,
+  "frame_index": 425,
+  "frame_id": "527905",
+  "n_gt_in_fov_5_35m": 5,
+  "vehicles": [
+   {
+    "track_id": "28",
+    "range_m": 18.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 347
+   },
+   {
+    "track_id": "73",
+    "range_m": 20.8,
+    "visible_fraction": 1.0,
+    "lidar_points": 221
+   },
+   {
+    "track_id": "74",
+    "range_m": 11.7,
+    "visible_fraction": 1.0,
+    "lidar_points": 1115
+   },
+   {
+    "track_id": "84",
+    "range_m": 34.2,
+    "visible_fraction": 1.0,
+    "lidar_points": 34
+   },
+   {
+    "track_id": "93",
+    "range_m": 28.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 193
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/6/1/527905_camera0.png",
+  "total_lidar_points_in_visible_gt": 1910
+ },
+ {
+  "split": "train",
+  "take": 6,
+  "scenario": "6",
+  "agent": 2,
+  "frame_index": 410,
+  "frame_id": "527890",
+  "n_gt_in_fov_5_35m": 3,
+  "vehicles": [
+   {
+    "track_id": "61",
+    "range_m": 33.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 20
+   },
+   {
+    "track_id": "79",
+    "range_m": 24.1,
+    "visible_fraction": 1.0,
+    "lidar_points": 108
+   },
+   {
+    "track_id": "95",
+    "range_m": 34.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 23
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/6/2/527890_camera0.png",
+  "total_lidar_points_in_visible_gt": 151
+ },
+ {
+  "split": "train",
+  "take": 6,
+  "scenario": "6",
+  "agent": 3,
+  "frame_index": 405,
+  "frame_id": "527885",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "55",
+    "range_m": 30.6,
+    "visible_fraction": 1.0,
+    "lidar_points": 28
+   },
+   {
+    "track_id": "85",
+    "range_m": 15.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 776
+   },
+   {
+    "track_id": "92",
+    "range_m": 34.1,
+    "visible_fraction": 1.0,
+    "lidar_points": 89
+   },
+   {
+    "track_id": "93",
+    "range_m": 28.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 132
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/6/3/527885_camera0.png",
+  "total_lidar_points_in_visible_gt": 1025
+ },
+ {
+  "split": "train",
+  "take": 7,
+  "scenario": "7",
+  "agent": 1,
+  "frame_index": 95,
+  "frame_id": "534295",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "15",
+    "range_m": 8.0,
+    "visible_fraction": 0.95,
+    "lidar_points": 2182
+   },
+   {
+    "track_id": "26",
+    "range_m": 16.8,
+    "visible_fraction": 1.0,
+    "lidar_points": 606
+   },
+   {
+    "track_id": "36",
+    "range_m": 26.2,
+    "visible_fraction": 1.0,
+    "lidar_points": 24
+   },
+   {
+    "track_id": "49",
+    "range_m": 16.1,
+    "visible_fraction": 1.0,
+    "lidar_points": 391
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/7/1/534295_camera0.png",
+  "total_lidar_points_in_visible_gt": 3203
+ },
+ {
+  "split": "train",
+  "take": 7,
+  "scenario": "7",
+  "agent": 2,
+  "frame_index": 190,
+  "frame_id": "534390",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "31",
+    "range_m": 34.7,
+    "visible_fraction": 1.0,
+    "lidar_points": 36
+   },
+   {
+    "track_id": "54",
+    "range_m": 27.3,
+    "visible_fraction": 1.0,
+    "lidar_points": 181
+   },
+   {
+    "track_id": "57",
+    "range_m": 18.6,
+    "visible_fraction": 1.0,
+    "lidar_points": 472
+   },
+   {
+    "track_id": "58",
+    "range_m": 22.7,
+    "visible_fraction": 1.0,
+    "lidar_points": 105
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/7/2/534390_camera0.png",
+  "total_lidar_points_in_visible_gt": 794
+ },
+ {
+  "split": "train",
+  "take": 7,
+  "scenario": "7",
+  "agent": 3,
+  "frame_index": 105,
+  "frame_id": "534305",
+  "n_gt_in_fov_5_35m": 1,
+  "vehicles": [
+   {
+    "track_id": "30",
+    "range_m": 8.6,
+    "visible_fraction": 1.0,
+    "lidar_points": 2308
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/7/3/534305_camera0.png",
+  "total_lidar_points_in_visible_gt": 2308
+ },
+ {
+  "split": "test",
+  "take": 8,
+  "scenario": "8",
+  "agent": 1,
+  "frame_index": 280,
+  "frame_id": "537610",
+  "n_gt_in_fov_5_35m": 3,
+  "vehicles": [
+   {
+    "track_id": "25",
+    "range_m": 17.5,
+    "visible_fraction": 0.84,
+    "lidar_points": 571
+   },
+   {
+    "track_id": "48",
+    "range_m": 34.6,
+    "visible_fraction": 1.0,
+    "lidar_points": 18
+   },
+   {
+    "track_id": "67",
+    "range_m": 29.3,
+    "visible_fraction": 1.0,
+    "lidar_points": 35
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/test/8/1/537610_camera0.png",
+  "total_lidar_points_in_visible_gt": 624
+ },
+ {
+  "split": "test",
+  "take": 8,
+  "scenario": "8",
+  "agent": 2,
+  "frame_index": 265,
+  "frame_id": "537595",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "2",
+    "range_m": 12.8,
+    "visible_fraction": 1.0,
+    "lidar_points": 870
+   },
+   {
+    "track_id": "25",
+    "range_m": 33.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 0
+   },
+   {
+    "track_id": "26",
+    "range_m": 30.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 8
+   },
+   {
+    "track_id": "50",
+    "range_m": 9.8,
+    "visible_fraction": 0.9,
+    "lidar_points": 2586
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/test/8/2/537595_camera0.png",
+  "total_lidar_points_in_visible_gt": 3464
+ },
+ {
+  "split": "test",
+  "take": 8,
+  "scenario": "8",
+  "agent": 3,
+  "frame_index": 285,
+  "frame_id": "537615",
+  "n_gt_in_fov_5_35m": 2,
+  "vehicles": [
+   {
+    "track_id": "2",
+    "range_m": 34.8,
+    "visible_fraction": 1.0,
+    "lidar_points": 32
+   },
+   {
+    "track_id": "48",
+    "range_m": 13.3,
+    "visible_fraction": 1.0,
+    "lidar_points": 730
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/test/8/3/537615_camera0.png",
+  "total_lidar_points_in_visible_gt": 762
+ },
+ {
+  "split": "train",
+  "take": 9,
+  "scenario": "9",
+  "agent": 2,
+  "frame_index": 10,
+  "frame_id": "540610",
+  "n_gt_in_fov_5_35m": 1,
+  "vehicles": [
+   {
+    "track_id": "10",
+    "range_m": 30.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 144
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/9/2/540610_camera0.png",
+  "total_lidar_points_in_visible_gt": 144
+ },
+ {
+  "split": "train",
+  "take": 9,
+  "scenario": "9",
+  "agent": 3,
+  "frame_index": 105,
+  "frame_id": "540705",
+  "n_gt_in_fov_5_35m": 2,
+  "vehicles": [
+   {
+    "track_id": "37",
+    "range_m": 16.2,
+    "visible_fraction": 0.84,
+    "lidar_points": 978
+   },
+   {
+    "track_id": "42",
+    "range_m": 11.1,
+    "visible_fraction": 1.0,
+    "lidar_points": 2406
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/9/3/540705_camera0.png",
+  "total_lidar_points_in_visible_gt": 3384
+ },
+ {
+  "split": "train",
+  "take": 10,
+  "scenario": "10",
+  "agent": 1,
+  "frame_index": 115,
+  "frame_id": "543535",
+  "n_gt_in_fov_5_35m": 5,
+  "vehicles": [
+   {
+    "track_id": "9",
+    "range_m": 17.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 375
+   },
+   {
+    "track_id": "43",
+    "range_m": 18.7,
+    "visible_fraction": 1.0,
+    "lidar_points": 366
+   },
+   {
+    "track_id": "53",
+    "range_m": 14.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 506
+   },
+   {
+    "track_id": "66",
+    "range_m": 33.8,
+    "visible_fraction": 1.0,
+    "lidar_points": 9
+   },
+   {
+    "track_id": "77",
+    "range_m": 29.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 3
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/10/1/543535_camera0.png",
+  "total_lidar_points_in_visible_gt": 1259
+ },
+ {
+  "split": "train",
+  "take": 10,
+  "scenario": "10",
+  "agent": 2,
+  "frame_index": 185,
+  "frame_id": "543605",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "41",
+    "range_m": 18.1,
+    "visible_fraction": 1.0,
+    "lidar_points": 697
+   },
+   {
+    "track_id": "82",
+    "range_m": 34.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 82
+   },
+   {
+    "track_id": "95",
+    "range_m": 31.1,
+    "visible_fraction": 1.0,
+    "lidar_points": 235
+   },
+   {
+    "track_id": "103",
+    "range_m": 22.1,
+    "visible_fraction": 1.0,
+    "lidar_points": 359
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/10/2/543605_camera0.png",
+  "total_lidar_points_in_visible_gt": 1373
+ },
+ {
+  "split": "train",
+  "take": 10,
+  "scenario": "10",
+  "agent": 3,
+  "frame_index": 165,
+  "frame_id": "543585",
+  "n_gt_in_fov_5_35m": 1,
+  "vehicles": [
+   {
+    "track_id": "67",
+    "range_m": 29.6,
+    "visible_fraction": 0.87,
+    "lidar_points": 191
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/10/3/543585_camera0.png",
+  "total_lidar_points_in_visible_gt": 191
+ },
+ {
+  "split": "train",
+  "take": 11,
+  "scenario": "11",
+  "agent": 1,
+  "frame_index": 670,
+  "frame_id": "546510",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "36",
+    "range_m": 7.5,
+    "visible_fraction": 0.93,
+    "lidar_points": 2575
+   },
+   {
+    "track_id": "208",
+    "range_m": 35.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 25
+   },
+   {
+    "track_id": "226",
+    "range_m": 21.2,
+    "visible_fraction": 1.0,
+    "lidar_points": 14
+   },
+   {
+    "track_id": "238",
+    "range_m": 31.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 5
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/11/1/546510_camera0.png",
+  "total_lidar_points_in_visible_gt": 2619
+ },
+ {
+  "split": "train",
+  "take": 11,
+  "scenario": "11",
+  "agent": 2,
+  "frame_index": 195,
+  "frame_id": "546035",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "3",
+    "range_m": 8.1,
+    "visible_fraction": 0.85,
+    "lidar_points": 1330
+   },
+   {
+    "track_id": "65",
+    "range_m": 33.4,
+    "visible_fraction": 1.0,
+    "lidar_points": 31
+   },
+   {
+    "track_id": "67",
+    "range_m": 14.3,
+    "visible_fraction": 0.81,
+    "lidar_points": 612
+   },
+   {
+    "track_id": "70",
+    "range_m": 34.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 5
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/11/2/546035_camera0.png",
+  "total_lidar_points_in_visible_gt": 1978
+ },
+ {
+  "split": "train",
+  "take": 11,
+  "scenario": "11",
+  "agent": 3,
+  "frame_index": 650,
+  "frame_id": "546490",
+  "n_gt_in_fov_5_35m": 3,
+  "vehicles": [
+   {
+    "track_id": "170",
+    "range_m": 25.2,
+    "visible_fraction": 1.0,
+    "lidar_points": 319
+   },
+   {
+    "track_id": "214",
+    "range_m": 9.8,
+    "visible_fraction": 0.85,
+    "lidar_points": 3283
+   },
+   {
+    "track_id": "222",
+    "range_m": 28.4,
+    "visible_fraction": 1.0,
+    "lidar_points": 113
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/11/3/546490_camera0.png",
+  "total_lidar_points_in_visible_gt": 3715
+ },
+ {
+  "split": "train",
+  "take": 12,
+  "scenario": "12",
+  "agent": 1,
+  "frame_index": 65,
+  "frame_id": "549265",
+  "n_gt_in_fov_5_35m": 2,
+  "vehicles": [
+   {
+    "track_id": "23",
+    "range_m": 22.2,
+    "visible_fraction": 1.0,
+    "lidar_points": 470
+   },
+   {
+    "track_id": "52",
+    "range_m": 34.1,
+    "visible_fraction": 1.0,
+    "lidar_points": 45
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/12/1/549265_camera0.png",
+  "total_lidar_points_in_visible_gt": 515
+ },
+ {
+  "split": "train",
+  "take": 12,
+  "scenario": "12",
+  "agent": 2,
+  "frame_index": 160,
+  "frame_id": "549360",
+  "n_gt_in_fov_5_35m": 1,
+  "vehicles": [
+   {
+    "track_id": "73",
+    "range_m": 20.1,
+    "visible_fraction": 0.9,
+    "lidar_points": 593
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/12/2/549360_camera0.png",
+  "total_lidar_points_in_visible_gt": 593
+ },
+ {
+  "split": "train",
+  "take": 12,
+  "scenario": "12",
+  "agent": 3,
+  "frame_index": 0,
+  "frame_id": "549200",
+  "n_gt_in_fov_5_35m": 3,
+  "vehicles": [
+   {
+    "track_id": "2",
+    "range_m": 9.4,
+    "visible_fraction": 1.0,
+    "lidar_points": 1705
+   },
+   {
+    "track_id": "6",
+    "range_m": 25.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 375
+   },
+   {
+    "track_id": "9",
+    "range_m": 28.2,
+    "visible_fraction": 0.83,
+    "lidar_points": 24
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/12/3/549200_camera0.png",
+  "total_lidar_points_in_visible_gt": 2104
+ },
+ {
+  "split": "validate",
+  "take": 13,
+  "scenario": "13",
+  "agent": 1,
+  "frame_index": 310,
+  "frame_id": "552310",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "49",
+    "range_m": 29.6,
+    "visible_fraction": 1.0,
+    "lidar_points": 17
+   },
+   {
+    "track_id": "71",
+    "range_m": 32.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 24
+   },
+   {
+    "track_id": "74",
+    "range_m": 33.8,
+    "visible_fraction": 1.0,
+    "lidar_points": 27
+   },
+   {
+    "track_id": "95",
+    "range_m": 33.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 17
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/validate/13/1/552310_camera0.png",
+  "total_lidar_points_in_visible_gt": 85
+ },
+ {
+  "split": "validate",
+  "take": 13,
+  "scenario": "13",
+  "agent": 2,
+  "frame_index": 340,
+  "frame_id": "552340",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "38",
+    "range_m": 18.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 712
+   },
+   {
+    "track_id": "49",
+    "range_m": 30.6,
+    "visible_fraction": 1.0,
+    "lidar_points": 20
+   },
+   {
+    "track_id": "75",
+    "range_m": 29.9,
+    "visible_fraction": 0.88,
+    "lidar_points": 217
+   },
+   {
+    "track_id": "95",
+    "range_m": 34.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 85
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/validate/13/2/552340_camera0.png",
+  "total_lidar_points_in_visible_gt": 1034
+ },
+ {
+  "split": "validate",
+  "take": 13,
+  "scenario": "13",
+  "agent": 3,
+  "frame_index": 390,
+  "frame_id": "552390",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "16",
+    "range_m": 27.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 9
+   },
+   {
+    "track_id": "44",
+    "range_m": 20.4,
+    "visible_fraction": 1.0,
+    "lidar_points": 194
+   },
+   {
+    "track_id": "94",
+    "range_m": 27.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 1
+   },
+   {
+    "track_id": "132",
+    "range_m": 27.7,
+    "visible_fraction": 0.91,
+    "lidar_points": 120
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/validate/13/3/552390_camera0.png",
+  "total_lidar_points_in_visible_gt": 324
+ },
+ {
+  "split": "validate",
+  "take": 14,
+  "scenario": "14",
+  "agent": 1,
+  "frame_index": 170,
+  "frame_id": "556230",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "33",
+    "range_m": 8.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 2232
+   },
+   {
+    "track_id": "35",
+    "range_m": 13.0,
+    "visible_fraction": 0.85,
+    "lidar_points": 762
+   },
+   {
+    "track_id": "59",
+    "range_m": 33.2,
+    "visible_fraction": 1.0,
+    "lidar_points": 4
+   },
+   {
+    "track_id": "61",
+    "range_m": 15.1,
+    "visible_fraction": 1.0,
+    "lidar_points": 630
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/validate/14/1/556230_camera0.png",
+  "total_lidar_points_in_visible_gt": 3628
+ },
+ {
+  "split": "validate",
+  "take": 14,
+  "scenario": "14",
+  "agent": 2,
+  "frame_index": 375,
+  "frame_id": "556435",
+  "n_gt_in_fov_5_35m": 3,
+  "vehicles": [
+   {
+    "track_id": "83",
+    "range_m": 22.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 418
+   },
+   {
+    "track_id": "84",
+    "range_m": 8.0,
+    "visible_fraction": 0.82,
+    "lidar_points": 1777
+   },
+   {
+    "track_id": "85",
+    "range_m": 34.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 120
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/validate/14/2/556435_camera0.png",
+  "total_lidar_points_in_visible_gt": 2315
+ },
+ {
+  "split": "validate",
+  "take": 14,
+  "scenario": "14",
+  "agent": 3,
+  "frame_index": 360,
+  "frame_id": "556420",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "38",
+    "range_m": 27.4,
+    "visible_fraction": 1.0,
+    "lidar_points": 127
+   },
+   {
+    "track_id": "83",
+    "range_m": 28.7,
+    "visible_fraction": 1.0,
+    "lidar_points": 167
+   },
+   {
+    "track_id": "85",
+    "range_m": 19.6,
+    "visible_fraction": 1.0,
+    "lidar_points": 654
+   },
+   {
+    "track_id": "120",
+    "range_m": 14.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 1426
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/validate/14/3/556420_camera0.png",
+  "total_lidar_points_in_visible_gt": 2374
+ },
+ {
+  "split": "train",
+  "take": 11,
+  "scenario": "11",
+  "agent": 1,
+  "frame_index": 725,
+  "frame_id": "546565",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "36",
+    "range_m": 7.5,
+    "visible_fraction": 0.94,
+    "lidar_points": 2646
+   },
+   {
+    "track_id": "248",
+    "range_m": 14.6,
+    "visible_fraction": 1.0,
+    "lidar_points": 534
+   },
+   {
+    "track_id": "264",
+    "range_m": 34.3,
+    "visible_fraction": 1.0,
+    "lidar_points": 88
+   },
+   {
+    "track_id": "270",
+    "range_m": 18.6,
+    "visible_fraction": 1.0,
+    "lidar_points": 0
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/11/1/546565_camera0.png",
+  "total_lidar_points_in_visible_gt": 3268
+ },
+ {
+  "split": "train",
+  "take": 10,
+  "scenario": "10",
+  "agent": 1,
+  "frame_index": 50,
+  "frame_id": "543470",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "9",
+    "range_m": 7.8,
+    "visible_fraction": 0.98,
+    "lidar_points": 2702
+   },
+   {
+    "track_id": "12",
+    "range_m": 31.4,
+    "visible_fraction": 1.0,
+    "lidar_points": 85
+   },
+   {
+    "track_id": "55",
+    "range_m": 15.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 107
+   },
+   {
+    "track_id": "69",
+    "range_m": 17.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 401
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/10/1/543470_camera0.png",
+  "total_lidar_points_in_visible_gt": 3295
+ },
+ {
+  "split": "test",
+  "take": 2,
+  "scenario": "2",
+  "agent": 2,
+  "frame_index": 840,
+  "frame_id": "488690",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "84",
+    "range_m": 33.8,
+    "visible_fraction": 1.0,
+    "lidar_points": 70
+   },
+   {
+    "track_id": "189",
+    "range_m": 34.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 23
+   },
+   {
+    "track_id": "213",
+    "range_m": 33.4,
+    "visible_fraction": 1.0,
+    "lidar_points": 15
+   },
+   {
+    "track_id": "273",
+    "range_m": 17.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 489
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/test/2/2/488690_camera0.png",
+  "total_lidar_points_in_visible_gt": 597
+ },
+ {
+  "split": "test",
+  "take": 8,
+  "scenario": "8",
+  "agent": 2,
+  "frame_index": 40,
+  "frame_id": "537370",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "24",
+    "range_m": 28.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 44
+   },
+   {
+    "track_id": "26",
+    "range_m": 16.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 80
+   },
+   {
+    "track_id": "31",
+    "range_m": 31.7,
+    "visible_fraction": 1.0,
+    "lidar_points": 52
+   },
+   {
+    "track_id": "50",
+    "range_m": 15.3,
+    "visible_fraction": 1.0,
+    "lidar_points": 868
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/test/8/2/537370_camera0.png",
+  "total_lidar_points_in_visible_gt": 1044
+ },
+ {
+  "split": "train",
+  "take": 1,
+  "scenario": "1",
+  "agent": 1,
+  "frame_index": 415,
+  "frame_id": "481675",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "37",
+    "range_m": 33.8,
+    "visible_fraction": 1.0,
+    "lidar_points": 24
+   },
+   {
+    "track_id": "72",
+    "range_m": 33.6,
+    "visible_fraction": 1.0,
+    "lidar_points": 22
+   },
+   {
+    "track_id": "104",
+    "range_m": 19.9,
+    "visible_fraction": 1.0,
+    "lidar_points": 532
+   },
+   {
+    "track_id": "178",
+    "range_m": 25.6,
+    "visible_fraction": 1.0,
+    "lidar_points": 59
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/1/1/481675_camera0.png",
+  "total_lidar_points_in_visible_gt": 637
+ },
+ {
+  "split": "train",
+  "take": 7,
+  "scenario": "7",
+  "agent": 1,
+  "frame_index": 180,
+  "frame_id": "534380",
+  "n_gt_in_fov_5_35m": 4,
+  "vehicles": [
+   {
+    "track_id": "15",
+    "range_m": 23.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 170
+   },
+   {
+    "track_id": "46",
+    "range_m": 28.2,
+    "visible_fraction": 1.0,
+    "lidar_points": 98
+   },
+   {
+    "track_id": "50",
+    "range_m": 34.7,
+    "visible_fraction": 1.0,
+    "lidar_points": 37
+   },
+   {
+    "track_id": "57",
+    "range_m": 30.7,
+    "visible_fraction": 1.0,
+    "lidar_points": 97
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/7/1/534380_camera0.png",
+  "total_lidar_points_in_visible_gt": 402
+ },
+ {
+  "split": "validate",
+  "take": 14,
+  "scenario": "14",
+  "agent": 1,
+  "frame_index": 210,
+  "frame_id": "556270",
+  "n_gt_in_fov_5_35m": 3,
+  "vehicles": [
+   {
+    "track_id": "33",
+    "range_m": 8.5,
+    "visible_fraction": 1.0,
+    "lidar_points": 2206
+   },
+   {
+    "track_id": "35",
+    "range_m": 13.0,
+    "visible_fraction": 0.87,
+    "lidar_points": 791
+   },
+   {
+    "track_id": "63",
+    "range_m": 34.0,
+    "visible_fraction": 1.0,
+    "lidar_points": 163
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/validate/14/1/556270_camera0.png",
+  "total_lidar_points_in_visible_gt": 3160
+ },
+ {
+  "split": "train",
+  "take": 5,
+  "scenario": "5",
+  "agent": 1,
+  "frame_index": 130,
+  "frame_id": "524130",
+  "n_gt_in_fov_5_35m": 3,
+  "vehicles": [
+   {
+    "track_id": "5",
+    "range_m": 32.8,
+    "visible_fraction": 1.0,
+    "lidar_points": 102
+   },
+   {
+    "track_id": "7",
+    "range_m": 34.6,
+    "visible_fraction": 1.0,
+    "lidar_points": 49
+   },
+   {
+    "track_id": "18",
+    "range_m": 11.7,
+    "visible_fraction": 1.0,
+    "lidar_points": 1652
+   }
+  ],
+  "camera_path": "/mnt/bcc-data/data/CooperScene/train/5/1/524130_camera0.png",
+  "total_lidar_points_in_visible_gt": 1803
+ }
+]
