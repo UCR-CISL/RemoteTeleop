@@ -81,3 +81,15 @@ PYTHONPATH=. ../RemoteTeleop/.venv/bin/python scripts/investigation/vehicle_shap
 PYTHONPATH=. ../RemoteTeleop/.venv/bin/python scripts/investigation/vehicle_shape/preset_gallery.py \
     --output ../RemoteTeleop/artifacts/pcd-vehicle-assets-20261015-v3/presets.png
 ```
+
+The v4 review (end-face registration, calibrated type posterior, visible-end features, road-layer removal;
+the type-mean column is the box-dimension-only type) on the same 12 dev frames:
+
+```bash
+PYTHONPATH=. ../RemoteTeleop/.venv/bin/python scripts/investigation/vehicle_shape/evaluate.py --only \
+    take05_a1_524085 take08_a2_537370 take01_a1_481325 take07_a2_534390 take09_a2_540610 take06_a2_527890 \
+    take13_a3_552390 take06_a1_527905 take03_a2_497165 take12_a3_549200 take10_a3_543585 take03_a3_497215 \
+    --output ../RemoteTeleop/artifacts/pcd-vehicle-assets-20261015-v4 \
+    --baseline ../RemoteTeleop/artifacts/pcd-vehicle-assets-20261015-v3 \
+    --changes scripts/investigation/vehicle_shape/v4_changes.json
+```

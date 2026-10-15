@@ -1,0 +1,29 @@
+{
+ "changes": [
+  "- **End-face registration** (`EndFaceRegistration` in `ObjectPointAccumulator`): each scan's visible end face (belt band, 10th/90th x percentile) is shifted onto the median of the track's last 10 faces (gated at 12 returns and 0.5 m); the last 10 scans stay raw and are re-voxelized when the reference moves. Moving cars' end faces no longer arrive as 0.4-0.6 m slabs. The live estimator passes the sensor position per scan.",
+  "- **Calibrated type posterior**: types rank by 0.5 x N x ln(robust cost / best robust cost) with N the occupied coarse surface cells (<= 48), plus box-dimension NLL, plus 0.1 x parameter prior. Sweeps refine the best 3 screened types, every type within 3 nats of the box-size optimum (unless its screen is hopeless) and the incumbent. A per-track `TypePosterior` (decay 0.7, informative sweeps only) adopts the argmax of a tentative type at a 1-nat lead and leaves a confident one (p >= 0.8 after 2 sweeps) only after a 3-nat lead on two consecutive informative sweeps; freezing waits for a confident type. Below 150 voxels the type never switches, a new track takes the box-size type unless beaten by 3 nats, and only size parameters are fit.",
+  "- **Visible-end features** (`TopProfile`): the observed upper envelope per 0.25 m bin from the visible end gives a rise distance (end top to roof step; 0 for SUV/minivan tails, ~1.3 m sedan trunk, ~1.8 m pickup bed), scored against each type's own profile (sigma 0.3 m). Where the roof would have been in view (sensor 0.2 m above it and not shadowed by nearer tops along the sensor rays) a model center-line top more than 0.1 m above the observed top costs (negative evidence).",
+  "- **Road layer removal**: when the snapped box floor sits below the road, the surviving dense road layer is dropped before fitting (and from held-out scoring), so it no longer drags clearance and ends.",
+  "- Sedan dimension exemplars gain Corolla, Elantra and Sentra (compact sedans were scored as hatchbacks by size alone). Box dimensions alone now pick the labeled type for 29/48 (group 38/48); with the v3 priors it was 23/48 (36/48).",
+  "- Tried and reverted (each worsened held-out p90 by 0.007-0.02 m on the dev frames): 1-sigma trust on trunk/rear-glass/bed landmarks, 0.5x weight and 15 cm cap on inside returns, +-10 cm end / +-5 cm ground limits, freezing clearance. The held-out-scan acceptance check was not implemented.",
+  "- Harness: the type-mean column is now the **box-dimension-only** type (the gain from LiDAR shape evidence is the difference to the fitted column); held-out distances are also reported with frame t registered onto the accumulation (frame t's own GT-box jitter, up to 0.5 m on movers, otherwise dominates sedan p90s); new columns face_spread_m, rise_x_m, dims_type, label, type_correct, type_trace; captions come from `body_labels.json`. Live scheduling is still not replayed (every scan is refit)."
+ ],
+ "callouts": [
+  {"frame_key": "take05_a1_524085", "track_id": "5", "note": "v3 fit a minivan."},
+  {"frame_key": "take05_a1_524085", "track_id": "6", "note": "Partly occluded by #18."},
+  {"frame_key": "take05_a1_524085", "track_id": "7", "note": "v3 fit a crossover."},
+  {"frame_key": "take08_a2_537370", "track_id": "49", "note": "v3 fit a full SUV (flipped between runs)."},
+  {"frame_key": "take08_a2_537370", "track_id": "2", "note": "v3 fit a minivan."},
+  {"frame_key": "take03_a3_497215", "track_id": "11", "note": "v3 regressed vs legacy."},
+  {"frame_key": "take03_a3_497215", "track_id": "21", "note": "v3 fit a hatchback, regressed vs legacy."},
+  {"frame_key": "take10_a3_543585", "track_id": "48", "note": "41 m, 30 held-out points."},
+  {"frame_key": "take01_a1_481325", "track_id": "104", "note": ""},
+  {"frame_key": "take01_a1_481325", "track_id": "12", "note": ""},
+  {"frame_key": "take01_a1_481325", "track_id": "58", "note": ""},
+  {"frame_key": "take07_a2_534390", "track_id": "57", "note": "v3 notes called it a minivan; labeled crossover."},
+  {"frame_key": "take07_a2_534390", "track_id": "54", "note": ""},
+  {"frame_key": "take09_a2_540610", "track_id": "30", "note": "v3 notes called it a minivan."},
+  {"frame_key": "take09_a2_540610", "track_id": "42", "note": ""},
+  {"frame_key": "take09_a2_540610", "track_id": "1", "note": "Tacoma with camper shell, 38 m."}
+ ]
+}
