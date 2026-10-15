@@ -277,3 +277,58 @@ def test_reported_luminance_favors_lit_part_of_smoothly_shaded_paint():
     median_gray = cv2.cvtColor(np.float32([[[0.85 * 230 / 255] * 3]]), cv2.COLOR_RGB2Lab)[0, 0, 0]
 
     assert observation is not None and observation.lab[0] > median_gray + 2
+
+
+def _belt_rows(pose):
+    """Image row range of the belt band on the camera-facing side."""
+    points = _side_points()
+    low, high = (-DIMS[2] / 2 + f * DIMS[2] for f in VehicleColorConfig().belt_band)
+    uv, _, _ = project_points_to_image(_to_camera(points[(points[:, 2] >= low) & (points[:, 2] <= high)], pose), K, SIZE)
+    return int(uv[:, 1].min()), int(uv[:, 1].max()) + 1, uv[:, 0].min(), uv[:, 0].max()
+
+
+def _two_tone(lower_bgr, upper_bgr, upper_fraction=0.45, columns=(0.0, 1.0), seed=0):
+    """Paint ``lower_bgr`` with the upper belt rows (between ``columns`` fractions of the side) ``upper_bgr``."""
+    image, pose = _scene(lower_bgr, seed=seed)
+    top, bottom, left, right = _belt_rows(pose)
+    split = int(top + upper_fraction * (bottom - top))
+    first, last = (int(left + f * (right - left)) for f in columns)
+    image[:split, first:last + 1] = np.clip(np.asarray(upper_bgr) + np.random.default_rng(seed).normal(
+        0, 3, image[:split, first:last + 1].shape), 0, 255).astype(np.uint8)
+    return image, pose
+
+
+def _fused_lab(lower_bgr, upper_bgr, frames=4, **kwargs):
+    estimator = VehicleColorEstimator()
+    for frame in range(frames):
+        image, pose = _two_tone(lower_bgr, upper_bgr, seed=frame, **kwargs)
+        estimator.observe("car", image, K, pose, _side_points(), DIMS)
+    estimate = estimator.color("car")
+    return None if estimate is None else cv2.cvtColor(np.float32([[estimate.rgb]]), cv2.COLOR_RGB2Lab)[0, 0]
+
+
+def test_shaded_silver_publishes_its_persistent_bright_neutral_part():
+    shaded, lit = (70, 70, 72), (175, 176, 178)
+    image, pose = _two_tone(shaded, lit)
+    observation = VehicleColorEstimator().observe("car", image, K, pose, _side_points(), DIMS)
+    assert observation.lab[0] < 40 and observation.bright_lab is not None and observation.bright_lab[0] > 65
+
+    two_frames = _fused_lab(shaded, lit, frames=2)
+    assert two_frames is None  # min_observations
+    estimator = VehicleColorEstimator(VehicleColorConfig(min_observations=1))
+    for frame in range(3):
+        image, pose = _two_tone(shaded, lit, seed=frame)
+        estimator.observe("car", image, K, pose, _side_points(), DIMS)
+        lightness = cv2.cvtColor(np.float32([[estimator.color("car").rgb]]), cv2.COLOR_RGB2Lab)[0, 0, 0]
+        assert (lightness > 65) == (frame == 2)  # published only once it persists over 3 observations
+    assert np.hypot(*_fused_lab(shaded, lit)[1:]) < 1
+
+
+def test_localized_bright_patch_or_colored_paint_keeps_the_dark_color():
+    shaded, lit = (70, 70, 72), (175, 176, 178)
+    localized = _fused_lab(shaded, lit, upper_fraction=1.0, columns=(0.0, 0.3))  # one lit panel / reflection
+    assert localized[0] < 40
+    dark_red = _fused_lab((30, 30, 120), lit)  # colored paint is never replaced by a neutral group
+    assert dark_red[0] < 40 and np.hypot(*dark_red[1:]) > 20
+    image, pose = _two_tone((22, 20, 20), (60, 60, 62))  # a dim group is not white/silver paint
+    assert VehicleColorEstimator().observe("car", image, K, pose, _side_points(), DIMS).bright_lab is None
