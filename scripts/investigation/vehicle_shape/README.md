@@ -12,10 +12,20 @@ For every GT vehicle in view (3-60 m), the harness runs these steps on the previ
 1. **Crop and snap.** In-box LiDAR returns are taken in the object frame, using native `map_T_lidar` and
    `map_T_object` with the GT box bottom snapped onto the LiDAR ground by `LidarGroundSnapper`.
    Returns inside a neighbor's box inflated by 0.2 m are dropped.
-2. **Accumulate and refit.** Returns go into `ObjectPointAccumulator`. `VehicleShapeFitter` refits after
-   every scan, warm-started from the last accepted fit; like the live estimator it refits only the
-   incumbent body type except every `--sweep-every`-th fit (default 5), which reconsiders all types.
-   The last accepted fit is published; before it, the dimension-prior type mean ("prior only").
+2. **Accumulate, refit and publish.** Returns go into `ObjectPointAccumulator`. `VehicleShapeFitter` refits
+   after every scan, warm-started from the last accepted fit; like the live estimator it refits only the
+   incumbent body type except every `--sweep-every`-th fit (default 5), which reconsiders all types, and a
+   per-track `TypePosterior` decides the body type. The publication policy is the live one
+   (`VehicleAppearanceConfig`):
+   - **Range gate** (`--max-range`, default 25 m LiDAR range; `--range-hysteresis` 5 m): a vehicle beyond it
+     at frame t gets neither shape nor color and renders the default asset; once in range it keeps its hints
+     out to 30 m. Out-of-range scans are accumulated but not fit (`--fit-out-of-range` fits them too) and not
+     colored.
+   - **Evidence** (`--min-publish-evidence`, default 100 fit evidence voxels): weaker fits publish nothing
+     (legacy primitive); nothing is published before the first fit. `0` restores the v4 policy (last accepted
+     fit, dimension-prior type mean before it).
+   - **Rejection** (`--unpublish-after-rejections`, default 2): that many consecutive rejected fits
+     (rms > 0.25 m) unpublish the shape; a single rejected fit keeps the last one.
    A cold one-shot fit at the end of the window is also recorded.
 3. **Color.** `VehicleColorEstimator.observe` runs on each frame's native 1920x1200 image with the
    refined calibration, a full-scan `SparseDepthBuffer`, and nearer GT boxes as occluders.
@@ -43,10 +53,33 @@ Outputs (default `../RemoteTeleop/artifacts/pcd-vehicle-assets-20261015/`):
 - `summary.json` (settings, aggregates, frames, vehicles, color observation logs) and `summary.csv`
   (one row per vehicle).
 
-`--fitter`, `--accumulator` and `--color` take JSON keyword overrides for `VehicleShapeFitter`,
-`ObjectPointAccumulator` and `VehicleColorConfig` (e.g. `--fitter '{"alternatives": 6}'` refines every type in a sweep,
-`'{"inflation_lwh_m": [0, 0, 0]}'` treats boxes as tight). `--default-incumbent` is an experimental flag: the
+`--fitter`, `--accumulator`, `--color` and `--posterior` take JSON keyword overrides for `VehicleShapeFitter`,
+`ObjectPointAccumulator`, `VehicleColorConfig` and `TypePosterior` (e.g. `--fitter '{"alternatives": 6}'` refines
+every type in a sweep, `'{"inflation_lwh_m": [0, 0, 0]}'` treats boxes as tight,
+`--posterior '{"switch_margin_nats": 2}'`). `--default-incumbent` is an experimental flag: the
 first fit treats the sedan type mean as the incumbent.
+
+- `--no-color` skips color estimation (shape-only passes; color does not affect shape metrics).
+- `--live-schedule` replays the past frames through `VehicleAppearanceEstimator` itself instead of refitting
+  every scan: refit cadence, per-update fit budget and priority, sweep cadence, freezing, range gate and
+  publication (synchronous fits, no future frames at a sequence start, no color).
+  `publication_delay_scans` (scans from a track's first scan to its first published shape) and the shapes
+  published by frame t measure the live lag. `--appearance` takes `VehicleAppearanceConfig` overrides (JSON),
+  e.g. `--appearance '{"max_fits_per_update": 4}'`.
+- `--occluder-mask <npz>` passes a `scripts/carve_occluder_mask.py` sidecar to the renders' proxy occluder
+  depth (`OpacityThresholdDepth(occluder_mask=...)`); default: no mask.
+- `--beats-legacy 0.9` (offline variant) publishes a fit only when its robust cost on the accumulated voxels
+  (Huber point-to-triangle) is at most 0.9 x the legacy primitive's, and records `legacy_cost_ratio`. On dev+val it
+  mostly withheld fits that beat legacy on the held-out frame, so the live estimator has no such gate.
+
+Metric-only dev/val passes (the frame lists are kept outside the repo):
+
+```bash
+PYTHONPATH=. ../RemoteTeleop/.venv/bin/python scripts/investigation/vehicle_shape/evaluate.py --no-render \
+    --no-color --only <frame keys> --output /tmp/w2/dev            # every-scan refits
+PYTHONPATH=. ../RemoteTeleop/.venv/bin/python scripts/investigation/vehicle_shape/evaluate.py --no-render \
+    --no-color --only <frame keys> --output /tmp/w2/dev-live --live-schedule --max-range 30
+```
 
 `--baseline <earlier output>` adds a "Changes since" section to REVIEW.md: a before/after aggregate table
 (including body-type accuracy against `body_labels.json`: three labelers over every v2 vehicle row; high/medium

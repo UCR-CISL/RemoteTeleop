@@ -361,7 +361,11 @@ class ReviewReport:
             moving = [r for r in group if r["sign_matches_motion"] is not None]
             published = [r for r in group if r["shape_published"]]
             median = lambda key, rs: _median([r.get(key) for r in rs])
+            types = body_label_accuracy(group)
             out[name] = dict(
+                range_gated_rate=_rate(sum(bool(r.get("range_gated")) for r in group), len(group)),
+                type_exact=sum(v[0] for v in types.values()), type_group=sum(v[1] for v in types.values()),
+                type_labeled=sum(v[2] for v in types.values()),
                 vehicles=len(group),
                 shape_published_rate=_rate(len(published), len(group)),
                 color_published_rate=_rate(sum(r["color_published"] for r in group), len(group)),
@@ -432,7 +436,8 @@ class ReviewReport:
             f"the live estimator only the incumbent type is refit except every {s.get('sweep_every', 5)}th fit (full type sweep),",
             "and a per-track `TypePosterior` decides the body type."
             + (" A shape is published only from"
-               f" {s['min_publish_evidence']} evidence voxels on and a rejected fit unpublishes it, so weak or"
+               f" {s['min_publish_evidence']} evidence voxels on and {s.get('unpublish_after_rejections', 1)} consecutive"
+               " rejected fits unpublish it, so weak or"
                " inconsistent evidence renders the legacy primitive (as `VehicleAppearanceConfig.min_publish_evidence`)."
                if s.get("min_publish_evidence") else
                " The last accepted fit is published; before the first accepted fit the dimension-prior type mean is"
@@ -440,7 +445,11 @@ class ReviewReport:
             + (" `--live-schedule`: the past frames are replayed through `VehicleAppearanceEstimator` itself (refit"
                " cadence, per-update fit budget, freezing, publication)." if s.get("live_schedule") else
                " Live scheduling (refit cadence, per-update budgets, freezing) is not replayed: the harness refits"
-               " every scan."),
+               " every scan.")
+            + (f" Beyond {s['max_range']:g} m LiDAR range (+{s.get('range_hysteresis', 0):g} m once published) neither"
+               " shape nor color is published (`VehicleAppearanceConfig.max_publish_range_m`): the vehicle renders the"
+               " default asset" + (" and is not fit." if not s.get("fit_out_of_range") else ".")
+               if s.get("max_range") not in (None, float("inf")) else ""),
             "`VehicleColorEstimator.observe` runs on each history frame's native 1920x1200 camera image with",
             "the refined calibration, a full-scan `SparseDepthBuffer`, and nearer GT boxes as occluders.",
             "Frame *t* itself is held out: its in-box points (minus any road layer the snapped box floor left in",
@@ -473,8 +482,9 @@ class ReviewReport:
             "window (>= 0.8 m) and assumes forward driving.",
             "",
             "| range | n | shape pub. | color pub. | scored | med dist legacy→mean→fit (m) | p90 legacy→mean→fit (m) "
-            "| published-only p90 def→fit | fit better / worse (p90) | fwd = GT +x | fwd vs motion (n) | GT +x = motion | fit ms (median of means / max) |",
-            "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+            "| published-only p90 def→fit | fit better / worse (p90) | type exact / group (n) | range-gated "
+            "| fwd = GT +x | fwd vs motion (n) | GT +x = motion | fit ms (median of means / max) |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
         ]
         order = [_bucket(low) for low, _ in RANGE_BUCKETS] + [f"{RANGE_BUCKETS[-1][1]}+ m", "all"]
         for name in order:
@@ -487,6 +497,8 @@ class ReviewReport:
                 f"| {_f(a['heldout_p90_default_m'])} → {_f(a.get('heldout_p90_means_m'))} → {_f(a['heldout_p90_fitted_m'])} "
                 f"| {_f(a['published_only_p90_default_m'])} → {_f(a['published_only_p90_fitted_m'])} "
                 f"| {_pct(a['fitted_better_p90_rate'])} / {_pct(a['fitted_worse_p90_rate'])} "
+                f"| {a.get('type_exact', '–')} / {a.get('type_group', '–')} ({a.get('type_labeled', '–')}) "
+                f"| {_pct(a.get('range_gated_rate'))} "
                 f"| {_pct(a['forward_sign_vs_gt_x'])} | {_pct(a['forward_sign_vs_motion'])} ({a['moving_with_shape']}) "
                 f"| {_pct(a['gt_x_vs_motion'])} | {_f(a['fit_latency_ms_mean'], 0)} / {_f(a['fit_latency_ms_max'], 0)} |")
         body = aggregate.get("all", {}).get("body_types", {})

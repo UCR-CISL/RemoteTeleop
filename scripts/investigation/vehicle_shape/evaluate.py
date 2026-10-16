@@ -6,8 +6,9 @@ ObjectPointAccumulator (scans registered along the track by the visible end face
 every scan by VehicleShapeFitter (warm-started from the last accepted fit; like the live estimator,
 only the incumbent type is refit except every ``--sweep-every``-th fit, and a per-track TypePosterior
 decides the body type), and is colored by VehicleColorEstimator on those K frames' camera images.
-Like the live estimator, weak evidence or a rejected fit publishes no shape (legacy primitive). Live
-scheduling (refit cadence,
+Like the live estimator, weak evidence or two consecutive rejected fits publish no shape (legacy primitive),
+and a vehicle beyond --max-range (RangeGate, with hysteresis over the history and frame t) gets neither shape
+nor color. Live scheduling (refit cadence,
 per-update budgets, freezing) is replayed only with --live-schedule; otherwise every scan is refit.
 Frame t is held out: its points score the legacy primitive, the box-dimension-only type's mean and
 the fit by true point-to-triangle distance, in frame t's GT box and registered onto the accumulation.
@@ -27,6 +28,7 @@ import cv2
 import numpy as np
 
 from src.deployment.lidar_ground_snap import LidarGroundSnapper
+from src.deployment.vehicle_appearance import RangeGate
 from src.deployment.vehicle_color import (SparseDepthBuffer, VehicleColorConfig, VehicleColorEstimator,
                                           _projected_box_xyxy, project_points_to_image)
 from src.deployment.vehicle_shape import (EndFaceRegistration, ObjectPointAccumulator, TypePosterior, VehicleShapeFitter,
@@ -206,9 +208,13 @@ class VehicleResult:
     type_confident: bool = False
     decided_type: str | None = None  # the track's body type, also when the published shape fell back to legacy
     publication_delay_scans: int | None = None  # --live-schedule: scans from the track's first to its first shape
+    range_gated: bool = False  # beyond the publication range at t: default asset, no hints
+    range_history_m: list[float] = field(default_factory=list)  # LiDAR range per history scan (RangeGate input)
+    legacy_cost_ratio: float = float("nan")  # published fit's robust cost / the legacy primitive's (accumulation)
     color_rgb: tuple[float, float, float] | None = None
     color_confidence: float = 0.0
     color_fused_observations: int = 0
+    color_road_rgb: tuple[float, float, float] | None = None  # fused camera road ring (BoxPrompt.road_rgb)
     color_frames_observed: int = 0
     color_frames_confident: int = 0
     color_observations: list[dict] = field(default_factory=list)
@@ -263,12 +269,15 @@ class VehicleResult:
             face_spread_m=_round(self.face_spread_m, 3), dims_type=self.dims_type, rise_x_m=_round(self.rise_x_m, 3),
             type_trace=self.type_trace, type_probability=round(self.type_probability, 3),
             type_confident=self.type_confident, decided_type=self.decided_type,
-            publication_delay_scans=self.publication_delay_scans,
+            publication_delay_scans=self.publication_delay_scans, range_gated=self.range_gated,
+            range_history_m=[round(value, 2) for value in self.range_history_m],
+            legacy_cost_ratio=_round(self.legacy_cost_ratio, 3),
             sign_matches_gt_x=None if sign is None else sign == 1,
             sign_matches_motion=None if sign is None or self.motion_front_sign == 0 else sign == self.motion_front_sign,
             color_published=self.color_rgb is not None,
             color_rgb=None if self.color_rgb is None else [round(v, 3) for v in self.color_rgb],
             color_confidence=round(self.color_confidence, 3), color_fused_observations=self.color_fused_observations,
+            color_road_rgb=None if self.color_road_rgb is None else [round(c, 3) for c in self.color_road_rgb],
             color_frames_observed=self.color_frames_observed, color_frames_confident=self.color_frames_confident,
             target_road_rgb=None if self.target_road_rgb is None else [round(c, 3) for c in self.target_road_rgb],
             color_rgb_road_balanced=None if self.road_balanced_rgb is None else [round(c, 3) for c in self.road_balanced_rgb],
@@ -290,10 +299,15 @@ class VehicleEvidencePipeline:
                  accumulator_kwargs: dict | None = None, color_config: VehicleColorConfig | None = None,
                  cold_fit: bool = True, default_incumbent: bool = False, sweep_every: int = 5,
                  color: bool = True, posterior_kwargs: dict | None = None,
-                 min_publish_evidence: int = 100) -> None:
+                 min_publish_evidence: int = 100, max_range_m: float = 25., range_hysteresis_m: float = 5.,
+                 fit_out_of_range: bool = False, unpublish_after_rejections: int = 2,
+                 beats_legacy: float | None = None) -> None:
         self.loader, self.history, self.sweep_every, self.color = loader, history, sweep_every, color
         self.posterior_kwargs = posterior_kwargs or {}
         self.min_publish_evidence = min_publish_evidence
+        self.max_range_m, self.range_hysteresis_m, self.fit_out_of_range = max_range_m, range_hysteresis_m, fit_out_of_range
+        self.unpublish_after_rejections = unpublish_after_rejections
+        self.beats_legacy = beats_legacy  # publish only at <= this x the legacy primitive's robust cost
         self.default_incumbent = default_incumbent
         self.fitter_kwargs, self.accumulator_kwargs = fitter_kwargs or {}, accumulator_kwargs or {}
         self.color_config = color_config or VehicleColorConfig()
@@ -321,9 +335,14 @@ class VehicleEvidencePipeline:
         centers: dict[str, dict[int, np.ndarray]] = {}  # per track: frame index -> map position
         fitted: dict[str, tuple[UniversalVehicleShape, float]] = {}  # last accepted fit and its robust cost
         posteriors: dict[str, TypePosterior] = {}  # per-track type decision, as in the live estimator
+        gate = RangeGate(self.max_range_m, self.range_hysteresis_m)  # as VehicleAppearanceEstimator.range_gate
+        rejections: dict[str, int] = {}
         for index in indices:
             frame = self.loader.load(spec.split, spec.take, spec.agent, index)
             present = [t for t in by_id if t in frame.lidar_T_object]
+            for track_id in present:
+                by_id[track_id].range_history_m.append(float(np.hypot(*frame.lidar_T_object[track_id][:2, 3])))
+                gate.update(track_id, by_id[track_id].range_history_m[-1])
             for track_id in present:
                 v = by_id[track_id]
                 centers.setdefault(track_id, {})[index] = frame.map_T_object(track_id)[:3, 3]
@@ -333,6 +352,8 @@ class VehicleEvidencePipeline:
                 v.history_frames.append(frame.frame_id)
                 v.raw_points += len(points)
                 accumulator.add(track_id, points / dims, dims, frame.timestamp_us, sensor_origin_object=sensor)
+                if not gate.allows(track_id) and not self.fit_out_of_range:
+                    continue  # out of range: accumulate only
                 normalized, weights = accumulator.points(track_id)
                 previous, incumbent_cost = fitted.get(track_id, (None, None))
                 if previous is None and self.default_incumbent:
@@ -363,18 +384,21 @@ class VehicleEvidencePipeline:
                                                     for t, terms in fit.type_terms.items()}))
                 v.accepted_final, v.fit_rms_m, v.evidence_voxels = fit.accepted, fit.cost, fit.evidence_voxels
                 if fit.accepted:
+                    rejections[track_id] = 0
                     v.accepted_steps += 1
                     v.published_shape, v.prior_only = fit.params, False
                     fitted[track_id] = fit.params, fit.robust_cost
                     if self.min_publish_evidence and fit.evidence_voxels < self.min_publish_evidence:
                         v.published_shape = None  # like the live estimator: weak evidence keeps the legacy primitive
                 elif self.min_publish_evidence and np.isfinite(fit.cost):
-                    v.published_shape, v.prior_only = None, False  # a rejected fit falls back to legacy
+                    rejections[track_id] = rejections.get(track_id, 0) + 1
+                    if rejections[track_id] >= self.unpublish_after_rejections:
+                        v.published_shape, v.prior_only = None, False  # rejected fits fall back to legacy
                 elif track_id not in fitted and len(normalized) and not self.min_publish_evidence:
                     # Live publication of the dimension-prior type mean until a fit is accepted.
                     v.published_shape, v.prior_only = fitter.prior_shape(dims), True
-            if self.color:
-                self._observe_colors(frame, present, by_id, estimator, K, cam_T_lidar)
+            if self.color:  # like the live estimator, out-of-range tracks are not colored
+                self._observe_colors(frame, [t for t in present if gate.allows(t)], by_id, estimator, K, cam_T_lidar)
         for track_id, v in by_id.items():
             dims = np.asarray(v.dims_lwh)
             normalized, weights = accumulator.points(track_id)
@@ -390,8 +414,10 @@ class VehicleEvidencePipeline:
             if track_id in posteriors:
                 v.type_probability, v.type_confident = posteriors[track_id].probability, posteriors[track_id].confident
             estimate = estimator.color(track_id)
-            if estimate is not None:
+            self._gate(v, gate, target, accumulator)
+            if estimate is not None and not v.range_gated:
                 v.color_rgb, v.color_confidence = estimate.rgb, estimate.confidence
+                v.color_road_rgb = estimate.road_rgb
                 v.color_fused_observations = estimate.observation_count
             if track_id in centers:
                 # Earliest to latest pose in time (history frames after t at a sequence start included).
@@ -425,15 +451,55 @@ class VehicleEvidencePipeline:
                 continue
             distance, camera_T_object, _ = boxes[track_id]
             occluders = [xyxy for other, (d, _, xyxy) in boxes.items() if other != track_id and d < distance]
+            v = by_id[track_id]  # like VehicleAppearanceEstimator: the published shape, else the box's prior mean
+            shape = v.published_shape if v.published_shape is not None else self.fitter.prior_shape(frame.dims[track_id])
             observation = estimator.observe(track_id, image, K, camera_T_object, frame.object_points(track_id),
-                                            frame.dims[track_id], occluder_xyxy=occluders, depth_buffer=buffer)
-            v = by_id[track_id]
+                                            frame.dims[track_id], occluder_xyxy=occluders, depth_buffer=buffer,
+                                            shape=shape)
             if observation is not None:
                 v.color_frames_observed += 1
                 v.color_frames_confident += observation.confidence >= self.color_config.min_confidence
                 v.color_observations.append(dict(frame_id=frame.frame_id, rgb=[round(c, 3) for c in observation.rgb],
                                                  confidence=round(observation.confidence, 3),
                                                  samples=observation.sample_count))
+
+    def _gate(self, v: VehicleResult, gate: RangeGate, target: SnappedFrame, accumulator) -> None:
+        """Publication at t: the range gate (updated with frame t), then the optional beats-legacy test."""
+        v.range_gated = not gate.update(v.track_id, float(np.hypot(*target.lidar_T_object[v.track_id][:2, 3])))
+        if v.range_gated:
+            v.published_shape, v.prior_only = None, False
+        if v.published_shape is None or self.beats_legacy is None:
+            return
+        dims = np.asarray(v.dims_lwh)
+        points, weights = accumulator.points(v.track_id)
+        points = points * dims
+        keep = _box_mask(points, dims, margin_m=self.fitter.margin_m, ground_clearance_m=self.fitter.ground_clearance_m)
+        points, weights = points[keep], weights[keep]
+        keep = above_ground_layer(points, dims)
+        points, weights = points[keep], weights[keep]
+        if not len(points):
+            return
+        if len(points) > self.fitter.max_fit_points:  # the fitter's subsample
+            stride = np.linspace(0, len(points) - 1, self.fitter.max_fit_points).astype(int)
+            points, weights = points[stride], weights[stride]
+        huber, cap = self.fitter.huber_m, self.fitter.outside_cap_m
+
+        def cost(triangles) -> float:  # the fitter's robust loss on unsigned point-to-triangle distances
+            scaled = np.minimum(triangle_distance(points, triangles), cap) / huber
+            return float(weights @ np.where(scaled <= 1, scaled ** 2, 2 * scaled - 1) / weights.sum())
+
+        vertices, _ = self._universal.instance(v.published_shape, dims)
+        v.legacy_cost_ratio = cost(vertices[self._universal.faces]) / max(cost(self._legacy_triangles(dims)), 1e-9)
+        if v.legacy_cost_ratio > self.beats_legacy:
+            v.published_shape = None
+
+    def _legacy_triangles(self, dims) -> np.ndarray:
+        if VehicleEvidencePipeline._legacy is None:
+            from src.viz.primitive_car import PrimitiveCarAsset
+
+            VehicleEvidencePipeline._legacy = PrimitiveCarAsset()
+        legacy = VehicleEvidencePipeline._legacy
+        return legacy.vertices_for_dimensions(dims)[legacy.mesh.faces]
 
     _legacy = None
     _universal = UniversalVehicleMesh()
@@ -503,7 +569,11 @@ class LiveSchedulePipeline(VehicleEvidencePipeline):
         estimator = VehicleAppearanceEstimator(
             VehicleAppearanceConfig(**{**dict(color=False, fit_in_background=False, fit_budget_ms=1e9,
                                               sweep_every_refits=self.sweep_every,
-                                              min_publish_evidence=self.min_publish_evidence),
+                                              min_publish_evidence=self.min_publish_evidence,
+                                              max_publish_range_m=self.max_range_m,
+                                              publish_range_hysteresis_m=self.range_hysteresis_m,
+                                              fit_out_of_range=self.fit_out_of_range,
+                                              unpublish_after_rejections=self.unpublish_after_rejections),
                                        **self.appearance_overrides}),
             accumulator=ObjectPointAccumulator(**self.accumulator_kwargs), fitter=fitter)
         by_id = {v.track_id: v for v in vehicles}
@@ -548,6 +618,7 @@ class LiveSchedulePipeline(VehicleEvidencePipeline):
                     continue
                 v = by_id[track_id]
                 v.history_frames.append(frame.frame_id)
+                v.range_history_m.append(float(np.hypot(*frame.lidar_T_object[track_id][:2, 3])))
                 v.raw_points += len(frame.object_points(track_id))
                 centers.setdefault(track_id, {})[index] = frame.map_T_object(track_id)[:3, 3]
                 first_scan.setdefault(track_id, step)
@@ -557,8 +628,8 @@ class LiveSchedulePipeline(VehicleEvidencePipeline):
         for track_id, v in by_id.items():
             dims = np.asarray(v.dims_lwh)
             state = estimator._shapes.get(track_id)
-            shape = estimator.prompt_fields(track_id).get("vehicle_shape")
-            v.published_shape = None if shape is None else UniversalVehicleShape.from_vector(shape)
+            shape = estimator._shapes[track_id].published if track_id in estimator._shapes else None
+            v.published_shape = shape  # gated by range (frame t included) and beats-legacy in _gate
             v.accepted_final = state is not None and state.fitted is not None
             if state is not None:
                 v.type_probability, v.type_confident = state.types.probability, state.types.confident
@@ -575,6 +646,7 @@ class LiveSchedulePipeline(VehicleEvidencePipeline):
                 v.gt_motion_m = float(np.linalg.norm(motion[:2]))
                 along = float(motion @ target.map_T_object(track_id)[:3, 0])
                 v.motion_front_sign = int(np.sign(along)) if v.gt_motion_m >= 0.8 and abs(along) >= 0.6 else 0
+            self._gate(v, estimator.range_gate, target, accumulator)
             self._held_out(target, v, accumulator)
 
 
@@ -607,14 +679,16 @@ def type_mean(body_type: str, dims, fitter: VehicleShapeFitter) -> UniversalVehi
 class ProxyRenderHarness:
     """gsplat background + vehicle proxies at a GT-registered pose, one backend per agent."""
 
-    def __init__(self, map_path: Path = MAP_PLY) -> None:
+    def __init__(self, map_path: Path = MAP_PLY, occluder_mask: Path | None = None) -> None:
         from src.localization.gaussian_map import load_gaussian_map
         from src.viz.composited_camera import (CudaGaussianBufferRenderer, OpacityThresholdDepth,
                                                PyTorch3DObjectMeshRenderer)
         from src.viz.vehicle_proxy import VehicleProxyRenderer
 
         self.mesh = PyTorch3DObjectMeshRenderer(device="cuda")
-        self.gaussians = CudaGaussianBufferRenderer(load_gaussian_map(map_path), occluder_depth=OpacityThresholdDepth())
+        mask = None if occluder_mask is None else OpacityThresholdDepth.load_occluder_mask(occluder_mask, map_path)
+        self.gaussians = CudaGaussianBufferRenderer(load_gaussian_map(map_path),
+                                                    occluder_depth=OpacityThresholdDepth(occluder_mask=mask))
         self.proxies = VehicleProxyRenderer(self.mesh)
         self._backends = {}
 
@@ -725,7 +799,7 @@ class VehicleProxyEvaluation:
             v = by_id.get(track_id)
             tint = {}
             if v is not None and v.color_rgb is not None:
-                tint = dict(body_color_rgb=v.color_rgb, color_confidence=v.color_confidence)
+                tint = dict(body_color_rgb=v.color_rgb, color_confidence=v.color_confidence, road_rgb=v.color_road_rgb)
             # Identical tint in every variant: only the geometry differs.
             default_prompts.append(replace(base, **tint))
             shape = None if v is None else v.published_shape
@@ -796,6 +870,17 @@ def main() -> None:
                         help="legacy primitive (no shape) below this many evidence voxels or after a rejected fit, "
                              "as VehicleAppearanceConfig.min_publish_evidence; 0 = v4 policy (keep the last accepted "
                              "fit, dimension-prior type mean before one)")
+    parser.add_argument("--max-range", type=float, default=25.,
+                        help="publish neither shape nor color beyond this LiDAR range (m; +--range-hysteresis once "
+                             "published), as VehicleAppearanceConfig.max_publish_range_m; inf disables")
+    parser.add_argument("--range-hysteresis", type=float, default=5.)
+    parser.add_argument("--fit-out-of-range", action="store_true",
+                        help="also fit out-of-range vehicles (default: accumulate only)")
+    parser.add_argument("--unpublish-after-rejections", type=int, default=2,
+                        help="consecutive rejected fits that unpublish a shape (v5: 1)")
+    parser.add_argument("--beats-legacy", type=float, default=None,
+                        help="publish a fit only if its robust cost on the accumulation is <= this x the legacy "
+                             "primitive's (offline variant, e.g. 0.9)")
     parser.add_argument("--live-schedule", action="store_true",
                         help="replay the history through VehicleAppearanceEstimator (live cadence, budgets, freezing; "
                              "past frames only)")
@@ -813,6 +898,9 @@ def main() -> None:
                         help='JSON {"changes": [markdown lines], "callouts": [{frame_key, track_id, note}]} '
                              "describing the change and the vehicles to compare against --baseline")
     parser.add_argument("--no-render", action="store_true", help="metrics only (no gsplat renders / figures)")
+    parser.add_argument("--occluder-mask", type=Path, default=None,
+                        help="per-splat occluder mask sidecar (scripts/carve_occluder_mask.py) for the proxy "
+                             "occluder depth; default: no mask")
     parser.add_argument("--no-color", action="store_true", help="skip color estimation (shape-only dev passes)")
     parser.add_argument("--rebuild-review", action="store_true",
                         help="only rewrite REVIEW.md from <output>/summary.json (+ variants/*/summary.json)")
@@ -834,6 +922,10 @@ def main() -> None:
                     default_incumbent=args.default_incumbent, sweep_every=args.sweep_every,
                     posterior=args.posterior,
                     min_publish_evidence=args.min_publish_evidence, live_schedule=args.live_schedule,
+                    max_range=args.max_range, range_hysteresis=args.range_hysteresis,
+                    fit_out_of_range=args.fit_out_of_range, unpublish_after_rejections=args.unpublish_after_rejections,
+                    beats_legacy=args.beats_legacy,
+                    occluder_mask=None if args.occluder_mask is None else str(args.occluder_mask),
                     appearance=args.appearance,
                     baseline=None if args.baseline is None else str(args.baseline.resolve()),
                     **(json.loads(args.changes.read_text()) if args.changes else {}))
@@ -843,9 +935,14 @@ def main() -> None:
                                        color_config=VehicleColorConfig(**args.color),
                                        default_incumbent=args.default_incumbent, sweep_every=args.sweep_every,
                                        color=not args.no_color,
-                                       posterior_kwargs=args.posterior, min_publish_evidence=args.min_publish_evidence)
+                                       posterior_kwargs=args.posterior, min_publish_evidence=args.min_publish_evidence,
+                                       max_range_m=args.max_range, range_hysteresis_m=args.range_hysteresis,
+                                       fit_out_of_range=args.fit_out_of_range,
+                                       unpublish_after_rejections=args.unpublish_after_rejections,
+                                       beats_legacy=args.beats_legacy)
     pipeline.appearance_overrides = args.appearance
-    evaluation = VehicleProxyEvaluation(pipeline, None if args.no_render else ProxyRenderHarness())
+    evaluation = VehicleProxyEvaluation(pipeline, None if args.no_render else ProxyRenderHarness(
+        occluder_mask=args.occluder_mask))
     report = ReviewReport(args.output, settings, figures=not args.no_render, baseline=args.baseline,
                           callouts=settings.get("callouts"))
     for number, spec in enumerate(specs, 1):
