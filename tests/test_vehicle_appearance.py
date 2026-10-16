@@ -6,13 +6,15 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import replace
 
 import cv2
 import numpy as np
 import pytest
 
 from src.deployment.lidar_ground_snap import _BevGrid
-from src.deployment.vehicle_appearance import AppearanceCamera, VehicleAppearanceConfig, VehicleAppearanceEstimator
+from src.deployment.vehicle_appearance import (AppearanceCamera, RangeGate, VehicleAppearanceConfig,
+                                               VehicleAppearanceEstimator)
 from src.deployment.vehicle_shape import VehicleShapeFitter
 from src.realtime.bevfusion_tracker import DetectionMatch, TrackedWorldBox
 from src.realtime.protocol import BoxPrompt
@@ -131,7 +133,7 @@ def test_color_waits_for_several_observations_and_needs_an_image():
     _drive(estimator, 2)
     assert estimator.prompt_fields("bevfusion:car:0") == {}  # fewer than min_observations
     _drive(estimator, 2, start=2)
-    assert set(estimator.prompt_fields("bevfusion:car:0")) == {"body_color_rgb", "color_confidence"}
+    assert set(estimator.prompt_fields("bevfusion:car:0")) - {"road_rgb"} == {"body_color_rgb", "color_confidence"}
     no_camera = VehicleAppearanceEstimator(VehicleAppearanceConfig(shape=False, fit_in_background=False))
     _drive(no_camera, 6, camera=False)
     assert no_camera.prompt_fields("bevfusion:car:0") == {}
@@ -186,7 +188,7 @@ def test_reacquired_identity_with_a_new_filter_starts_over():
 def test_refits_are_bounded_per_update_round_robin():
     estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, max_fits_per_update=1,
                                                                    fit_in_background=False))
-    poses = [_lidar_T_object(12. + 8 * index, y=-3. - 6 * (index % 2)) for index in range(3)]
+    poses = [_lidar_T_object(10. + 6 * index, y=-3. - 6 * (index % 2)) for index in range(3)]  # all within range
     fitted = []
     for frame in range(4):
         boxes = [_box(f"car{index}", pose) for index, pose in enumerate(poses)]
@@ -196,6 +198,95 @@ def test_refits_are_bounded_per_update_round_robin():
         assert estimator.fit_count - before <= 1
         fitted.append(sorted(track_id for track_id, state in estimator._shapes.items() if state.last_fit_tick > 0))
     assert fitted[2] == ["car0", "car1", "car2"]  # every track got a turn
+
+
+def test_hints_are_published_only_within_range_with_hysteresis():
+    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(fit_in_background=False))
+    published = []
+    for frame, x in enumerate((34, 31, 28, 26, 24, 22, 20, 22, 24, 27, 29, 31)):  # approaches, then recedes
+        pose = _lidar_T_object(float(x), y=0.)
+        box = _box("car", pose)
+        estimator.update([_match(box)], [box], timestamp_us=frame, world_T_lidar=WORLD_T_LIDAR,
+                         lidar_points=_scan([pose], seed=frame), camera=AppearanceCamera(_image([pose]), K, CAMERA_T_LIDAR))
+        published.append("vehicle_shape" in estimator.prompt_fields("car"))
+        if frame == 3:  # out of range: accumulated, but neither fit nor colored
+            assert estimator.fit_count == 0 and estimator.accumulator.evidence("car") > 100
+            assert "car" not in estimator._color_ticks
+    # In from 25 m (fit on entry from the evidence accumulated beyond it); out only beyond 30 m.
+    assert published == [False] * 4 + [True] * 7 + [False]
+    assert estimator.prompt_fields("car") == {}  # no paint either
+
+
+def test_range_gate_hysteresis():
+    gate = RangeGate(25., 5.)
+    assert [gate.update("a", r) for r in (26., 25., 29., 30.5, 27., 24.)] == [False, True, True, False, False, True]
+    gate.drop("a")
+    assert not gate.allows("a")
+    with pytest.raises(ValueError):
+        RangeGate(0.)
+
+
+def test_fit_budget_goes_to_in_range_tracks_that_can_publish():
+    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, max_fits_per_update=2, fit_budget_ms=1e9,
+                                                                   refit_every_scans=1, fit_in_background=False))
+    poses = {"a_far": _lidar_T_object(40., y=3.), "b_near": _lidar_T_object(12.), "c_mid": _lidar_T_object(20., y=-9.),
+             "d_weak": _lidar_T_object(16., y=6.)}
+    first = []
+    for frame in range(5):
+        boxes = [_box(track_id, pose) for track_id, pose in poses.items()]
+        points = np.vstack([_scan([poses[t] for t in ("a_far", "b_near", "c_mid")], seed=frame),
+                            _scan([poses["d_weak"]], count=12, seed=frame)])
+        before = estimator.fit_count
+        estimator.update([_match(box, index=i) for i, box in enumerate(boxes)], boxes, timestamp_us=frame,
+                         world_T_lidar=WORLD_T_LIDAR, lidar_points=points)
+        assert estimator.fit_count - before <= 2
+        first.append({track_id for track_id, state in estimator._shapes.items() if state.fits})
+    weak = estimator.accumulator.evidence("d_weak")
+    assert estimator.fitter.min_evidence_voxels <= weak < estimator.config.min_fit_evidence_fraction * 100
+    # The out-of-range and the weak track (oldest-first order would pick a_far first) never take a slot.
+    assert first[0] == {"b_near", "c_mid"} and first[-1] == {"b_near", "c_mid"}
+
+
+def test_fits_below_min_publish_evidence_are_kept_but_not_published():
+    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(
+        color=False, fit_in_background=False, min_publish_evidence=10_000, min_fit_evidence_fraction=0.))
+    _drive(estimator, 3, camera=False)
+    state = estimator._shapes["bevfusion:car:0"]
+    assert estimator.fit_count >= 1 and state.fitted is not None and state.published is None
+    assert estimator.prompt_fields("bevfusion:car:0") == {}
+    # By default such a track is not even fit until it gets close to min_publish_evidence.
+    gated = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, fit_in_background=False,
+                                                               min_publish_evidence=10_000))
+    _drive(gated, 3, camera=False)
+    assert gated.fit_count == 0
+
+
+def test_one_rejected_fit_keeps_the_published_shape():
+    class _Rejecting(VehicleShapeFitter):
+        reject = 0
+
+        def fit(self, *args, **kwargs):
+            fit = super().fit(*args, **kwargs)
+            if self.reject:
+                self.reject -= 1
+                return replace(fit, accepted=False, cost=.4, candidates={})  # e.g. one scan full of clutter
+            return fit
+
+    fitter = _Rejecting()
+    estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(
+        color=False, refit_every_scans=1, freeze_after_stable_fits=99, fit_in_background=False), fitter=fitter)
+    _drive(estimator, 4, camera=False)
+    fields = estimator.prompt_fields("bevfusion:car:0")
+    assert "vehicle_shape" in fields
+    fitter.reject, fits = 1, estimator.fit_count
+    _drive(estimator, 1, camera=False, start=4)
+    assert estimator.fit_count == fits + 1 and estimator.prompt_fields("bevfusion:car:0") == fields
+    _drive(estimator, 1, camera=False, start=5)  # an accepted fit resets the count
+    fitter.reject = 2
+    _drive(estimator, 1, camera=False, start=6)
+    assert "vehicle_shape" in estimator.prompt_fields("bevfusion:car:0")
+    _drive(estimator, 1, camera=False, start=7)  # two consecutive rejections: legacy primitive
+    assert "vehicle_shape" not in estimator.prompt_fields("bevfusion:car:0")
 
 
 def test_stable_shape_freezes_until_tracked_dimensions_change():
@@ -251,7 +342,7 @@ def test_small_shape_changes_keep_the_published_params():
 
 def test_weak_evidence_publishes_no_shape_unless_the_prior_shape_is_wanted():
     estimator = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, fit_in_background=False,
-                                                                   publish_prior_shape=True))
+                                                                   publish_prior_shape=True, max_publish_range_m=60.))
     pose = _lidar_T_object(40.)  # far: a handful of returns, no fit yet
     box = _box("far", pose, dimensions=(6.2, 2.45, 2.15))
     estimator.update([_match(box)], [box], timestamp_us=0, world_T_lidar=WORLD_T_LIDAR,
@@ -259,10 +350,12 @@ def test_weak_evidence_publishes_no_shape_unless_the_prior_shape_is_wanted():
     shape = UniversalVehicleShape.from_vector(estimator.prompt_fields("far")["vehicle_shape"])
     assert estimator.fit_count == 0 and shape == estimator.fitter.prior_shape((6.2, 2.45, 2.15))
     assert shape.body_type == "pickup"
-    quiet = VehicleAppearanceEstimator(VehicleAppearanceConfig(color=False, fit_in_background=False))  # default
-    quiet.update([_match(box)], [box], timestamp_us=0, world_T_lidar=WORLD_T_LIDAR,
-                 lidar_points=_scan([pose], count=8))
-    assert quiet.prompt_fields("far") == {}
+    for config in (VehicleAppearanceConfig(color=False, fit_in_background=False),  # default: no prior, 25 m gate
+                   VehicleAppearanceConfig(color=False, fit_in_background=False, publish_prior_shape=True)):
+        quiet = VehicleAppearanceEstimator(config)
+        quiet.update([_match(box)], [box], timestamp_us=0, world_T_lidar=WORLD_T_LIDAR,
+                     lidar_points=_scan([pose], count=8))
+        assert quiet.prompt_fields("far") == {}
 
 
 @pytest.mark.parametrize("label", ["pedestrian", "bicycle"])

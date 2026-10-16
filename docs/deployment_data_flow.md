@@ -210,3 +210,58 @@ the wheel fit cap, a stretched bicycle, a compact truck, and a wide loader.
 Images use the same proxy deformation and mesh renderer as the compositor,
 fitted independently to show shape rather than relative size.
 The output also contains individual PNGs and nominal metric GLBs in `meshes/`.
+
+## Per-vehicle shape and paint hints
+
+With `--bbox-source bevfusion`, `src.deployment.ros_frame_adapter` can decorate each tracked
+car's `BoxPrompt` with compact hints from `VehicleAppearanceEstimator`
+(`--vehicle-shape-fit`, `--vehicle-color`; both default off). They are computed on
+the vehicle from the BEVFusion request's LiDAR scan and full-resolution image (NumPy only), and
+only these fields leave the vehicle:
+
+- `vehicle_shape`: a `UniversalVehicleShape` vector (body type and box-normalized profile
+  parameters) fitted to the track's accumulated LiDAR returns.
+- `body_color_rgb` (sRGB 0-1) and `color_confidence`: the fused paint color.
+- `road_rgb` (sRGB 0-1, only with `body_color_rgb`): the camera's road ring next to the car. The
+  remote scales the paint so paint/road luminance matches the camera (`ProxyPaintExposure`).
+
+A missing field renders the default: the legacy primitive car and its untinted paint. The remote
+`--asset-proxy` compositor applies the hints; until they arrive, prompts are byte-identical to an
+adapter without the estimator.
+
+Publication policy (`VehicleAppearanceConfig`):
+
+- **Range gate.** Neither shape nor color is published beyond `max_publish_range_m` (25 m
+  horizontal LiDAR range, `--vehicle-appearance-max-range-m`). A published track keeps its hints
+  out to 30 m (`publish_range_hysteresis_m`), then drops back to the default asset. Out-of-range
+  tracks keep accumulating LiDAR but are neither fit nor colored. LiDAR at 25-45 m gives too little
+  shape evidence: on the dev/val frames, most body-type errors were beyond 25 m.
+- **Evidence.** A fit is published only from `min_publish_evidence` (100) evidence voxels on
+  (`--vehicle-shape-min-publish-evidence`). Nothing is published before the first fit.
+- **Rejection.** Two consecutive rejected fits (rms > 0.25 m) unpublish the shape. A single
+  rejected fit keeps the last one.
+- **Type.** A per-track `TypePosterior` over periodic type sweeps decides the body type. Rejected
+  sweeps do not vote. A confident type is latched.
+- **Registration.** Scans are registered along the track onto a locked end-face reference. A
+  lasting box-bias change (more than 0.15 m for 10 scans) restarts the track's accumulation.
+
+Live cadence. Fits run on one background thread. Each BEVFusion result starts at most
+`max_fits_per_update` (2) fits. In-range tracks waiting for a first shape go first (most
+evidence first), then the oldest fit. Tracks far below the publish evidence are skipped. One fit
+costs about 10 ms for an incumbent-only refit and about 60 ms for a full type sweep (p95, one
+core). Replaying 1 s of CooperScene history per vehicle (`evaluate.py --live-schedule`, dev+val):
+
+- about 1 fit per track per second;
+- for cars within 25 m, a first shape 1 scan after the track's first scan (median; mean 1.4, v5 2.4);
+- 60/66 vehicles within 25 m show a shape at frame t.
+
+To fit the vehicle CPU budget, change `--vehicle-shape-max-fits-per-update`. Use 1 to halve the
+fit load, 0 to stop fitting (no shapes), or 4 to roughly double the refits. Then check
+`vehicle_appearance_update_ms` and `vehicle_shape_fit_count` in the adapter's BEVFusion metrics.
+
+Occlusion. With `--asset-proxy`, the remote compositor hides proxies behind the splat scene. By
+default (`--proxy-occlusion-depth occluder`) the occluder is the depth where accumulated
+non-ground splat opacity reaches `--occluder-threshold` (0.5), so road fuzz and faint floaters do
+not cut into the cars. `--occluder-mask` adds a per-splat mask from
+`scripts/carve_occluder_mask.py` that leaves LiDAR-carved floaters out of the occluder pass;
+`expected` restores the legacy expected-depth test.

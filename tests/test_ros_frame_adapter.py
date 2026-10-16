@@ -799,6 +799,10 @@ def test_bevfusion_coast_setting_reaches_tracker():
     (["--bevfusion-continuation-score-threshold", "nan"], "between zero and the birth score"),
     (["--bevfusion-minimum-confirmation-hits", "0"], "must be positive"),
     (["--vehicle-shape-fit"], "require --bbox-source bevfusion"),
+    (["--vehicle-shape-max-fits-per-update", "-1"], "must be non-negative"),
+    (["--vehicle-appearance-max-range-m", "0"], "finite and positive"),
+    (["--vehicle-appearance-max-range-m", "inf"], "finite and positive"),
+    (["--vehicle-shape-min-publish-evidence", "-1"], "must be non-negative"),
 ])
 def test_bevfusion_cli_rejects_invalid_tracker_settings_before_transport(monkeypatch, capsys, arguments, expected):
     from src.deployment import ros_frame_adapter
@@ -826,7 +830,10 @@ def test_bevfusion_adapter_optional_duplicate_birth_guard_preserves_continuation
 
 @pytest.mark.parametrize("snap_arguments, snapped, appearance", [
     ([], True, None), (["--no-bevfusion-lidar-ground-snap"], False, None),
-    (["--vehicle-shape-fit"], True, (True, False, True)), (["--vehicle-color"], True, (False, True, True)),
+    (["--vehicle-shape-fit"], True, (True, False, True, 2, 25., 100)),
+    (["--vehicle-color"], True, (False, True, True, 2, 25., 100)),
+    (["--vehicle-shape-fit", "--vehicle-shape-max-fits-per-update", "4", "--vehicle-appearance-max-range-m", "30",
+      "--vehicle-shape-min-publish-evidence", "50"], True, (True, False, True, 4, 30., 50)),
 ])
 def test_main_idle_loop_advances_final_bevfusion_pending_request(monkeypatch, tmp_path, snap_arguments, snapped,
                                                                  appearance):
@@ -917,10 +924,15 @@ def test_main_idle_loop_advances_final_bevfusion_pending_request(monkeypatch, tm
     assert adapters[0].bevfusion.latest_sequence == 2
     # LiDAR-ground snapping is on by default; --no-bevfusion-lidar-ground-snap disables it.
     assert isinstance(adapters[0].bevfusion.ground_snapper, LidarGroundSnapper) is snapped
-    # Vehicle shape/color hints are opt-in; live replay fits off the publishing thread.
+    # Vehicle shape/color hints are opt-in; live replay fits off the publishing thread. The fit budget,
+    # publication range and evidence flags default to VehicleAppearanceConfig's defaults.
     estimator = adapters[0].bevfusion.appearance
-    assert (None if estimator is None else (estimator.config.shape, estimator.config.color,
-                                            estimator.config.fit_in_background)) == appearance
+    fields = ("shape", "color", "fit_in_background", "max_fits_per_update", "max_publish_range_m",
+              "min_publish_evidence")
+    assert (None if estimator is None else tuple(getattr(estimator.config, name) for name in fields)) == appearance
+    if estimator is not None and len(snap_arguments) == 1:
+        from src.deployment.vehicle_appearance import VehicleAppearanceConfig
+        assert appearance[3:] == tuple(getattr(VehicleAppearanceConfig(), name) for name in fields[3:])
     # Polling advances inference only; published source frames remain immutable.
     assert [s.timestamp_us for s in spools[0].snapshots] == [0, 100_000, 200_000]
     assert [len(s.boxes) for s in spools[0].snapshots] == [0, 0, 0]

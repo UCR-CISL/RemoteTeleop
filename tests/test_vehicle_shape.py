@@ -2,15 +2,16 @@
 import subprocess
 import sys
 import time
+from dataclasses import replace
 
 import numpy as np
 import pytest
 
 from src.deployment.vehicle_shape import (EndFaceRegistration, ObjectPointAccumulator, TopProfile, TypePosterior,
-                                          VehicleShapeFit, VehicleShapeFitter, _Residuals, above_ground_layer,
-                                          surface_distance, triangle_distance)
-from src.viz.universal_vehicle import (PARAMETERS, TYPE_NAMES, VEHICLE_TYPES, UniversalVehicleMesh,
-                                       UniversalVehicleShape, sanitize)
+                                          VehicleShapeFit, VehicleShapeFitter, _group_percentile, _Residuals,
+                                          above_ground_layer, surface_distance, triangle_distance)
+from src.viz.universal_vehicle import (PARAMETERS, TYPE_NAMES, VEHICLE_TYPES, UniversalBodyProfile,
+                                       UniversalVehicleMesh, UniversalVehicleShape, sanitize)
 
 DIMENSIONS = np.array([4.7, 1.85, 1.5])
 INFLATION = np.array([.3, .36, .32])
@@ -165,6 +166,44 @@ def test_registration_keeps_one_frame_through_a_box_bias_change_and_an_end_trans
         assert _end_slab(biased, "car", box, end) < _end_slab(clean, "car", box, end) + .05
 
 
+@pytest.mark.parametrize("bias", [.3, .6])  # 0.6 m: every later face is beyond max_shift_m
+def test_registration_relocks_after_a_lasting_box_bias_change(bias):
+    truth, box = _truth("sedan")
+    sensor = np.array([-12., 2., 1.9 - box[2] / 2])  # behind the car, box frame
+    rng = np.random.default_rng(4)
+    biased, steady = ObjectPointAccumulator(), ObjectPointAccumulator()
+    clean = ObjectPointAccumulator(register=False)
+    for scan in range(60):
+        # From scan 30 on the box sits `bias` further back on the car (the car moves forward in its box).
+        jitter = rng.uniform(-.08, .08)
+        offset = (bias if scan >= 30 else 0.) + jitter
+        points = _sample(truth, box, 600, sensor, seed=scan, noise=.01)
+        biased.add("car", (points + (offset, 0., 0.)) / box, box, scan, sensor_origin_object=sensor - (offset, 0, 0))
+        steady.add("car", (points + (jitter, 0., 0.)) / box, box, scan, sensor_origin_object=sensor - (jitter, 0, 0))
+        clean.add("car", points / box, box, scan, sensor_origin_object=sensor)
+    assert biased.relocks("car") == 1 and steady.relocks("car") == 0  # box jitter alone never relocks
+    assert _end_slab(biased, "car", box, -1) < _end_slab(clean, "car", box, -1) + .05
+    # The fit's rear end follows the current box.
+    points, weights = biased.points("car")
+    fit = VehicleShapeFitter().fit(points * box, box, weights=weights, sensor_origin=sensor)
+    tail = lambda shape: UniversalBodyProfile.rings(shape.array, box, shape.prior)[0][0, 0]
+    assert fit.accepted and tail(fit.params) == pytest.approx(tail(truth) + bias, abs=.1)
+
+
+def test_unlocked_scans_stay_raw_up_to_the_buffer_limit():
+    truth, box = _truth("sedan")
+    sensor = np.array([-12., 2., 1.9 - box[2] / 2])
+    accumulator = ObjectPointAccumulator(buffer_scans=2, max_buffer_scans=4)
+    for scan in range(12):
+        accumulator.add("car", _sample(truth, box, 600, sensor, seed=scan, noise=.01) / box, box, scan,
+                        sensor_origin_object=sensor)
+        locked = scan + 1 >= EndFaceRegistration().window
+        # Raw until the rear reference locks (at most max_buffer_scans), then buffer_scans.
+        assert len(accumulator.shifts("car")) == (min(scan + 1, 2) if locked else min(scan + 1, 4))
+    points, _ = accumulator.points("car")
+    assert len(points) == accumulator.evidence("car") > 100  # evicted scans stay merged
+
+
 def test_end_face_registration_gates_unobserved_or_implausible_faces():
     registration = EndFaceRegistration()
     box = np.array([4.8, 2.1, 1.8])
@@ -206,6 +245,26 @@ def test_rise_from_the_visible_end_tells_trunks_and_beds_from_tailgates(body_typ
     assert rises["crossover"] < rises["sedan"] - .4 and rises["sedan"] < rises["pickup"] - .2
     assert profile.nats(fitter._type_rise(body_type, box, profile)) < 1.
     assert not TopProfile(_local(points, box), box, 0).valid  # no visible end, no feature
+
+
+@pytest.mark.parametrize("per_bin", [4, 5])
+def test_far_rise_bins_need_more_returns(per_bin):
+    box = np.array([4.8, 1.9, 1.5])
+    x = np.repeat(np.arange(-2.35, 2.3, .25), per_bin)  # one 0.25 m bin per station, per_bin returns each
+    top = np.where(x < -1.4, .62, .93) * box[2]  # a trunk, then the roof
+    local = np.column_stack([x, np.full(len(x), .5), top])
+    near, far = (TopProfile(local, box, -1, (distance, 0., 0.)) for distance in (-10., -20.))
+    assert near.valid and near.rise_x_m == pytest.approx(1., abs=.25)
+    assert far.valid == (per_bin >= 5)  # beyond far_m a top needs far_min_points returns
+
+
+def test_group_percentile_matches_numpy():
+    rng = np.random.default_rng(0)
+    groups = np.r_[np.arange(30), rng.integers(0, 30, 300)]  # every group, some with a single value
+    values = rng.normal(size=len(groups))
+    for q in (5, 50, 95):
+        expected = [np.percentile(values[groups == group], q) for group in range(30)]
+        np.testing.assert_allclose(_group_percentile(groups, values, q), expected)
 
 
 def test_rise_is_unknown_without_upper_body_returns():
@@ -273,6 +332,15 @@ def test_type_posterior_lets_a_tentative_type_follow_the_evidence_but_not_when_s
     assert posterior.sweeps == 0 and not posterior.log_posterior
     assert posterior.update(_sweep({"minivan": 5., "pickup": 0.}, 400)).params.body_type == "pickup"
     assert not posterior.confident or posterior.sweeps >= 2
+
+
+def test_rejected_sweeps_do_not_vote():
+    posterior = TypePosterior()
+    rejected = replace(_sweep({"sedan": 0., "hatchback": 6.}, 300), accepted=False)
+    posterior.update(rejected)
+    assert posterior.sweeps == 0 and not posterior.log_posterior
+    posterior.update(_sweep({"sedan": 0., "hatchback": 6.}, 300))
+    assert posterior.sweeps == 1
 
 
 def test_screened_out_types_lose_posterior_mass():

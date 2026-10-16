@@ -51,9 +51,18 @@ class VehicleAppearanceConfig:
     unfreeze_dimension_change: float = .1
     unfreeze_new_cells: int = 2  # ... or when a scan covers this many new coarse surface cells
     publish_prior_shape: bool = False  # dimension-prior type mean until the first accepted fit
-    # Below this many evidence voxels, or after a rejected fit, no shape is published (legacy primitive):
+    # Below this many evidence voxels, or after rejected fits, no shape is published (legacy primitive):
     # weak or inconsistent fits and type means render worse than the legacy primitive at range.
     min_publish_evidence: int = 100
+    unpublish_after_rejections: int = 2  # consecutive rejected fits that unpublish a shape
+    # Tracks are fit only from this fraction of min_publish_evidence accumulated voxels unless published
+    # (accumulator voxels are finer: about 1.3 per fit evidence voxel, so 1.0 is close to publishing).
+    min_fit_evidence_fraction: float = 1.
+    # Neither shape nor color is published beyond this horizontal range from the LiDAR (m), and once
+    # published not beyond it plus the hysteresis: far returns are too sparse for body type and paint.
+    max_publish_range_m: float = 25.
+    publish_range_hysteresis_m: float = 5.
+    fit_out_of_range: bool = False  # out-of-range tracks still accumulate; True also fits them (lowest priority)
 
     def __post_init__(self) -> None:
         if (self.crop_margin_m < 0 or self.neighbor_margin_m < 0 or self.max_crop_points < 1
@@ -61,8 +70,39 @@ class VehicleAppearanceConfig:
                 or self.fit_budget_ms < 0 or self.sweep_every_refits < 1
                 or self.max_color_tracks_per_update < 0 or self.min_param_change < 0
                 or self.freeze_after_stable_fits < 1 or self.unfreeze_dimension_change <= 0
-                or self.unfreeze_new_cells < 1 or self.min_publish_evidence < 0):
+                or self.unfreeze_new_cells < 1 or self.min_publish_evidence < 0
+                or self.unpublish_after_rejections < 1 or not 0 <= self.min_fit_evidence_fraction <= 1
+                or not self.max_publish_range_m > 0 or not self.publish_range_hysteresis_m >= 0):
             raise ValueError("invalid vehicle appearance configuration")
+
+
+class RangeGate:
+    """Per-track publication range gate with hysteresis (horizontal range from the ego LiDAR, m).
+
+    A track opens within ``max_range_m`` and closes again only beyond ``max_range_m + hysteresis_m``,
+    so a car hovering at the limit does not flicker between its hints and the default asset.
+    """
+
+    def __init__(self, max_range_m: float, hysteresis_m: float = 0.) -> None:
+        if not max_range_m > 0 or not hysteresis_m >= 0:
+            raise ValueError("invalid range gate")
+        self.max_range_m, self.hysteresis_m = float(max_range_m), float(hysteresis_m)
+        self._open: set[str] = set()
+
+    def update(self, track_id: str, range_m: float) -> bool:
+        """Fold in the track's current range; True while it may publish."""
+        limit = self.max_range_m + (self.hysteresis_m if track_id in self._open else 0.)
+        if range_m <= limit:
+            self._open.add(track_id)
+        else:
+            self._open.discard(track_id)
+        return track_id in self._open
+
+    def allows(self, track_id: str) -> bool:
+        return track_id in self._open
+
+    def drop(self, track_id: str) -> None:
+        self._open.discard(track_id)
 
 
 @dataclass(frozen=True)
@@ -86,6 +126,8 @@ class _ShapeTrack:
     fits: int = 0
     fitting: bool = False
     published: UniversalVehicleShape | None = None
+    rejections: int = 0  # consecutive rejected fits
+    relocks: int = 0  # accumulator restarts seen (ObjectPointAccumulator.relocks)
     stable_fits: int = 0
     frozen_dimensions: np.ndarray | None = None
     coverage: np.ndarray | None = None  # coarse surface cells covered by the frozen fit's evidence
@@ -179,13 +221,21 @@ class VehicleAppearanceEstimator:
 
     Only detections matched to confirmed tracks feed evidence, cropped with the
     corrected track pose at the scan timestamp; coasted tracks contribute
-    nothing. Shapes are refit round-robin (oldest fit first), at most
-    ``max_fits_per_update`` per update within ``fit_budget_ms``, published only
+    nothing. Nothing is published for a track beyond ``max_publish_range_m``
+    (RangeGate, with ``publish_range_hysteresis_m``): it renders the default
+    asset. Out-of-range tracks keep accumulating but are fit only with
+    ``fit_out_of_range``, after in-range tracks. At most ``max_fits_per_update``
+    fits start per update within ``fit_budget_ms``: in-range unpublished tracks
+    first (most evidence first), then the oldest fit; a track below
+    ``min_fit_evidence_fraction`` x ``min_publish_evidence`` voxels is not fit
+    unless published. Shapes are published only
     on a meaningful change, and frozen after ``freeze_after_stable_fits``
     agreeing refits once the track's TypePosterior is confident, until the tracked dimensions move by
     ``unfreeze_dimension_change`` or a scan covers ``unfreeze_new_cells`` coarse
-    surface cells the frozen evidence did not. A fit is published only from
-    ``min_publish_evidence`` voxels on and a rejected fit unpublishes the shape, so
+    surface cells the frozen evidence did not (frozen tracks keep accumulating, so
+    a box-bias change still restarts their registration and unfreezes them). A fit
+    is published only from ``min_publish_evidence`` voxels on and
+    ``unpublish_after_rejections`` consecutive rejected fits unpublish the shape, so
     weak or inconsistent evidence renders the legacy primitive; optionally the
     dimension-prior type mean is published until the first accepted fit
     (``publish_prior_shape``). Refits try
@@ -208,6 +258,7 @@ class VehicleAppearanceEstimator:
         self._filters: dict[str, str] = {}  # published track id -> tracker filter id
         self._shapes: dict[str, _ShapeTrack] = {}
         self._color_ticks: dict[str, int] = {}
+        self.range_gate = RangeGate(self.config.max_publish_range_m, self.config.publish_range_hysteresis_m)
         self._generations = itertools.count()
         self._worker = ShapeFitWorker(self.fitter) if self.config.fit_in_background else None
         self._tick = 0
@@ -242,11 +293,17 @@ class VehicleAppearanceEstimator:
             return
         neighbors = [(lidar_T_world @ np.asarray(track.world_T_object, dtype=np.float64),
                       np.asarray(track.dimensions_lwh, dtype=np.float64), track.track_id) for track in live_tracks]
-        color_ids = self._color_round_robin(candidates, camera)
+        poses = {match.track.track_id: lidar_T_world @ np.asarray(match.track.world_T_object, dtype=np.float64)
+                 for match in candidates}
+        for track_id, lidar_T_object in poses.items():
+            self.range_gate.update(track_id, float(np.hypot(*lidar_T_object[:2, 3])))
+        # Far paint samples are few and mixed with background: out-of-range tracks are not colored.
+        color_ids = self._color_round_robin([match for match in candidates
+                                             if self.range_gate.allows(match.track.track_id)], camera)
         frame = _CameraFrame(camera, xyz, live_tracks, lidar_T_world) if color_ids else None
         for match in candidates:
             track = match.track
-            lidar_T_object = lidar_T_world @ np.asarray(track.world_T_object, dtype=np.float64)
+            lidar_T_object = poses[track.track_id]
             dimensions = np.asarray(track.dimensions_lwh, dtype=np.float64)
             points = self._crop(xyz, grid, lidar_T_object, dimensions, track.track_id, neighbors)
             if self.config.shape and vehicle_proxy_kind(track.label) == "car":
@@ -256,16 +313,22 @@ class VehicleAppearanceEstimator:
                 assert frame is not None
                 self._color_ticks[track.track_id] = self._tick
                 camera_T_object = frame.camera_T_lidar @ lidar_T_object
+                state = self._shapes.get(track.track_id)  # cars: sample the shape's visible body panels
+                paint_shape = None if vehicle_proxy_kind(track.label) != "car" else (
+                    state.published if state is not None and state.published is not None
+                    else self.fitter.prior_shape(dimensions))
                 self.color_estimator.observe(
                     track.track_id, frame.image_bgr, frame.intrinsic, camera_T_object, points, dimensions,
                     occluder_xyxy=frame.nearer_xyxy(camera_T_object[2, 3], track.track_id),
-                    depth_buffer=frame.depth_buffer)
+                    depth_buffer=frame.depth_buffer, shape=paint_shape)
         self._refit_round_robin()
         self.last_update_ms = (time.perf_counter() - started) * 1e3
 
     def prompt_fields(self, track_id: str) -> dict[str, Any]:
-        """BoxPrompt keyword hints for ``track_id``; empty when nothing is published."""
+        """BoxPrompt keyword hints for ``track_id``; empty when nothing is published or out of range."""
         fields: dict[str, Any] = {}
+        if not self.range_gate.allows(track_id):
+            return fields
         shape = self._shapes.get(track_id)
         if shape is not None and shape.published is not None:
             fields["vehicle_shape"] = shape.published.to_vector()
@@ -273,6 +336,8 @@ class VehicleAppearanceEstimator:
         if color is not None:
             fields["body_color_rgb"] = color.rgb
             fields["color_confidence"] = color.confidence
+            if color.road_rgb is not None:
+                fields["road_rgb"] = color.road_rgb
         return fields
 
     def close(self) -> None:
@@ -284,6 +349,7 @@ class VehicleAppearanceEstimator:
         self._filters.pop(track_id, None)
         self._shapes.pop(track_id, None)
         self._color_ticks.pop(track_id, None)
+        self.range_gate.drop(track_id)
         self.accumulator.drop(track_id)
         self.color_estimator.drop(track_id)
 
@@ -330,28 +396,37 @@ class VehicleAppearanceEstimator:
         if state is None:
             state = self._shapes[track_id] = _ShapeTrack(dimensions, next(self._generations))
         state.dimensions = dimensions
+        evidence = self.accumulator.add(track_id, points / dimensions, dimensions, timestamp_us, sensor_origin)
+        relocks = self.accumulator.relocks(track_id)
+        if relocks != state.relocks:  # the box bias moved: the accumulation restarted in the current frame
+            state.relocks, state.fit_evidence, state.frozen_dimensions, state.stable_fits = relocks, 0, None, 0
         if state.frozen_dimensions is not None:
             new_cells = _coverage(points / dimensions, minimum_points=5) & ~state.coverage
             if (np.max(np.abs(dimensions / state.frozen_dimensions - 1)) <= self.config.unfreeze_dimension_change
                     and new_cells.sum() < self.config.unfreeze_new_cells):
                 return
             state.frozen_dimensions, state.stable_fits = None, 0
-        if self.accumulator.add(track_id, points / dimensions, dimensions, timestamp_us, sensor_origin) \
-                and state.fitted is None and self.config.publish_prior_shape:
+        if evidence and state.fitted is None and self.config.publish_prior_shape:
             state.published = self.fitter.prior_shape(dimensions)  # LiDAR-supported track, no fit yet
         state.scans_since_fit += 1
 
     def _refit_round_robin(self) -> None:
         config = self.config
+        min_evidence = max(self.fitter.min_evidence_voxels, config.min_fit_evidence_fraction * config.min_publish_evidence)
         due = []
         for track_id, state in self._shapes.items():
             evidence = self.accumulator.evidence(track_id)
+            in_range = self.range_gate.allows(track_id)
             if state.frozen_dimensions is not None or state.fitting or evidence < self.fitter.min_evidence_voxels \
-                    or state.scans_since_fit == 0:
+                    or state.scans_since_fit == 0 or (not in_range and not config.fit_out_of_range) \
+                    or (state.published is None and evidence < min_evidence):
                 continue
             if evidence >= state.fit_evidence * (1 + config.refit_growth) \
                     or state.scans_since_fit >= config.refit_every_scans:
-                due.append((state.last_fit_tick, track_id))
+                # In-range tracks waiting for a first shape (most evidence first), then the oldest fit.
+                waiting = in_range and state.published is None
+                group = 0 if waiting else 1 if in_range else 2
+                due.append(((group, -evidence if waiting else 0, state.last_fit_tick), track_id))
         started = time.perf_counter()
         for _, track_id in sorted(due)[:config.max_fits_per_update]:
             if (time.perf_counter() - started) * 1e3 >= config.fit_budget_ms:
@@ -380,8 +455,11 @@ class VehicleAppearanceEstimator:
         if not fit.accepted:
             state.fit_cost, state.stable_fits = None, 0
             if np.isfinite(fit.cost) and self.config.min_publish_evidence:
-                state.published = None  # rejected (inconsistent) fit: legacy primitive
+                state.rejections += 1
+                if state.rejections >= self.config.unpublish_after_rejections:
+                    state.published = None  # consistently rejected (inconsistent) fits: legacy primitive
             return
+        state.rejections = 0
         state.fitted, state.fit_cost = fit.params, fit.robust_cost
         if fit.evidence_voxels < self.config.min_publish_evidence:
             state.published, state.stable_fits = None, 0  # weak evidence: legacy primitive

@@ -112,6 +112,7 @@ class _TrackVoxels:
     last_timestamp_us: int
     registration: EndFaceRegistration
     sensor_origin_m: np.ndarray | None = None
+    relocks: int = 0  # restarts after a lasting box-bias change (EndFaceRegistration.observe)
 
     @property
     def keys(self) -> np.ndarray:
@@ -131,17 +132,25 @@ class EndFaceRegistration:
     (a reference that kept following the box would leave older scans behind
     when the box bias changes) and a stationary car does not drift. A scan with
     fewer than ``min_points`` face returns or a correction beyond
-    ``max_shift_m`` is left unshifted.
+    ``max_shift_m`` is left unshifted. After the lock, ``observe`` reports a
+    lasting box-bias change (the median of the last ``window`` faces off the
+    reference by more than ``relock_m``, or the correction gated by
+    ``max_shift_m``, on ``relock_scans`` consecutive faces); the owner then
+    restarts the track in a new frame.
     """
 
     def __init__(self, *, min_points: int = 12, max_shift_m: float = .5, band=(.25, .6), half_width: float = .4,
-                 depth_m: float = .9, window: int = 10, percentile: float = 10.) -> None:
-        if min_points < 1 or max_shift_m < 0 or depth_m <= 0 or window < 1:
+                 depth_m: float = .9, window: int = 10, percentile: float = 10., relock_m: float = .15,
+                 relock_scans: int = 10) -> None:
+        if min_points < 1 or max_shift_m < 0 or depth_m <= 0 or window < 1 or relock_m <= 0 or relock_scans < 1:
             raise ValueError("invalid end-face registration parameters")
         self.min_points, self.max_shift_m, self.band, self.half_width = min_points, max_shift_m, band, half_width
         self.depth_m, self.window, self.percentile = depth_m, window, percentile
+        self.relock_m, self.relock_scans = relock_m, relock_scans
         self._faces: dict[int, list[float]] = {}
         self._reference: dict[int, float] = {}
+        self._recent: dict[int, list[float]] = {}  # faces after the lock, newest last
+        self._drift: dict[int, int] = {}  # consecutive post-lock faces off (or gated from) the reference
 
     @staticmethod
     def visible_end(sensor_origin_m, dimensions) -> int:
@@ -163,13 +172,25 @@ class EndFaceRegistration:
             return None
         return float(np.percentile(points_m[band, 0], 50 + end * (50 - self.percentile)))
 
-    def observe(self, face_m: float | None, end: int) -> None:
-        """Add a face position to the reference of ``end`` (until it is locked)."""
-        if face_m is None or self.locked(end):
-            return
-        faces = self._faces.setdefault(end, [])
-        faces.append(face_m)
-        self._reference[end] = float(np.median(faces))
+    def observe(self, face_m: float | None, end: int) -> bool:
+        """Add a face position to the reference of ``end`` (until it is locked).
+
+        Returns True once a locked reference no longer matches the box (see the class doc)."""
+        if face_m is None:
+            return False
+        if not self.locked(end):
+            faces = self._faces.setdefault(end, [])
+            faces.append(face_m)
+            self._reference[end] = float(np.median(faces))
+            return False
+        recent = self._recent.setdefault(end, [])
+        recent.append(face_m)
+        del recent[:-self.window]
+        reference = self._reference[end]
+        drifted = abs(reference - face_m) > self.max_shift_m or (
+            len(recent) == self.window and abs(float(np.median(recent)) - reference) > self.relock_m)
+        self._drift[end] = self._drift.get(end, 0) + 1 if drifted else 0
+        return self._drift[end] >= self.relock_scans
 
     def locked(self, end: int) -> bool:
         """True once ``end``'s reference is final (``window`` faces observed)."""
@@ -196,7 +217,9 @@ class ObjectPointAccumulator:
     (re-voxelized when the reference moves by more than ``rebuild_m``) until
     their end's reference is locked, and at most ``buffer_scans`` scans are kept
     raw once it is (``max_buffer_scans`` while it is not), so the merged voxels
-    stay in one registration frame.
+    stay in one registration frame. When the registration reports a lasting
+    box-bias change, the track's voxels and registration restart from that scan
+    (``relocks``): voxels from the old frame would render as a slab or an offset end.
     """
 
     def __init__(self, *, voxel_m: float = .08, max_voxels: int = 4000, max_hits: int = 3,
@@ -232,7 +255,12 @@ class ObjectPointAccumulator:
         if sensor_origin_object is not None:
             state.sensor_origin_m = np.asarray(sensor_origin_object, dtype=float).reshape(3)
         face = registration.face(points, dimensions, end)
-        registration.observe(face, end)
+        if registration.observe(face, end):  # the box bias moved for good: restart in the current frame
+            state = self._tracks[track_id] = _TrackVoxels(_Voxels.empty(), _Voxels.empty(), [], timestamp_us,
+                                                          EndFaceRegistration(), state.sensor_origin_m,
+                                                          state.relocks + 1)
+            registration = state.registration
+            registration.observe(face, end)
         scan = _Scan(points, dimensions, face, end)
         state.scans.append(scan)
         rebuild = False
@@ -295,6 +323,11 @@ class ObjectPointAccumulator:
     def evidence(self, track_id: str) -> int:
         state = self._tracks.get(track_id)
         return 0 if state is None else len(state.keys)
+
+    def relocks(self, track_id: str) -> int:
+        """How often the track restarted after a lasting box-bias change."""
+        state = self._tracks.get(track_id)
+        return 0 if state is None else state.relocks
 
     def drop(self, track_id: str) -> None:
         self._tracks.pop(track_id, None)
@@ -381,12 +414,14 @@ class TypePosterior:
         return self.sweeps >= self.min_sweeps and self.probability >= self.confidence
 
     def update(self, fit: VehicleShapeFit) -> VehicleShapeFit:
-        """Fold one fit in and return it re-targeted to the decided type (when that type was refined)."""
+        """Fold one fit in and return it re-targeted to the decided type (when that type was refined).
+
+        A rejected sweep (its best type does not explain the points) does not vote."""
         if not fit.accepted and not fit.candidates:
             return fit
         if self.incumbent is None:
             self.incumbent = fit.box_type if fit.box_type in fit.candidates else fit.params.body_type
-        if len(fit.type_nats) > 1 and self._observable(fit) and self._informative(fit):
+        if fit.accepted and len(fit.type_nats) > 1 and self._observable(fit) and self._informative(fit):
             self.sweeps += 1
             worst = max(fit.type_nats.values())
             for body_type in set(self.log_posterior) | set(fit.type_nats):

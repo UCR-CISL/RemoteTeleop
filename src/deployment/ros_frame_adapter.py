@@ -1506,16 +1506,19 @@ def _create_ros_node(
     return PoseAdapterNode()
 
 
-def _vehicle_appearance(*, shape: bool, color: bool, background: bool = True) -> VehicleAppearanceEstimator | None:
+def _vehicle_appearance(*, shape: bool, color: bool, background: bool = True,
+                        **config: Any) -> VehicleAppearanceEstimator | None:
     """Build the optional shape/color hint estimator only when a feature is enabled.
 
     ``background`` moves shape fits off the publishing thread; deterministic
-    offline replay keeps them synchronous.
+    offline replay keeps them synchronous. ``config`` holds further
+    VehicleAppearanceConfig fields (fit budget, publication range and evidence).
     """
     if not (shape or color):
         return None
     from src.deployment.vehicle_appearance import VehicleAppearanceConfig, VehicleAppearanceEstimator
-    return VehicleAppearanceEstimator(VehicleAppearanceConfig(shape=shape, color=color, fit_in_background=background))
+    return VehicleAppearanceEstimator(VehicleAppearanceConfig(shape=shape, color=color, fit_in_background=background,
+                                                              **config))
 
 
 def _open_bevfusion_client(endpoint: str | None) -> BevFusionClient:
@@ -1567,6 +1570,13 @@ def main() -> None:
     parser.add_argument("--vehicle-color", action=argparse.BooleanOptionalAction, default=False,
                         help="Estimate per-track paint color from LiDAR-supported image samples "
                         "(BEVFusion only; default: off)")
+    parser.add_argument("--vehicle-shape-max-fits-per-update", type=int, default=2,
+                        help="Shape fits started per BEVFusion result (~10 ms incumbent refit, ~60 ms type sweep, "
+                        "on a background thread); lower it if the vehicle CPU is saturated, 0 stops fitting")
+    parser.add_argument("--vehicle-appearance-max-range-m", type=float, default=25.0,
+                        help="Publish no shape/color hints beyond this LiDAR range (m; +5 m once published)")
+    parser.add_argument("--vehicle-shape-min-publish-evidence", type=int, default=100,
+                        help="Accumulated evidence voxels a shape fit needs before it is published")
     parser.add_argument("--bevfusion-tracks-path", type=Path,
                         help="Optional JSONL of all live tracker boxes per published frame (offline evaluation)")
     parser.add_argument("--frames-endpoint", default="tcp://0.0.0.0:5555")
@@ -1638,6 +1648,12 @@ def main() -> None:
         parser.error("--bbox-source bevfusion requires --bevfusion-endpoint")
     if (args.vehicle_shape_fit or args.vehicle_color) and args.bbox_source != "bevfusion":
         parser.error("--vehicle-shape-fit/--vehicle-color require --bbox-source bevfusion")
+    if args.vehicle_shape_max_fits_per_update < 0:
+        parser.error("--vehicle-shape-max-fits-per-update must be non-negative")
+    if not np.isfinite(args.vehicle_appearance_max_range_m) or args.vehicle_appearance_max_range_m <= 0:
+        parser.error("--vehicle-appearance-max-range-m must be finite and positive")
+    if args.vehicle_shape_min_publish_evidence < 0:
+        parser.error("--vehicle-shape-min-publish-evidence must be non-negative")
 
     if args.mcap is not None:
         # A detached background shell may pass SIGINT as ignored. Restore it
@@ -1689,7 +1705,10 @@ def main() -> None:
             track_log=None if args.bevfusion_tracks_path is None else JsonlMetrics(args.bevfusion_tracks_path),
             ground_snapper=LidarGroundSnapper() if args.bevfusion_lidar_ground_snap else None,
             appearance=_vehicle_appearance(shape=args.vehicle_shape_fit, color=args.vehicle_color,
-                                           background=not args.mcap_await_detections),
+                                           background=not args.mcap_await_detections,
+                                           max_fits_per_update=args.vehicle_shape_max_fits_per_update,
+                                           max_publish_range_m=args.vehicle_appearance_max_range_m,
+                                           min_publish_evidence=args.vehicle_shape_min_publish_evidence),
         )
     localization_metrics = None
     localization_reference = None
