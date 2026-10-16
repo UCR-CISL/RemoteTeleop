@@ -494,18 +494,7 @@ class UniversalVehicleMesh:
         ``body_rgb`` (0-1 sRGB) repaints body panels with the legacy paint lift.
         """
         dimensions = np.asarray(dimensions_lwh, dtype=float)
-        if dimensions.shape != (3,) or not np.isfinite(dimensions).all() or np.any(dimensions <= 0):
-            raise ValueError("Vehicle dimensions must be three finite positive LWH values")
-        prior = shape.prior
-        theta = shape.array
-        stations, rings, greenhouse = UniversalBodyProfile.rings(theta, dimensions, prior)
-        stations, rings, greenhouse = stations[0], rings[0], greenhouse[0]
-        body = self._body_corners(stations, rings)
-        body_materials = self._body_materials(shape, rings, greenhouse, dimensions)
-        lights, light_materials = self._light_quads(prior, stations, rings)
-        wheels, wheel_materials = self._wheels(shape, stations, rings, dimensions)
-        triangles = np.concatenate([body, lights, wheels])
-        materials = np.concatenate([body_materials, light_materials, wheel_materials])
+        triangles, materials = self._floor_surface(shape, dimensions)
         normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
         normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
         shade = .78 + .22 * np.maximum(normals @ _LIGHT, 0.)
@@ -518,6 +507,26 @@ class UniversalVehicleMesh:
         vertices = triangles.reshape(-1, 3)
         vertices[:, 2] -= dimensions[2] / 2
         return vertices, np.repeat(colors.astype(np.uint8), 3, axis=0)
+
+    def surface(self, shape: UniversalVehicleShape, dimensions_lwh) -> tuple[np.ndarray, np.ndarray]:
+        """Metric (F, 3, 3) triangles centered on the box and their (F,) material ids (``BODY`` ...)."""
+        triangles, materials = self._floor_surface(shape, np.asarray(dimensions_lwh, dtype=float))
+        triangles[..., 2] -= float(dimensions_lwh[2]) / 2
+        return triangles, materials
+
+    def _floor_surface(self, shape: UniversalVehicleShape, dimensions: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Triangles with Z above the box floor, and material ids."""
+        if dimensions.shape != (3,) or not np.isfinite(dimensions).all() or np.any(dimensions <= 0):
+            raise ValueError("Vehicle dimensions must be three finite positive LWH values")
+        prior = shape.prior
+        stations, rings, greenhouse = UniversalBodyProfile.rings(shape.array, dimensions, prior)
+        stations, rings, greenhouse = stations[0], rings[0], greenhouse[0]
+        body = self._body_corners(stations, rings)
+        body_materials = self._body_materials(shape, rings, greenhouse, dimensions)
+        lights, light_materials = self._light_quads(prior, stations, rings)
+        wheels, wheel_materials = self._wheels(shape, stations, rings, dimensions)
+        return (np.concatenate([body, lights, wheels]),
+                np.concatenate([body_materials, light_materials, wheel_materials]))
 
     def _body_materials(self, shape, rings, greenhouse, dimensions) -> np.ndarray:
         """Semantic face regions: windows by span role and ring edge, bed liner, underbody."""

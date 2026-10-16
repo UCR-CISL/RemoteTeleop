@@ -130,8 +130,11 @@ def test_box_prompt_appearance_hints_round_trip_without_changing_legacy_hash():
     shape_only = BoxPrompt(**{**legacy_box_dict, "vehicle_shape": (1.0,)})
     assert "body_color_rgb" not in shape_only.to_dict()
     assert "color_confidence" not in shape_only.to_dict()
+    assert "road_rgb" not in hinted_box.to_dict()
+    exposed = BoxPrompt(**{**hinted_box.to_dict(), "road_rgb": [0.2, 0.15, 0.1]})
+    assert exposed.road_rgb == (0.2, 0.15, 0.1) and exposed.to_dict()["road_rgb"] == (0.2, 0.15, 0.1)
     codec = ProtocolCodec()
-    for box in (hinted_box, shape_only):
+    for box in (hinted_box, shape_only, exposed):
         assert BoxPrompt.from_dict(json.loads(json.dumps(box.to_dict()))) == box
         for message in (
             FrameSnapshot(0, 0, "scene", "frame-0", IDENTITY_4, boxes=(box,)),
@@ -155,6 +158,10 @@ def test_box_prompt_appearance_hints_round_trip_without_changing_legacy_hash():
         ({"body_color_rgb": (0.1, 0.2, 1.5)}, "body_color_rgb"),
         ({"body_color_rgb": (0.1, 0.2, 0.3), "color_confidence": -0.1}, "color_confidence"),
         ({"color_confidence": 0.5}, "color_confidence"),
+        ({"body_color_rgb": (0.1, 0.2, 0.3), "road_rgb": (0.1, 0.2)}, "road_rgb"),
+        ({"body_color_rgb": (0.1, 0.2, 0.3), "road_rgb": (0.1, -0.2, 0.3)}, "road_rgb"),
+        ({"body_color_rgb": (0.1, 0.2, 0.3), "road_rgb": "abc"}, "road_rgb"),
+        ({"road_rgb": (0.1, 0.2, 0.3)}, "road_rgb"),
     ],
 )
 def test_box_prompt_rejects_invalid_appearance_hints(hints, error):

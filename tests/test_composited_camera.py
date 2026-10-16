@@ -676,6 +676,54 @@ def test_vehicle_proxy_receives_decoded_shape_and_body_color_hints(monkeypatch):
     assert result.track_states == {"car": "mesh"}
 
 
+class GrayGaussianRenderer(FakeGaussianRenderer):
+    def render(self, pose, intrinsic, image_size):
+        buffers = super().render(pose, intrinsic, image_size)
+        return GaussianRenderBuffers(np.full_like(buffers.rgb, 0.5), buffers.depth, buffers.alpha)
+
+
+def test_road_hint_matches_paint_exposure_to_the_splat_road():
+    from dataclasses import replace
+
+    from src.viz.composited_camera import ProxyPaintExposure, _srgb_to_linear
+
+    renderer = FakeMeshRenderer()
+    proxies = AppearanceVehicleProxies(renderer)
+    intrinsic = np.array([[20.0, 0.0, 16.0], [0.0, 20.0, 12.0], [0.0, 0.0, 1.0]])
+    backend = PoseOnlyCompositedCameraBackend(
+        GrayGaussianRenderer(), RemoteCameraConfig(np.eye(4), intrinsic, (32, 24)), renderer,
+        vehicle_proxies=proxies,
+    )
+    paint = (0.3, 0.15, 0.1)
+    car = replace(_box(), text_label="car", body_color_rgb=paint, color_confidence=0.9)
+    backend.render_pose(_pose(), (car,))
+    assert proxies.appearance == {"body_color_rgb": paint}  # no road hint: paint untouched
+
+    # Camera road at 0.25: the splat road (0.5) is ~4.5x brighter in linear luminance.
+    backend.render_pose(_pose(1, 1), (replace(car, road_rgb=(0.25, 0.25, 0.25)),))
+    matched = np.asarray(proxies.appearance["body_color_rgb"])
+    gain = (_srgb_to_linear(0.5) / _srgb_to_linear(0.25))
+    np.testing.assert_allclose(_srgb_to_linear(matched), _srgb_to_linear(paint) * gain, rtol=1e-6)
+
+    exposure = ProxyPaintExposure()
+    assert exposure.gain((0.01, 0.01, 0.01), (0.9, 0.9, 0.9)) == exposure.gain_range[1]  # clamped
+    white = exposure.scaled((0.9, 0.6, 0.3), 8.0)
+    assert max(white) == pytest.approx(1.0) and white[0] > white[1] > white[2]  # scaled down, hue kept
+    lightness = lambda rgb: float(cv2.cvtColor(np.float32([[rgb]]), cv2.COLOR_RGB2Lab)[0, 0, 0])
+    assert lightness(exposure.scaled((0.6, 0.6, 0.6), 8.0, 90.0)) == pytest.approx(90.0, abs=0.5)  # silver stays
+    assert exposure.scaled((0.95, 0.95, 0.95), 8.0, 90.0) == pytest.approx((0.95, 0.95, 0.95))  # not darkened
+    clipped = replace(car, body_color_rgb=(1.0, 1.0, 0.97), road_rgb=(0.9, 0.9, 0.9))
+    backend.render_pose(_pose(2, 2), (clipped,))  # camera road brighter than the splat's, but paint clipped
+    assert proxies.appearance["body_color_rgb"] == pytest.approx((1.0, 1.0, 0.97))
+    # A ring hidden behind a much nearer splat surface (a pole, a parked car) is not road.
+    near = GrayGaussianRenderer(depth=1.0).render(None, intrinsic, (32, 24))
+    assert exposure.splat_road_rgb(near, _matrix(car), car.dimensions_lwh, np.eye(4), intrinsic) is None
+
+
+def _matrix(box):
+    return np.asarray(box.world_T_object, dtype=float).reshape(4, 4)
+
+
 def test_with_vertex_colors_returns_recolored_mesh_without_mutating_template():
     torch = pytest.importorskip("torch")
     pytest.importorskip("pytorch3d")

@@ -187,6 +187,7 @@ class PoseOnlyCompositedCameraBackend:
         new_tracks: NewTrackHighlighter | None = None,
         track_id_labels: bool = False,
         proxy_occlusion_depth: str = "occluder",
+        paint_exposure: "ProxyPaintExposure | None" = None,
     ) -> None:
         if proxy_thickness <= 0:
             raise ValueError("proxy_thickness must be positive")
@@ -213,6 +214,8 @@ class PoseOnlyCompositedCameraBackend:
         self._assets: dict[str, _MeshAsset] = {}
         self._mesh_statuses: list[MeshAssetStatus] = []
         self._vehicle_proxies = vehicle_proxies
+        # Hinted paint is matched to the splat's exposure (needs BoxPrompt.road_rgb).
+        self._paint_exposure = ProxyPaintExposure() if paint_exposure is None else paint_exposure
 
     def handle_asset_event(self, event: AssetEvent) -> None:
         """Load a verified local mesh once; failures deliberately retain bboxes."""
@@ -310,7 +313,10 @@ class PoseOnlyCompositedCameraBackend:
                     kind, box.dimensions_lwh,
                     placed_pose,
                     world_T_camera, self.camera.camera_intrinsic, self.camera.image_size,
-                    **_proxy_appearance(box),
+                    **self._paint_exposure.apply(
+                        _proxy_appearance(box), box, background, placed_pose, world_T_camera,
+                        self.camera.camera_intrinsic,
+                    ),
                 )
                 if highlight:
                     overlay = self._new_tracks.tint(overlay)
@@ -1082,6 +1088,88 @@ def _draw_track_label(rgb, box, placed_pose, world_T_camera, intrinsic, color) -
     x, y = int(u - text_w / 2), int(v) - 6
     cv2.rectangle(rgb, (x - 2, y - text_h - 3), (x + text_w + 2, y + 3), tuple(float(c) for c in color), -1)
     cv2.putText(rgb, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (1.0, 1.0, 1.0), 1, cv2.LINE_AA)
+
+
+@dataclass(frozen=True)
+class ProxyPaintExposure:
+    """Match hinted paint to the splat's exposure through the road next to the vehicle.
+
+    The camera's paint and road ring (``BoxPrompt.road_rgb``) share one exposure, the splat map
+    another. The same floor ring around the placed box is read from the splat render (opaque pixels
+    not much nearer than the ring point: the box floor and the splat ground may disagree by tens of
+    cm, which moves grazing ground depth by metres) and the paint's linear RGB is scaled by
+    one clamped gain so paint/road luminance matches the camera's (hue kept; scaled down instead of
+    clipping a channel). Brightened paint stops at ``max_lightness`` (L*) unless it was brighter: the
+    splat's washed-out road would otherwise turn silver white. Near-clipped paint (white in the camera,
+    whose true ratio is unknown) is never darkened. Without ``road_rgb`` or enough visible ring pixels
+    the paint is unchanged.
+    """
+
+    ring_m: tuple[float, float] = (0.3, 1.5)  # as VehicleColorConfig.road_ring_m on the vehicle side
+    min_depth_ratio: float = 0.5  # nearer splat surfaces (poles, parked cars) are not road
+    min_alpha: float = 0.5
+    min_pixels: int = 20
+    gain_range: tuple[float, float] = (0.5, 8.0)
+    max_lightness: float = 90.0
+    clipped_value: float = 0.98  # paint channel at or above this was clipped by the camera
+
+    def apply(self, appearance: dict[str, object], box: BoxPrompt, background: GaussianRenderBuffers,
+              world_T_object: np.ndarray, world_T_camera: np.ndarray, intrinsic: np.ndarray) -> dict[str, object]:
+        """``appearance`` with ``body_color_rgb`` exposure-matched when the box carries ``road_rgb``."""
+        if box.road_rgb is None or "body_color_rgb" not in appearance:
+            return appearance
+        road = self.splat_road_rgb(background, world_T_object, box.dimensions_lwh, world_T_camera, intrinsic)
+        if road is None:
+            return appearance
+        paint = appearance["body_color_rgb"]
+        gain = self.gain(box.road_rgb, road)
+        if max(paint) >= self.clipped_value:
+            gain = max(gain, 1.0)
+        return {**appearance, "body_color_rgb": self.scaled(paint, gain, self.max_lightness)}
+
+    def splat_road_rgb(self, background: GaussianRenderBuffers, world_T_object: np.ndarray, dimensions_lwh,
+                       world_T_camera: np.ndarray, intrinsic: np.ndarray) -> np.ndarray | None:
+        """Median splat RGB of the visible floor ring around the box, or ``None``."""
+        length, width, height = (float(value) for value in dimensions_lwh)
+        near, far = self.ring_m
+        x, y = (grid.ravel() for grid in np.meshgrid(np.linspace(-length / 2 - far, length / 2 + far, 40),
+                                                     np.linspace(-width / 2 - far, width / 2 + far, 24)))
+        outside = np.maximum(np.abs(x) - length / 2, np.abs(y) - width / 2)
+        ring = (outside > near) & (outside < far)
+        local = np.column_stack([x[ring], y[ring], np.full(ring.sum(), -height / 2), np.ones(ring.sum())])
+        camera = (np.linalg.inv(world_T_camera) @ np.asarray(world_T_object, dtype=np.float64) @ local.T).T[:, :3]
+        camera = camera[camera[:, 2] > 0.1]
+        uv = np.rint((camera @ np.asarray(intrinsic, dtype=np.float64).T)[:, :2] / camera[:, 2:3]).astype(np.int64)
+        image_height, image_width = background.depth.shape
+        inside = (uv[:, 0] >= 0) & (uv[:, 0] < image_width) & (uv[:, 1] >= 0) & (uv[:, 1] < image_height)
+        uv, depth = uv[inside], camera[inside, 2]
+        splat_depth = background.depth[uv[:, 1], uv[:, 0]]
+        ground = (background.alpha[uv[:, 1], uv[:, 0]] >= self.min_alpha) & (splat_depth >= self.min_depth_ratio * depth)
+        if ground.sum() < self.min_pixels:
+            return None
+        return np.median(background.rgb[uv[ground, 1], uv[ground, 0]], axis=0)
+
+    def gain(self, camera_road_rgb, splat_road_rgb) -> float:
+        """Splat/camera road luminance ratio (linear), clamped to ``gain_range``."""
+        camera, splat = (float(_srgb_to_linear(rgb) @ (0.2126, 0.7152, 0.0722))
+                         for rgb in (camera_road_rgb, splat_road_rgb))
+        return float(np.clip(splat / max(camera, 1e-4), *self.gain_range))
+
+    @staticmethod
+    def scaled(body_rgb, gain: float, max_lightness: float = 100.0) -> tuple[float, float, float]:
+        """``body_rgb`` with its linear RGB times ``gain``; a raise stops at ``max_lightness`` (L*)."""
+        luminance = np.array([0.2126, 0.7152, 0.0722])
+        original = _srgb_to_linear(body_rgb)
+        ceiling = max(float(original @ luminance), ((max_lightness + 16) / 116) ** 3)  # L* -> relative Y
+        linear = original * gain
+        linear *= min(1.0, ceiling / max(float(linear @ luminance), 1e-12), 1.0 / max(float(linear.max()), 1e-12))
+        srgb = np.where(linear <= 0.0031308, 12.92 * linear, 1.055 * np.power(linear, 1 / 2.4) - 0.055)
+        return tuple(float(value) for value in np.clip(srgb, 0.0, 1.0))
+
+
+def _srgb_to_linear(rgb) -> np.ndarray:  # sRGB 0..1 -> linear
+    rgb = np.clip(np.asarray(rgb, dtype=np.float64), 0.0, 1.0)
+    return np.where(rgb <= 0.04045, rgb / 12.92, np.power((rgb + 0.055) / 1.055, 2.4))
 
 
 def _proxy_appearance(box: BoxPrompt) -> dict[str, object]:

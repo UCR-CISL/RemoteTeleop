@@ -332,3 +332,70 @@ def test_localized_bright_patch_or_colored_paint_keeps_the_dark_color():
     assert dark_red[0] < 40 and np.hypot(*dark_red[1:]) > 20
     image, pose = _two_tone((22, 20, 20), (60, 60, 62))  # a dim group is not white/silver paint
     assert VehicleColorEstimator().observe("car", image, K, pose, _side_points(), DIMS).bright_lab is None
+
+
+def _sedan():
+    from src.viz.universal_vehicle import UniversalVehicleShape
+
+    return UniversalVehicleShape.mean("sedan", DIMS)
+
+
+def test_body_panel_crop_samples_visible_paint_panels_by_group():
+    from src.deployment.vehicle_color import BodyPanelSampler
+
+    bgr = (40, 40, 180)
+    image, pose = _scene(bgr)
+    panels = BodyPanelSampler().sample(image, K, pose, _sedan(), DIMS)
+
+    assert panels is not None and len(panels.uv) > 100
+    groups = set(np.unique(panels.group).tolist())
+    assert {BodyPanelSampler.TOP, BodyPanelSampler.SIDE} <= groups  # the camera is above the hood line
+    lab = cv2.cvtColor(np.float32(panels.rgb).reshape(-1, 1, 3), cv2.COLOR_RGB2Lab).reshape(-1, 3)
+    paint = cv2.cvtColor(np.float32([[_rgb(bgr)]]), cv2.COLOR_RGB2Lab)[0, 0]
+    assert np.percentile(np.linalg.norm(lab - paint, axis=1), 95) < 5  # inside the silhouette only
+    camera = np.c_[panels.uv, np.ones(len(panels.uv))] @ np.linalg.inv(K).T * panels.depth[:, None]
+    local = (camera - pose[:3, 3]) @ pose[:3, :3]
+    assert np.all(np.abs(local) <= np.asarray(DIMS) / 2 + 0.05)  # depths lie on the body surface
+    assert local[:, 2].min() >= -DIMS[2] / 2 + 0.3 * DIMS[2] - 0.05  # wheels and rockers excluded
+
+    observation = VehicleColorEstimator().observe("car", image, K, pose, np.empty((0, 3)), DIMS, shape=_sedan())
+    assert observation is not None and _delta_e(observation.rgb, _rgb(bgr)) < 3
+
+
+def test_body_panel_crop_sees_lit_trunk_lid_of_white_car_with_shaded_rear_face():
+    # Camera behind the car (object +x away from the camera), 0.85 m above the box center.
+    pose = np.eye(4)
+    pose[:3, :3] = [[0.0, -1, 0], [0, 0, -1], [1, 0, 0]]
+    pose[:3, 3] = (0.0, 0.85, 8.0)
+    image = np.full((SIZE[1], SIZE[0], 3), (60, 110, 70), np.uint8)
+    _fill_box(image, pose, (55, 55, 55))  # backlit white car: shaded rear face
+    length, width, height = DIMS
+    deck = np.array([[x, y, z] for x in (-length / 2, -0.2 * length) for y in (-width / 2, width / 2)
+                     for z in (-height / 2 + 0.6 * height, -height / 2 + 0.8 * height)])
+    uv, _, _ = project_points_to_image(_to_camera(deck, pose), K, SIZE)
+    cv2.fillConvexPoly(image, cv2.convexHull(np.rint(uv).astype(np.int32)), (232, 234, 236))  # lit trunk lid
+    rear = np.array([[-length / 2, y, z] for y in np.linspace(-width / 2, width / 2, 30)
+                     for z in np.linspace(-height / 2, height / 2, 20)])
+
+    belt, crop = VehicleColorEstimator(), VehicleColorEstimator()
+    for _ in range(3):
+        belt.observe("car", image, K, pose, rear, DIMS)
+        crop.observe("car", image, K, pose, rear, DIMS, shape=_sedan())
+
+    assert np.mean(belt.color("car").rgb) < 0.3  # belt LiDAR only sees the shaded rear face
+    assert np.mean(crop.color("car").rgb) > 0.8
+
+
+def test_fused_estimate_carries_the_camera_road_reference():
+    road_bgr, paint = (70, 105, 140), (40, 40, 150)
+    pose = _pose()
+    image = np.full((SIZE[1], SIZE[0], 3), road_bgr, np.uint8)
+    _fill_box(image, pose, paint)
+    scan = _to_camera(_side_points(), pose)
+    estimator, no_road = VehicleColorEstimator(), VehicleColorEstimator()
+    for _ in range(3):
+        estimator.observe("car", image, K, pose, _side_points(), DIMS, scan_points_camera=scan, shape=_sedan())
+        no_road.observe("car", image, K, pose, _side_points(), DIMS, shape=_sedan())
+
+    np.testing.assert_allclose(estimator.color("car").road_rgb, _rgb(road_bgr), atol=1e-6)
+    assert no_road.color("car").road_rgb is None  # no depth buffer, no visible-road reference

@@ -1,9 +1,12 @@
 """Estimate per-track vehicle body paint color from LiDAR-supported camera samples (vehicle side).
 
-Track points in the body "belt" band (between wheels and glass) are projected into the camera
-image, kept when the sparse LiDAR depth buffer and nearer tracks' boxes say they are visible, and
-sampled as small patch means.  The dominant Lab cluster's median is the per-frame observation and
-is fused per track over time.  Colors are sRGB floats in 0..1, RGB order (input images are BGR).
+With a vehicle shape, the visible body panels of its projected universal mesh (hood, roof, trunk
+lid, sides and ends; not glass, lights or wheels) are sampled as small patch means and balanced per
+panel group; without one, track points in the body "belt" band (between wheels and glass) are
+projected into the image. Samples are kept when the sparse LiDAR depth buffer and nearer tracks'
+boxes say they are visible.  The dominant Lab cluster's median is the per-frame observation and
+is fused per track over time, with the visible road ring's color as the camera exposure
+reference.  Colors are sRGB floats in 0..1, RGB order (input images are BGR).
 With a depth buffer, the visible road ring around the box floor is the per-frame gray reference:
 a paint chroma that it explains as an illuminant cast (low sun) is reported as neutral.
 White and silver paint whose sampled face is mostly shaded reads as dark gray; a persistent, bright,
@@ -68,6 +71,16 @@ class VehicleColorConfig:
     bright_neutral_saturation: float = 0.15
     bright_min_columns: int = 3
     bright_persistence: int = 3
+    # Body-panel crop (with a shape): visible BODY pixels of the projected universal mesh instead of belt LiDAR.
+    crop_sampling: bool = True
+    crop_min_height: float = 0.3  # fraction of box height above the box bottom (below: wheels, rockers)
+    crop_erode_fraction: float = 0.01  # mask erosion, fraction of the crop's larger side (thin hoods survive)
+    crop_max_samples: int = 400
+    background_tolerance_m: float = 1.0  # a pixel whose LiDAR cell is only this much farther sees background
+    # Side and end panels whose nearest LiDAR return (3x3 cells) is farther or nearer than this are dropped: a
+    # loose mesh or a box larger than the vehicle would otherwise sample road and shadow past the body.
+    support_tolerance_m: float = 0.5
+    support_min_coverage: float = 0.5  # below this LiDAR coverage of the panels, unsupported samples are kept
 
     def __post_init__(self) -> None:
         low, high = self.belt_band
@@ -84,7 +97,10 @@ class VehicleColorConfig:
                 or self.min_observations < 1 or not 1 <= self.chroma_window <= self.luminance_window \
                 or not 0 < self.bright_min_fraction <= 1 or self.bright_min_delta_lightness < 0 \
                 or self.bright_neutral_chroma < 0 or self.bright_neutral_saturation < 0 \
-                or not 1 <= self.bright_min_columns <= 4 or self.bright_persistence < 1:
+                or not 1 <= self.bright_min_columns <= 4 or self.bright_persistence < 1 \
+                or not 0 <= self.crop_min_height < 1 or not 0 <= self.crop_erode_fraction < 0.5 \
+                or self.crop_max_samples < self.min_samples or self.background_tolerance_m <= 0 \
+                or self.support_tolerance_m <= 0 or not 0 <= self.support_min_coverage <= 1:
             raise ValueError("invalid vehicle color configuration")
 
 
@@ -98,6 +114,7 @@ class ColorObservation:
     sample_count: int
     dominant_fraction: float
     bright_lab: tuple[float, float, float] | None = None  # shaded-white/silver alternative (neutral)
+    road_rgb: tuple[float, float, float] | None = None  # median visible road ring (camera exposure reference)
 
 
 @dataclass(frozen=True)
@@ -107,6 +124,7 @@ class VehicleColorEstimate:
     rgb: tuple[float, float, float]
     confidence: float
     observation_count: int
+    road_rgb: tuple[float, float, float] | None = None  # fused road ring: paint/road ratio for exposure matching
 
 
 def project_points_to_image(points_camera_cv: np.ndarray, K: np.ndarray,
@@ -138,12 +156,130 @@ class SparseDepthBuffer:
         uv, depth, valid = project_points_to_image(points_camera_cv, K, image_size)
         cells = np.rint(uv[valid]).astype(np.int64) // self.cell_px
         np.minimum.at(grid, (cells[:, 1], cells[:, 0]), depth[valid].astype(np.float32))
+        self.nearest = grid  # per cell, before the neighbourhood minimum
         self.grid = cv2.erode(grid, np.ones((3, 3), np.uint8), borderType=cv2.BORDER_REPLICATE)
 
     def visible(self, uv: np.ndarray, depth: np.ndarray, tolerance_m: float) -> np.ndarray:
         """Return which in-image samples are no farther than the nearest nearby LiDAR surface + tolerance."""
         cells = np.rint(uv).astype(np.int64) // self.cell_px
         return depth <= self.grid[cells[:, 1], cells[:, 0]] + tolerance_m
+
+    def supported(self, uv: np.ndarray, depth: np.ndarray, tolerance_m: float,
+                  min_coverage: float = 0.5) -> np.ndarray:
+        """Return which samples' nearest LiDAR return nearby (3x3 cell neighbourhood) is within
+        ``tolerance_m`` of their depth. When fewer than ``min_coverage`` of the samples have any
+        return nearby (dark paint returns little), samples without one are kept too."""
+        cells = np.rint(uv).astype(np.int64) // self.cell_px
+        nearest = self.grid[cells[:, 1], cells[:, 0]]
+        close = np.abs(nearest - depth) <= tolerance_m
+        covered = np.isfinite(nearest)
+        return close if covered.mean() >= min_coverage else close | ~covered
+
+    def behind(self, uv: np.ndarray, depth: np.ndarray, tolerance_m: float) -> np.ndarray:
+        """Return which samples' own cell holds only LiDAR returns farther than depth + tolerance:
+        the pixel sees background (or road) past the sampled surface."""
+        cells = np.rint(uv).astype(np.int64) // self.cell_px
+        nearest = self.nearest[cells[:, 1], cells[:, 0]]
+        return np.isfinite(nearest) & (nearest > depth + tolerance_m)
+
+
+@dataclass(frozen=True)
+class PanelSamples:
+    """Visible paint-panel pixels of one vehicle: full-resolution ``uv``, camera ``depth`` (m),
+    ``rgb`` patch means (0..1, RGB) and panel ``group`` (``BodyPanelSampler.TOP/SIDE/END``)."""
+
+    uv: np.ndarray
+    depth: np.ndarray
+    rgb: np.ndarray
+    group: np.ndarray
+
+
+class BodyPanelSampler:
+    """Image pixels of a vehicle's visible body panels from its projected universal mesh.
+
+    Every front-facing triangle (body, glass, lights, wheels) is painted far to near into a label
+    image of the box crop (downscaled to ``max_crop_px``), so glass, lights, wheels and the car's
+    own far side are excluded; the body mask is eroded off silhouette and material borders. Pixels
+    are area means of the crop, so each sample is a small patch mean. Panels are grouped by their
+    object-frame normal: sky-facing (hood, roof, trunk lid), sides and ends.
+    """
+
+    TOP, SIDE, END = range(3)
+
+    def __init__(self, *, max_crop_px: int = 160, max_samples: int = 400, min_height: float = 0.3,
+                 top_normal_z: float = 0.5, erode_fraction: float = 0.01) -> None:
+        from src.viz.universal_vehicle import UniversalVehicleMesh
+
+        self.mesh = UniversalVehicleMesh()
+        self.max_crop_px, self.max_samples = int(max_crop_px), int(max_samples)
+        self.min_height, self.top_normal_z = float(min_height), float(top_normal_z)
+        self.erode_fraction = float(erode_fraction)
+
+    def sample(self, image_bgr: np.ndarray, K: np.ndarray, camera_T_object: np.ndarray, shape,
+               dims_lwh) -> PanelSamples | None:
+        """``None`` when no body panel is visible; ``shape`` is a ``UniversalVehicleShape``."""
+        from src.viz.universal_vehicle import BODY, RIM, TIRE
+
+        dims = np.asarray(dims_lwh, dtype=np.float64)
+        triangles, materials = self.mesh.surface(shape, dims)
+        tires = np.isin(materials, (TIRE, RIM))  # four equal, contiguous wheel blocks
+        wheel = np.where(tires, (np.cumsum(tires) - 1) // max(int(tires.sum()) // 4, 1), -1)
+        normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+        normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
+        rotation, translation = camera_T_object[:3, :3], camera_T_object[:3, 3]
+        camera = triangles @ rotation.T + translation
+        camera_normals = normals @ rotation.T
+        front = (np.einsum("ij,ij->i", camera_normals, camera.mean(axis=1)) < 0) & (camera[..., 2] > 0.1).all(axis=1)
+        if not front.any():
+            return None
+        index = np.flatnonzero(front)
+        uv = (camera[index] @ np.asarray(K, dtype=np.float64).T)
+        uv = uv[..., :2] / uv[..., 2:]
+        height, width = image_bgr.shape[:2]
+        x0, y0 = np.maximum(np.floor(uv.reshape(-1, 2).min(axis=0)).astype(int), 0)
+        x1, y1 = np.minimum(np.ceil(uv.reshape(-1, 2).max(axis=0)).astype(int) + 1, (width, height))
+        if x1 - x0 < 4 or y1 - y0 < 4:
+            return None
+        scale = min(1.0, self.max_crop_px / max(x1 - x0, y1 - y0))
+        size = (max(int(round((x1 - x0) * scale)), 1), max(int(round((y1 - y0) * scale)), 1))
+        labels = np.full(size[::-1], -1, dtype=np.int32)
+        fixed = np.rint(((uv - (x0, y0) + 0.5) * scale - 0.5) * 16).astype(np.int32)  # 4 fractional bits
+        # Painter's order, far to near; each (convex) wheel is drawn once as the hull of its visible faces.
+        items = [(depth, fixed[face], int(index[face])) for face, depth in enumerate(camera[index, :, 2].mean(axis=1))
+                 if wheel[index[face]] < 0]
+        for number in range(4):
+            faces = np.flatnonzero(wheel[index] == number)
+            if len(faces):
+                items.append((float(camera[index[faces], :, 2].mean()), cv2.convexHull(fixed[faces].reshape(-1, 2)),
+                              int(index[faces[0]])))
+        for _, polygon, label in sorted(items, key=lambda item: -item[0]):
+            cv2.fillConvexPoly(labels, polygon, label, lineType=cv2.LINE_8, shift=4)
+        mask = (labels >= 0) & (materials == BODY)[np.maximum(labels, 0)]
+        radius = max(1, int(round(self.erode_fraction * max(size))))
+        mask = cv2.erode(mask.astype(np.uint8), np.ones((2 * radius + 1,) * 2, np.uint8), borderValue=0).astype(bool)
+        rows, columns = np.nonzero(mask)
+        if not len(rows):
+            return None
+        stride = int(np.ceil(np.sqrt(len(rows) / self.max_samples)))
+        keep = (rows % stride == 0) & (columns % stride == 0)
+        rows, columns = rows[keep], columns[keep]
+        uv = np.column_stack([x0 + (columns + 0.5) / scale - 0.5, y0 + (rows + 0.5) / scale - 0.5])
+        faces = labels[rows, columns]
+        # Depth along each pixel ray to its face plane; keep pixels above the wheels' lower body.
+        rays = np.column_stack([uv, np.ones(len(uv))]) @ np.linalg.inv(np.asarray(K, dtype=np.float64)).T
+        plane_normals = camera_normals[faces]
+        depth = np.einsum("ij,ij->i", plane_normals, camera[faces, 0]) / np.einsum("ij,ij->i", plane_normals, rays)
+        height_above_floor = ((rays * depth[:, None] - translation) @ rotation)[:, 2] + dims[2] / 2
+        keep = height_above_floor >= self.min_height * dims[2]
+        if not keep.any():
+            return None
+        uv, depth, faces, rows, columns = uv[keep], depth[keep], faces[keep], rows[keep], columns[keep]
+        crop = np.ascontiguousarray(image_bgr[y0:y1, x0:x1])
+        crop = cv2.resize(crop, size, interpolation=cv2.INTER_AREA) if scale < 1 else cv2.blur(crop, (3, 3))
+        rgb = crop[rows, columns][:, ::-1].astype(np.float64) / 255.0
+        group = np.where(normals[faces, 2] >= self.top_normal_z, self.TOP,
+                         np.where(np.abs(normals[faces, 0]) > np.abs(normals[faces, 1]), self.END, self.SIDE))
+        return PanelSamples(uv, depth, rgb, group)
 
 
 class VehicleColorEstimator:
@@ -152,24 +288,32 @@ class VehicleColorEstimator:
     def __init__(self, config: VehicleColorConfig | None = None) -> None:
         self.config = config or VehicleColorConfig()
         self._tracks: dict[str, _FusedColor] = {}
+        self.panels = BodyPanelSampler(max_samples=self.config.crop_max_samples, min_height=self.config.crop_min_height,
+                                       erode_fraction=self.config.crop_erode_fraction)
 
     def observe(self, track_id: str, image_bgr: np.ndarray, K: np.ndarray, camera_T_object: np.ndarray,
                 object_points: np.ndarray, dims_lwh, scan_points_camera: np.ndarray | None = None,
-                occluder_xyxy=None, depth_buffer: SparseDepthBuffer | None = None) -> ColorObservation | None:
+                occluder_xyxy=None, depth_buffer: SparseDepthBuffer | None = None,
+                shape=None) -> ColorObservation | None:
         """Estimate this frame's color and fuse it when confident; ``None`` when unobservable.
 
         ``object_points`` are metric object-frame points (+x forward, y left, z up, origin at the
         box center); ``camera_T_object`` maps them to CV camera axes.  ``scan_points_camera`` (or a
         prebuilt ``depth_buffer`` shared by all tracks of the frame) enables the occlusion test;
-        ``occluder_xyxy`` are image boxes of nearer tracks.
+        ``occluder_xyxy`` are image boxes of nearer tracks.  With a ``shape`` (UniversalVehicleShape,
+        e.g. the published fit or the box's prior type mean) the visible body panels are sampled
+        (``crop_sampling``); without one, the belt-band LiDAR points.
         """
         samples = self._samples(image_bgr, K, camera_T_object, object_points, dims_lwh,
-                                scan_points_camera, occluder_xyxy, depth_buffer)
+                                scan_points_camera, occluder_xyxy, depth_buffer, shape)
         if samples is None:
             return None
-        rgb, road, columns = samples
-        observation = replace(self._neutralized(self._dominant_color(rgb), road),
-                              bright_lab=self._bright_alternative(rgb, columns, road))
+        rgb, road, columns, upright = samples
+        # Sky-facing panels mirror the sky on dark paint: they only vote for shaded-white/silver paint.
+        paint = rgb[upright] if upright.sum() >= self.config.min_samples else rgb
+        observation = replace(self._neutralized(self._dominant_color(paint), road),
+                              bright_lab=self._bright_alternative(rgb, columns, road),
+                              road_rgb=self._road_reference(road))
         if observation.confidence >= self.config.min_confidence:
             self._tracks.setdefault(str(track_id), _FusedColor(self.config)).update(observation)
         return observation
@@ -185,15 +329,18 @@ class VehicleColorEstimator:
             bright = fused.bright_lab
             if bright is not None and bright[0] > lab[0]:
                 lab = bright
-        return VehicleColorEstimate(_lab_to_rgb(lab), fused.confidence, fused.count)
+        road = fused.road_rgb
+        return VehicleColorEstimate(_lab_to_rgb(lab), fused.confidence, fused.count,
+                                    None if road is None else tuple(float(value) for value in road))
 
     def drop(self, track_id: str) -> None:
         self._tracks.pop(str(track_id), None)
 
     def _samples(self, image_bgr, K, camera_T_object, object_points, dims_lwh, scan_points_camera,
-                 occluder_xyxy, depth_buffer) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
-        """Return visible belt-band patch means and road-ring pixels as (N, 3) RGB floats in 0..1,
-        plus each patch's image column.
+                 occluder_xyxy, depth_buffer, shape=None) -> tuple[np.ndarray, ...] | None:
+        """Return visible paint patch means (body-panel crop with a shape, else belt band) and
+        road-ring pixels as (N, 3) RGB floats in 0..1, plus each patch's image column and whether
+        it is on an upright (side or end) panel.
 
         ``None`` when the paint is unobservable; the road ring is empty without a depth buffer.
         """
@@ -212,6 +359,20 @@ class VehicleColorEstimator:
         if len(occluders) and _covered_fraction(box_xyxy, occluders) > config.max_occluder_overlap:
             return None
 
+        if depth_buffer is None and scan_points_camera is not None:
+            depth_buffer = SparseDepthBuffer(scan_points_camera, K, (width, height), config.depth_cell_px)
+        if shape is not None and config.crop_sampling:
+            paint = self._panel_samples(image, K, camera_T_object, shape, (length, box_width, box_height),
+                                        occluders, depth_buffer)
+            if paint is None:
+                return None
+            road = np.empty((0, 3))
+            if depth_buffer is not None:
+                road = self._road_ring(image, K, camera_T_object, (length, box_width, box_height), depth_buffer,
+                                       occluders)
+            rgb, columns, upright = paint
+            return rgb, road, columns, upright
+
         points = np.asarray(object_points, dtype=np.float64).reshape(-1, 3)
         low, high = (-box_height / 2 + fraction * box_height for fraction in config.belt_band)
         keep = (points[:, 2] >= low) & (points[:, 2] <= high)
@@ -223,8 +384,6 @@ class VehicleColorEstimator:
         valid &= (uv[:, 0] >= radius) & (uv[:, 0] <= width - 1 - radius)
         valid &= (uv[:, 1] >= radius) & (uv[:, 1] <= height - 1 - radius)
         uv, depth = uv[valid], depth[valid]
-        if depth_buffer is None and scan_points_camera is not None:
-            depth_buffer = SparseDepthBuffer(scan_points_camera, K, (width, height), config.depth_cell_px)
         if depth_buffer is not None and len(uv):
             visible = depth_buffer.visible(uv, depth, config.depth_tolerance_m)
             uv, depth = uv[visible], depth[visible]
@@ -252,7 +411,44 @@ class VehicleColorEstimator:
         if depth_buffer is not None:
             road = self._road_ring(image, K, camera_T_object, (length, box_width, box_height), depth_buffer,
                                    occluders)
-        return patches.mean(axis=1)[:, ::-1] / 255.0, road, pixels[:, 0].astype(np.float64)
+        return (patches.mean(axis=1)[:, ::-1] / 255.0, road, pixels[:, 0].astype(np.float64),
+                np.ones(len(patches), dtype=bool))
+
+    def _panel_samples(self, image, K, camera_T_object, shape, dims_lwh, occluders,
+                       depth_buffer) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+        """Visible, unoccluded body-panel patch means (RGB 0..1), their image columns and which are
+        upright (side and end) panels."""
+        config = self.config
+        panels = self.panels.sample(image, K, camera_T_object, shape, dims_lwh)
+        if panels is None:
+            return None
+        keep = np.ones(len(panels.uv), dtype=bool)
+        if depth_buffer is not None:
+            keep &= depth_buffer.visible(panels.uv, panels.depth, config.depth_tolerance_m)
+            keep &= ~depth_buffer.behind(panels.uv, panels.depth, config.background_tolerance_m)
+            upright = panels.group != BodyPanelSampler.TOP
+            if upright.any():
+                keep[upright] &= depth_buffer.supported(panels.uv[upright], panels.depth[upright],
+                                                        config.support_tolerance_m, config.support_min_coverage)
+        if len(occluders):
+            keep &= ~_inside_any(panels.uv[:, 0], panels.uv[:, 1], occluders)
+        rgb, columns, group = panels.rgb[keep], panels.uv[keep, 0], panels.group[keep]
+        clipped = rgb.max(axis=1) >= config.highlight_value / 255.0
+        if len(rgb) and clipped.mean() <= config.max_highlight_fraction:
+            rgb, columns, group = rgb[~clipped], columns[~clipped], group[~clipped]
+        if len(rgb) < config.min_samples:
+            return None
+        return rgb, columns, group != BodyPanelSampler.TOP
+
+    def _road_reference(self, road_rgb: np.ndarray) -> tuple[float, float, float] | None:
+        """Median road-ring RGB when it is a usable exposure reference (enough, not black or clipped)."""
+        config = self.config
+        if len(road_rgb) < config.min_road_samples:
+            return None
+        road = np.median(road_rgb, axis=0)
+        if not config.road_lightness[0] <= _rgb_to_lab(road)[0, 0] <= config.road_lightness[1]:
+            return None
+        return tuple(float(value) for value in road)
 
     def _road_ring(self, image, K, camera_T_object, dims_lwh, depth_buffer, occluders) -> np.ndarray:
         """Visible pixels of the box floor plane in a ring around the footprint (the road), RGB 0..1."""
@@ -385,6 +581,7 @@ class _FusedColor:
     def __init__(self, config: VehicleColorConfig) -> None:
         self._observations: deque[tuple[tuple[float, float, float], float]] = deque(maxlen=config.luminance_window)
         self._bright: deque[tuple[float, float, float] | None] = deque(maxlen=config.luminance_window)
+        self._road: deque[tuple[float, float, float] | None] = deque(maxlen=config.luminance_window)
         self._chroma_window = config.chroma_window
         self._bright_persistence = config.bright_persistence
         self.count = 0
@@ -393,6 +590,7 @@ class _FusedColor:
         self.count += 1
         self._observations.append((observation.lab, observation.confidence))
         self._bright.append(observation.bright_lab)
+        self._road.append(observation.road_rgb)
 
     @property
     def lab(self) -> np.ndarray:
@@ -406,6 +604,12 @@ class _FusedColor:
         if len(bright) < max(self._bright_persistence, len(self._bright) / 2):
             return None
         return np.array([np.median([lab[0] for lab in bright]), 0.0, 0.0])
+
+    @property
+    def road_rgb(self) -> np.ndarray | None:
+        """Per-channel median road ring over the same window as the fused L (paint/road stays consistent)."""
+        road = [rgb for rgb in self._road if rgb is not None]
+        return np.median(road, axis=0) if road else None
 
     @property
     def confidence(self) -> float:

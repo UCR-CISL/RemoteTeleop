@@ -172,6 +172,8 @@ class BoxPrompt:
     vehicle_shape: tuple[float, ...] | None = None
     body_color_rgb: tuple[float, float, float] | None = None
     color_confidence: float = 0.0
+    # Camera road ring next to the vehicle (sRGB 0..1): the remote matches paint/road exposure to its map.
+    road_rgb: tuple[float, float, float] | None = None
 
     def __post_init__(self) -> None:
         _non_empty(self.track_id, "track_id")
@@ -193,7 +195,7 @@ class BoxPrompt:
             "detection_confidence",
             _unit_interval(self.detection_confidence, "detection_confidence"),
         )
-        for name in ("vehicle_shape", "body_color_rgb"):
+        for name in ("vehicle_shape", "body_color_rgb", "road_rgb"):
             if isinstance(getattr(self, name), (str, bytes)):
                 raise ValueError(f"{name} must be a sequence of numbers")
         if self.vehicle_shape is not None:
@@ -201,11 +203,14 @@ class BoxPrompt:
             if not 1 <= len(shape) <= 32:
                 raise ValueError("vehicle_shape must contain 1 to 32 values")
             object.__setattr__(self, "vehicle_shape", shape)
-        if self.body_color_rgb is not None:
-            rgb = tuple(_unit_interval(value, "body_color_rgb") for value in self.body_color_rgb)
-            if len(rgb) != 3:
-                raise ValueError("body_color_rgb must contain 3 values")
-            object.__setattr__(self, "body_color_rgb", rgb)
+        for name in ("body_color_rgb", "road_rgb"):
+            if getattr(self, name) is not None:
+                rgb = tuple(_unit_interval(value, name) for value in getattr(self, name))
+                if len(rgb) != 3:
+                    raise ValueError(f"{name} must contain 3 values")
+                object.__setattr__(self, name, rgb)
+        if self.body_color_rgb is None and self.road_rgb is not None:
+            raise ValueError("road_rgb requires body_color_rgb")
         confidence = _unit_interval(self.color_confidence, "color_confidence")
         if self.body_color_rgb is None and confidence != 0.0:
             raise ValueError("color_confidence requires body_color_rgb")
@@ -227,6 +232,8 @@ class BoxPrompt:
         if self.body_color_rgb is not None:
             values["body_color_rgb"] = self.body_color_rgb
             values["color_confidence"] = self.color_confidence
+        if self.road_rgb is not None:
+            values["road_rgb"] = self.road_rgb
         return values
 
     @classmethod
