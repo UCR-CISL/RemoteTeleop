@@ -389,6 +389,8 @@ class CompositedCameraProcess:
         highlight_new_tracks: float | None = None,
         track_id_labels: bool = False,
         proxy_occlusion_depth: str = "occluder",
+        occluder_threshold: float = 0.5,
+        occluder_mask_path: Path | None = None,
     ) -> None:
         self._context = zmq.Context()
         self._frames = DealerTransport.open(self._context, frames_endpoint, identity=receiver_id)
@@ -406,9 +408,11 @@ class CompositedCameraProcess:
             vehicle_proxies = VehicleProxyRenderer(
                 mesh_renderer, asset_dir=output_dir / "vehicle-proxies",
             )
-        occluder_depth = (
-            OpacityThresholdDepth() if asset_proxy and proxy_occlusion_depth == "occluder" else None
-        )
+        occluder_depth = OpacityThresholdDepth(
+            threshold=occluder_threshold,
+            occluder_mask=None if occluder_mask_path is None
+            else OpacityThresholdDepth.load_occluder_mask(occluder_mask_path, splat_path),
+        ) if asset_proxy and proxy_occlusion_depth == "occluder" else None
         self._backend = PoseOnlyCompositedCameraBackend(
             CudaGaussianBufferRenderer(gaussian_map, device=device, downsample=1, occluder_depth=occluder_depth),
             camera, mesh_renderer, ground_z=ground_z, ground_plane=ground_plane, vehicle_proxies=vehicle_proxies,
@@ -596,8 +600,13 @@ def main() -> None:
     parser.add_argument(
         "--proxy-occlusion-depth", choices=PROXY_OCCLUSION_DEPTHS, default="occluder",
         help="Splat depth that hides --asset-proxy vehicles: 'occluder' (default; depth where non-ground "
-             "splat opacity reaches 0.25) or 'expected' (legacy expected depth, for A/B comparison).",
+             "splat opacity reaches --occluder-threshold) or 'expected' (legacy expected depth, for A/B comparison).",
     )
+    parser.add_argument("--occluder-threshold", type=float, default=0.5,
+                        help="Accumulated splat opacity at which the occluder depth is taken (default 0.5).")
+    parser.add_argument("--occluder-mask", type=Path,
+                        help="Per-splat occluder mask sidecar from scripts/carve_occluder_mask.py; carved "
+                             "floaters are left out of the occluder pass (the color render keeps them).")
     args = parser.parse_args()
     if args.ground_plane is not None and args.ground_z is not None:
         parser.error("--ground-plane and --ground-z are mutually exclusive")
@@ -642,6 +651,7 @@ def main() -> None:
         asset_proxy=args.asset_proxy,
         highlight_new_tracks=args.highlight_new_tracks, track_id_labels=args.track_id_labels,
         proxy_occlusion_depth=args.proxy_occlusion_depth,
+        occluder_threshold=args.occluder_threshold, occluder_mask_path=args.occluder_mask,
     )
     signal.signal(signal.SIGINT, process.request_stop)
     signal.signal(signal.SIGTERM, process.request_stop)

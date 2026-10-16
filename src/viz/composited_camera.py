@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Mapping, Protocol
@@ -490,12 +491,16 @@ class OpacityThresholdDepth:
     0.3-2 m above driven lanes, which together reach 0.25 in front of cars
     8+ m away; opaque poles, trunks and walls still occlude, while sparse
     foliage may let a proxy show through.
+
+    ``occluder_mask`` (per-splat bool, False = floater) further restricts this
+    pass to masked-in splats, e.g. the LiDAR free-space carving sidecar from
+    ``scripts/carve_occluder_mask.py`` (see ``load_occluder_mask``).
     """
 
     def __init__(
         self, *, threshold: float = 0.5, bins: int = 64, near_m: float = 1.0, far_m: float = 150.0,
         ground_max_tilt_deg: float | None = 30.0, ground_band_m: float | None = 0.6, ground_cell_m: float = 2.0,
-        near_ground_m: float | None = 0.3,
+        near_ground_m: float | None = 0.3, occluder_mask: np.ndarray | None = None,
     ) -> None:
         if not 0.0 < threshold < 1.0:
             raise ValueError("threshold must be in (0, 1)")
@@ -509,17 +514,47 @@ class OpacityThresholdDepth:
         self._ground_band_m = ground_band_m
         self._ground_cell_m = float(ground_cell_m)
         self._near_ground_m = near_ground_m
+        self._occluder_mask = None if occluder_mask is None else np.asarray(occluder_mask, dtype=bool)
         self._keep: tuple[object, object] | None = None  # (source means tensor, kept-splat mask)
+
+    @staticmethod
+    def splat_map_sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as stream:
+            for block in iter(lambda: stream.read(1 << 22), b""):
+                digest.update(block)
+        return digest.hexdigest()
+
+    @classmethod
+    def load_occluder_mask(cls, path: Path, splat_path: Path | None = None) -> np.ndarray:
+        """Load a ``scripts/carve_occluder_mask.py`` sidecar, checking it was made for ``splat_path``."""
+
+        with np.load(path) as data:
+            mask, num_splats, sha = data["occluder_mask"].astype(bool), int(data["num_splats"]), str(data["ply_sha256"])
+        if len(mask) != num_splats:
+            raise ValueError(f"occluder mask {path} has {len(mask)} entries for {num_splats} splats")
+        if splat_path is not None and cls.splat_map_sha256(splat_path) != sha:
+            raise ValueError(f"occluder mask {path} was not made for splat map {splat_path}")
+        return mask
 
     def _occluder_splats(self, tensors: Mapping[str, object]) -> dict[str, object]:
         names = ("means", "quats", "scales", "opacities")
-        if self._ground_min_up is None:
+        if self._ground_min_up is None and self._occluder_mask is None:
             return {name: tensors[name] for name in names}
         if self._keep is None or self._keep[0] is not tensors["means"]:
-            self._keep = (tensors["means"], self.non_ground_mask(
-                tensors["means"], tensors["quats"], tensors["scales"], self._ground_min_up,
+            means = tensors["means"]
+            keep = None if self._ground_min_up is None else self.non_ground_mask(
+                means, tensors["quats"], tensors["scales"], self._ground_min_up,
                 band_m=self._ground_band_m, cell_m=self._ground_cell_m, near_m=self._near_ground_m,
-            ))
+            )
+            if self._occluder_mask is not None:
+                import torch
+
+                if len(self._occluder_mask) != len(means):
+                    raise ValueError(f"occluder_mask has {len(self._occluder_mask)} entries for {len(means)} splats")
+                carved = torch.as_tensor(self._occluder_mask, device=means.device)
+                keep = carved if keep is None else keep & carved
+            self._keep = (means, keep)
         keep = self._keep[1]
         return {name: tensors[name][keep] for name in names}
 

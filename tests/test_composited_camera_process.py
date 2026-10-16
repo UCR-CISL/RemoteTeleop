@@ -243,3 +243,32 @@ def test_process_proxy_mode_renders_occluder_depth_by_default(tmp_path, monkeypa
     assert legacy._backend._proxy_occlusion_depth == "expected"
     module.CompositedCameraProcess(**kwargs, output_dir=tmp_path / "c")  # no vehicle proxies: no extra pass
     assert gaussian_factory.call_args.kwargs["occluder_depth"] is None
+    occluder = gaussian_factory.call_args_list[0].kwargs["occluder_depth"]
+    assert occluder.threshold == 0.5 and occluder._occluder_mask is None
+
+
+def test_process_passes_occluder_threshold_and_mask(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    import src.realtime.composited_camera_process as module
+    from src.viz.composited_camera import OpacityThresholdDepth, RemoteCameraConfig
+
+    monkeypatch.setattr(module.zmq, "Context", Mock())
+    for name in ("HealthHeartbeat", "JsonlMetricsWriter", "CompositedFrameWriter", "load_gaussian_map",
+                 "PyTorch3DObjectMeshRenderer", "RemoteAssetReceiver"):
+        monkeypatch.setattr(module, name, Mock())
+    monkeypatch.setattr(module.DealerTransport, "open", Mock())
+    gaussian_factory = Mock()
+    monkeypatch.setattr(module, "CudaGaussianBufferRenderer", gaussian_factory)
+    splat = tmp_path / "map.ply"
+    splat.write_bytes(b"splats")
+    mask_path = tmp_path / "map.occluder_mask.npz"
+    np.savez(mask_path, occluder_mask=np.array([True, False, True]), num_splats=3,
+             ply_sha256=OpacityThresholdDepth.splat_map_sha256(splat))
+    module.CompositedCameraProcess(
+        frames_endpoint="tcp://localhost:5555", scene_generation="test", receiver_id="test",
+        health_endpoint="tcp://localhost:5557", splat_path=splat, output_dir=tmp_path / "out",
+        metrics_path=tmp_path / "metrics.jsonl", camera=RemoteCameraConfig(np.eye(4), np.eye(3), (32, 24)),
+        asset_proxy=True, occluder_threshold=0.4, occluder_mask_path=mask_path,
+    )
+    occluder = gaussian_factory.call_args.kwargs["occluder_depth"]
+    assert occluder.threshold == 0.4 and occluder._occluder_mask.tolist() == [True, False, True]
